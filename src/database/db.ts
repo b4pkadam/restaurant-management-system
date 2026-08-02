@@ -1,0 +1,844 @@
+// Database Manager - Using localStorage for offline-first storage
+import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
+import type {
+  User, Employee, Category, MenuItem, Table, Order, Payment,
+  Supplier, InventoryItem, PurchaseEntry, DailySales, Notification, AppSettings
+} from '../types';
+
+const DB_PREFIX = 'restaurant_db_';
+
+// Generic storage functions
+function getCollection<T>(key: string): T[] {
+  const data = localStorage.getItem(DB_PREFIX + key);
+  return data ? JSON.parse(data) : [];
+}
+
+function setCollection<T>(key: string, data: T[]): void {
+  localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+}
+
+function getItem<T>(key: string): T | null {
+  const data = localStorage.getItem(DB_PREFIX + key);
+  return data ? JSON.parse(data) : null;
+}
+
+function setItem<T>(key: string, data: T): void {
+  localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+}
+
+// User Management
+export const userDB = {
+  getAll: (): User[] => getCollection<User>('users'),
+  
+  getById: (id: string): User | undefined => {
+    return userDB.getAll().find(u => u.id === id);
+  },
+  
+  getByUsername: (username: string): User | undefined => {
+    return userDB.getAll().find(u => u.username.toLowerCase() === username.toLowerCase());
+  },
+  
+  create: (user: Omit<User, 'id' | 'createdAt'>): User => {
+    const users = userDB.getAll();
+    const hashedPassword = bcrypt.hashSync(user.password, 10);
+    const newUser: User = {
+      ...user,
+      id: uuidv4(),
+      password: hashedPassword,
+      createdAt: new Date().toISOString()
+    };
+    users.push(newUser);
+    setCollection('users', users);
+    return newUser;
+  },
+  
+  update: (id: string, updates: Partial<User>): User | null => {
+    const users = userDB.getAll();
+    const index = users.findIndex(u => u.id === id);
+    if (index === -1) return null;
+    
+    if (updates.password) {
+      updates.password = bcrypt.hashSync(updates.password, 10);
+    }
+    
+    users[index] = { ...users[index], ...updates };
+    setCollection('users', users);
+    return users[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const users = userDB.getAll();
+    const filtered = users.filter(u => u.id !== id);
+    if (filtered.length === users.length) return false;
+    setCollection('users', filtered);
+    return true;
+  },
+  
+  authenticate: (username: string, password: string): User | null => {
+    const user = userDB.getByUsername(username);
+    if (!user || !user.isActive) return null;
+    if (!bcrypt.compareSync(password, user.password)) return null;
+    
+    userDB.update(user.id, { lastLogin: new Date().toISOString() });
+    return user;
+  }
+};
+
+// Employee Management
+export const employeeDB = {
+  getAll: (): Employee[] => getCollection<Employee>('employees'),
+  
+  getById: (id: string): Employee | undefined => {
+    return employeeDB.getAll().find(e => e.id === id);
+  },
+  
+  create: (employee: Omit<Employee, 'id'>): Employee => {
+    const employees = employeeDB.getAll();
+    const newEmployee: Employee = {
+      ...employee,
+      id: uuidv4()
+    };
+    employees.push(newEmployee);
+    setCollection('employees', employees);
+    return newEmployee;
+  },
+  
+  update: (id: string, updates: Partial<Employee>): Employee | null => {
+    const employees = employeeDB.getAll();
+    const index = employees.findIndex(e => e.id === id);
+    if (index === -1) return null;
+    
+    employees[index] = { ...employees[index], ...updates };
+    setCollection('employees', employees);
+    return employees[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const employees = employeeDB.getAll();
+    const filtered = employees.filter(e => e.id !== id);
+    if (filtered.length === employees.length) return false;
+    setCollection('employees', filtered);
+    return true;
+  }
+};
+
+// Category Management
+export const categoryDB = {
+  getAll: (): Category[] => getCollection<Category>('categories'),
+  
+  getById: (id: string): Category | undefined => {
+    return categoryDB.getAll().find(c => c.id === id);
+  },
+  
+  create: (category: Omit<Category, 'id'>): Category => {
+    const categories = categoryDB.getAll();
+    const newCategory: Category = {
+      ...category,
+      id: uuidv4()
+    };
+    categories.push(newCategory);
+    setCollection('categories', categories);
+    return newCategory;
+  },
+  
+  update: (id: string, updates: Partial<Category>): Category | null => {
+    const categories = categoryDB.getAll();
+    const index = categories.findIndex(c => c.id === id);
+    if (index === -1) return null;
+    
+    categories[index] = { ...categories[index], ...updates };
+    setCollection('categories', categories);
+    return categories[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const categories = categoryDB.getAll();
+    const filtered = categories.filter(c => c.id !== id);
+    if (filtered.length === categories.length) return false;
+    setCollection('categories', filtered);
+    return true;
+  }
+};
+
+// Menu Item Management
+export const menuItemDB = {
+  getAll: (): MenuItem[] => getCollection<MenuItem>('menuItems'),
+  
+  getById: (id: string): MenuItem | undefined => {
+    return menuItemDB.getAll().find(m => m.id === id);
+  },
+  
+  getByCategory: (categoryId: string): MenuItem[] => {
+    return menuItemDB.getAll().filter(m => m.categoryId === categoryId);
+  },
+  
+  getByBarcode: (barcode: string): MenuItem | undefined => {
+    return menuItemDB.getAll().find(m => m.barcode === barcode);
+  },
+  
+  create: (item: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem => {
+    const items = menuItemDB.getAll();
+    const newItem: MenuItem = {
+      ...item,
+      id: uuidv4(),
+      createdAt: new Date().toISOString()
+    };
+    items.push(newItem);
+    setCollection('menuItems', items);
+    return newItem;
+  },
+  
+  update: (id: string, updates: Partial<MenuItem>): MenuItem | null => {
+    const items = menuItemDB.getAll();
+    const index = items.findIndex(m => m.id === id);
+    if (index === -1) return null;
+    
+    items[index] = { ...items[index], ...updates };
+    setCollection('menuItems', items);
+    return items[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const items = menuItemDB.getAll();
+    const filtered = items.filter(m => m.id !== id);
+    if (filtered.length === items.length) return false;
+    setCollection('menuItems', filtered);
+    return true;
+  }
+};
+
+// Table Management
+export const tableDB = {
+  getAll: (): Table[] => getCollection<Table>('tables'),
+  
+  getById: (id: string): Table | undefined => {
+    return tableDB.getAll().find(t => t.id === id);
+  },
+  
+  getByNumber: (number: number): Table | undefined => {
+    return tableDB.getAll().find(t => t.number === number);
+  },
+  
+  create: (table: Omit<Table, 'id'>): Table => {
+    const tables = tableDB.getAll();
+    const newTable: Table = {
+      ...table,
+      id: uuidv4()
+    };
+    tables.push(newTable);
+    setCollection('tables', tables);
+    return newTable;
+  },
+  
+  update: (id: string, updates: Partial<Table>): Table | null => {
+    const tables = tableDB.getAll();
+    const index = tables.findIndex(t => t.id === id);
+    if (index === -1) return null;
+    
+    tables[index] = { ...tables[index], ...updates };
+    setCollection('tables', tables);
+    return tables[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const tables = tableDB.getAll();
+    const filtered = tables.filter(t => t.id !== id);
+    if (filtered.length === tables.length) return false;
+    setCollection('tables', filtered);
+    return true;
+  }
+};
+
+// Order Management
+export const orderDB = {
+  getAll: (): Order[] => getCollection<Order>('orders'),
+  
+  getById: (id: string): Order | undefined => {
+    return orderDB.getAll().find(o => o.id === id);
+  },
+  
+  getByTable: (tableId: string): Order | undefined => {
+    return orderDB.getAll().find(o => o.tableId === tableId && o.status !== 'completed' && o.status !== 'cancelled');
+  },
+  
+  getActive: (): Order[] => {
+    return orderDB.getAll().filter(o => 
+      o.status !== 'completed' && o.status !== 'cancelled'
+    );
+  },
+  
+  getToday: (): Order[] => {
+    const today = new Date().toISOString().split('T')[0];
+    return orderDB.getAll().filter(o => o.createdAt.startsWith(today));
+  },
+  
+  getByDateRange: (start: string, end: string): Order[] => {
+    return orderDB.getAll().filter(o => {
+      const date = o.createdAt.split('T')[0];
+      return date >= start && date <= end;
+    });
+  },
+  
+  generateOrderNumber: (): string => {
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
+    const todayOrders = orderDB.getToday();
+    const orderNum = (todayOrders.length + 1).toString().padStart(4, '0');
+    return `ORD-${dateStr}-${orderNum}`;
+  },
+  
+  create: (order: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Order => {
+    const orders = orderDB.getAll();
+    const newOrder: Order = {
+      ...order,
+      id: uuidv4(),
+      orderNumber: orderDB.generateOrderNumber(),
+      createdAt: new Date().toISOString()
+    };
+    orders.push(newOrder);
+    setCollection('orders', orders);
+    
+    // Update table status if dine-in
+    if (order.tableId) {
+      tableDB.update(order.tableId, { 
+        status: 'occupied', 
+        currentOrderId: newOrder.id 
+      });
+    }
+    
+    return newOrder;
+  },
+  
+  update: (id: string, updates: Partial<Order>): Order | null => {
+    const orders = orderDB.getAll();
+    const index = orders.findIndex(o => o.id === id);
+    if (index === -1) return null;
+    
+    orders[index] = { ...orders[index], ...updates };
+    setCollection('orders', orders);
+    return orders[index];
+  },
+  
+  complete: (id: string): Order | null => {
+    const order = orderDB.getById(id);
+    if (!order) return null;
+    
+    const updated = orderDB.update(id, { 
+      status: 'completed', 
+      completedAt: new Date().toISOString() 
+    });
+    
+    // Free up the table
+    if (order.tableId) {
+      tableDB.update(order.tableId, { 
+        status: 'available', 
+        currentOrderId: undefined 
+      });
+    }
+    
+    return updated;
+  },
+  
+  delete: (id: string): boolean => {
+    const orders = orderDB.getAll();
+    const filtered = orders.filter(o => o.id !== id);
+    if (filtered.length === orders.length) return false;
+    setCollection('orders', filtered);
+    return true;
+  }
+};
+
+// Payment Management
+export const paymentDB = {
+  getAll: (): Payment[] => getCollection<Payment>('payments'),
+  
+  getById: (id: string): Payment | undefined => {
+    return paymentDB.getAll().find(p => p.id === id);
+  },
+  
+  getByOrder: (orderId: string): Payment | undefined => {
+    return paymentDB.getAll().find(p => p.orderId === orderId);
+  },
+  
+  getToday: (): Payment[] => {
+    const today = new Date().toISOString().split('T')[0];
+    return paymentDB.getAll().filter(p => p.createdAt.startsWith(today));
+  },
+  
+  create: (payment: Omit<Payment, 'id' | 'createdAt'>): Payment => {
+    const payments = paymentDB.getAll();
+    const newPayment: Payment = {
+      ...payment,
+      id: uuidv4(),
+      createdAt: new Date().toISOString()
+    };
+    payments.push(newPayment);
+    setCollection('payments', payments);
+    return newPayment;
+  },
+  
+  update: (id: string, updates: Partial<Payment>): Payment | null => {
+    const payments = paymentDB.getAll();
+    const index = payments.findIndex(p => p.id === id);
+    if (index === -1) return null;
+    
+    payments[index] = { ...payments[index], ...updates };
+    setCollection('payments', payments);
+    return payments[index];
+  }
+};
+
+// Supplier Management
+export const supplierDB = {
+  getAll: (): Supplier[] => getCollection<Supplier>('suppliers'),
+  
+  getById: (id: string): Supplier | undefined => {
+    return supplierDB.getAll().find(s => s.id === id);
+  },
+  
+  create: (supplier: Omit<Supplier, 'id'>): Supplier => {
+    const suppliers = supplierDB.getAll();
+    const newSupplier: Supplier = {
+      ...supplier,
+      id: uuidv4()
+    };
+    suppliers.push(newSupplier);
+    setCollection('suppliers', suppliers);
+    return newSupplier;
+  },
+  
+  update: (id: string, updates: Partial<Supplier>): Supplier | null => {
+    const suppliers = supplierDB.getAll();
+    const index = suppliers.findIndex(s => s.id === id);
+    if (index === -1) return null;
+    
+    suppliers[index] = { ...suppliers[index], ...updates };
+    setCollection('suppliers', suppliers);
+    return suppliers[index];
+  },
+  
+  delete: (id: string): boolean => {
+    const suppliers = supplierDB.getAll();
+    const filtered = suppliers.filter(s => s.id !== id);
+    if (filtered.length === suppliers.length) return false;
+    setCollection('suppliers', filtered);
+    return true;
+  }
+};
+
+// Inventory Management
+export const inventoryDB = {
+  getAll: (): InventoryItem[] => getCollection<InventoryItem>('inventory'),
+  
+  getById: (id: string): InventoryItem | undefined => {
+    return inventoryDB.getAll().find(i => i.id === id);
+  },
+  
+  getLowStock: (): InventoryItem[] => {
+    return inventoryDB.getAll().filter(i => i.quantity <= i.minQuantity && i.isActive);
+  },
+  
+  create: (item: Omit<InventoryItem, 'id'>): InventoryItem => {
+    const items = inventoryDB.getAll();
+    const newItem: InventoryItem = {
+      ...item,
+      id: uuidv4()
+    };
+    items.push(newItem);
+    setCollection('inventory', items);
+    return newItem;
+  },
+  
+  update: (id: string, updates: Partial<InventoryItem>): InventoryItem | null => {
+    const items = inventoryDB.getAll();
+    const index = items.findIndex(i => i.id === id);
+    if (index === -1) return null;
+    
+    items[index] = { ...items[index], ...updates };
+    setCollection('inventory', items);
+    return items[index];
+  },
+  
+  addStock: (id: string, quantity: number): InventoryItem | null => {
+    const item = inventoryDB.getById(id);
+    if (!item) return null;
+    
+    return inventoryDB.update(id, { 
+      quantity: item.quantity + quantity,
+      lastRestocked: new Date().toISOString()
+    });
+  },
+  
+  delete: (id: string): boolean => {
+    const items = inventoryDB.getAll();
+    const filtered = items.filter(i => i.id !== id);
+    if (filtered.length === items.length) return false;
+    setCollection('inventory', filtered);
+    return true;
+  }
+};
+
+// Purchase Entry Management
+export const purchaseDB = {
+  getAll: (): PurchaseEntry[] => getCollection<PurchaseEntry>('purchases'),
+  
+  getById: (id: string): PurchaseEntry | undefined => {
+    return purchaseDB.getAll().find(p => p.id === id);
+  },
+  
+  create: (purchase: Omit<PurchaseEntry, 'id'>): PurchaseEntry => {
+    const purchases = purchaseDB.getAll();
+    const newPurchase: PurchaseEntry = {
+      ...purchase,
+      id: uuidv4()
+    };
+    purchases.push(newPurchase);
+    setCollection('purchases', purchases);
+    
+    // Update inventory
+    inventoryDB.addStock(purchase.inventoryItemId, purchase.quantity);
+    
+    return newPurchase;
+  }
+};
+
+// Notification Management
+export const notificationDB = {
+  getAll: (): Notification[] => getCollection<Notification>('notifications'),
+  
+  getUnread: (): Notification[] => {
+    return notificationDB.getAll().filter(n => !n.isRead);
+  },
+  
+  create: (notification: Omit<Notification, 'id' | 'createdAt' | 'isRead'>): Notification => {
+    const notifications = notificationDB.getAll();
+    const newNotification: Notification = {
+      ...notification,
+      id: uuidv4(),
+      isRead: false,
+      createdAt: new Date().toISOString()
+    };
+    notifications.unshift(newNotification);
+    // Keep only last 100 notifications
+    setCollection('notifications', notifications.slice(0, 100));
+    return newNotification;
+  },
+  
+  markAsRead: (id: string): void => {
+    const notifications = notificationDB.getAll();
+    const index = notifications.findIndex(n => n.id === id);
+    if (index !== -1) {
+      notifications[index].isRead = true;
+      setCollection('notifications', notifications);
+    }
+  },
+  
+  markAllAsRead: (): void => {
+    const notifications = notificationDB.getAll().map(n => ({ ...n, isRead: true }));
+    setCollection('notifications', notifications);
+  },
+  
+  clear: (): void => {
+    setCollection('notifications', []);
+  }
+};
+
+// Settings Management
+export const settingsDB = {
+  get: (): AppSettings => {
+    const defaultSettings: AppSettings = {
+      restaurantName: 'My Restaurant',
+      restaurantAddress: '123 Main Street, City',
+      restaurantPhone: '+1234567890',
+      gstNumber: 'GST123456789',
+      taxPercentage: 10,
+      currency: 'USD',
+      currencySymbol: '$',
+      theme: 'light',
+      language: 'en',
+      autoBackup: true,
+      backupInterval: 24
+    };
+    
+    return getItem<AppSettings>('settings') || defaultSettings;
+  },
+  
+  update: (updates: Partial<AppSettings>): AppSettings => {
+    const current = settingsDB.get();
+    const updated = { ...current, ...updates };
+    setItem('settings', updated);
+    return updated;
+  }
+};
+
+// Daily Sales Analytics
+export const analyticsDB = {
+  getDailySales: (date: string): DailySales => {
+    const orders = orderDB.getAll().filter(o => 
+      o.createdAt.startsWith(date) && o.status === 'completed'
+    );
+    const payments = paymentDB.getAll().filter(p => 
+      p.createdAt.startsWith(date) && p.status === 'completed'
+    );
+    
+    return {
+      date,
+      totalOrders: orders.length,
+      totalRevenue: orders.reduce((sum, o) => sum + o.total, 0),
+      totalTax: orders.reduce((sum, o) => sum + o.tax, 0),
+      totalDiscount: orders.reduce((sum, o) => sum + o.discount, 0),
+      dineInOrders: orders.filter(o => o.type === 'dine-in').length,
+      takeawayOrders: orders.filter(o => o.type === 'takeaway').length,
+      cashPayments: payments.filter(p => p.method === 'cash').reduce((sum, p) => sum + p.amount, 0),
+      cardPayments: payments.filter(p => p.method === 'card').reduce((sum, p) => sum + p.amount, 0),
+      upiPayments: payments.filter(p => p.method === 'upi').reduce((sum, p) => sum + p.amount, 0)
+    };
+  },
+  
+  getWeeklySales: (): DailySales[] => {
+    const sales: DailySales[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      sales.push(analyticsDB.getDailySales(dateStr));
+    }
+    return sales;
+  },
+  
+  getMonthlySales: (): DailySales[] => {
+    const sales: DailySales[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      sales.push(analyticsDB.getDailySales(dateStr));
+    }
+    return sales;
+  },
+  
+  getBestSellingItems: (limit: number = 10): { itemId: string; itemName: string; quantity: number; revenue: number }[] => {
+    const orders = orderDB.getAll().filter(o => o.status === 'completed');
+    const itemStats: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+    
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        if (!itemStats[item.menuItemId]) {
+          itemStats[item.menuItemId] = { name: item.menuItemName, quantity: 0, revenue: 0 };
+        }
+        itemStats[item.menuItemId].quantity += item.quantity;
+        itemStats[item.menuItemId].revenue += item.totalPrice;
+      });
+    });
+    
+    return Object.entries(itemStats)
+      .map(([itemId, stats]) => ({ itemId, itemName: stats.name, ...stats }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, limit);
+  }
+};
+
+// Backup & Restore
+export const backupDB = {
+  export: (): string => {
+    const data = {
+      users: userDB.getAll(),
+      employees: employeeDB.getAll(),
+      categories: categoryDB.getAll(),
+      menuItems: menuItemDB.getAll(),
+      tables: tableDB.getAll(),
+      orders: orderDB.getAll(),
+      payments: paymentDB.getAll(),
+      suppliers: supplierDB.getAll(),
+      inventory: inventoryDB.getAll(),
+      purchases: purchaseDB.getAll(),
+      notifications: notificationDB.getAll(),
+      settings: settingsDB.get(),
+      exportedAt: new Date().toISOString()
+    };
+    return JSON.stringify(data, null, 2);
+  },
+  
+  import: (jsonData: string): boolean => {
+    try {
+      const data = JSON.parse(jsonData);
+      
+      if (data.users) setCollection('users', data.users);
+      if (data.employees) setCollection('employees', data.employees);
+      if (data.categories) setCollection('categories', data.categories);
+      if (data.menuItems) setCollection('menuItems', data.menuItems);
+      if (data.tables) setCollection('tables', data.tables);
+      if (data.orders) setCollection('orders', data.orders);
+      if (data.payments) setCollection('payments', data.payments);
+      if (data.suppliers) setCollection('suppliers', data.suppliers);
+      if (data.inventory) setCollection('inventory', data.inventory);
+      if (data.purchases) setCollection('purchases', data.purchases);
+      if (data.notifications) setCollection('notifications', data.notifications);
+      if (data.settings) setItem('settings', data.settings);
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to import backup:', error);
+      return false;
+    }
+  },
+  
+  downloadBackup: (): void => {
+    const data = backupDB.export();
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `restaurant_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+};
+
+// Initialize with sample data
+export const initializeSampleData = (): void => {
+  // Check if already initialized
+  if (userDB.getAll().length > 0) return;
+  
+  // Create default admin user
+  userDB.create({
+    username: 'admin',
+    password: 'admin123',
+    role: 'admin',
+    isActive: true
+  });
+  
+  // Create sample employees
+  const employees = [
+    { name: 'John Manager', email: 'john@restaurant.com', phone: '1234567890', role: 'manager' as const, salary: 5000, shift: 'morning' as const, joiningDate: '2023-01-15', isActive: true },
+    { name: 'Sarah Waiter', email: 'sarah@restaurant.com', phone: '1234567891', role: 'waiter' as const, salary: 2500, shift: 'evening' as const, joiningDate: '2023-03-20', isActive: true },
+    { name: 'Mike Chef', email: 'mike@restaurant.com', phone: '1234567892', role: 'chef' as const, salary: 4000, shift: 'morning' as const, joiningDate: '2022-11-10', isActive: true },
+    { name: 'Lisa Cashier', email: 'lisa@restaurant.com', phone: '1234567893', role: 'cashier' as const, salary: 3000, shift: 'flexible' as const, joiningDate: '2023-06-01', isActive: true }
+  ];
+  employees.forEach(e => employeeDB.create(e));
+  
+  // Create staff users
+  userDB.create({ username: 'manager', password: 'manager123', role: 'manager', isActive: true });
+  userDB.create({ username: 'waiter', password: 'waiter123', role: 'waiter', isActive: true });
+  userDB.create({ username: 'chef', password: 'chef123', role: 'chef', isActive: true });
+  userDB.create({ username: 'cashier', password: 'cashier123', role: 'cashier', isActive: true });
+  
+  // Create categories
+  const categories = [
+    { name: 'Starters', description: 'Appetizers and starters', icon: '🥗', sortOrder: 1, isActive: true },
+    { name: 'Main Course', description: 'Main dishes', icon: '🍝', sortOrder: 2, isActive: true },
+    { name: 'Desserts', description: 'Sweet treats', icon: '🍰', sortOrder: 3, isActive: true },
+    { name: 'Beverages', description: 'Drinks and beverages', icon: '🥤', sortOrder: 4, isActive: true },
+    { name: 'Soups', description: 'Hot and cold soups', icon: '🍲', sortOrder: 5, isActive: true }
+  ];
+  const createdCategories = categories.map(c => categoryDB.create(c));
+  
+  // Create menu items
+  const menuItems = [
+    // Starters
+    { name: 'Caesar Salad', description: 'Fresh romaine lettuce with caesar dressing', categoryId: createdCategories[0].id, price: 8.99, cost: 3.50, isAvailable: true, isVeg: true, preparationTime: 10, ingredients: ['Lettuce', 'Croutons', 'Parmesan'], barcode: 'STR001' },
+    { name: 'Garlic Bread', description: 'Toasted bread with garlic butter', categoryId: createdCategories[0].id, price: 5.99, cost: 1.50, isAvailable: true, isVeg: true, preparationTime: 8, ingredients: ['Bread', 'Garlic', 'Butter'], barcode: 'STR002' },
+    { name: 'Chicken Wings', description: 'Crispy fried chicken wings', categoryId: createdCategories[0].id, price: 12.99, cost: 5.00, isAvailable: true, isVeg: false, preparationTime: 15, ingredients: ['Chicken', 'Spices', 'Oil'], barcode: 'STR003' },
+    { name: 'Spring Rolls', description: 'Crispy vegetable spring rolls', categoryId: createdCategories[0].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: true, preparationTime: 12, ingredients: ['Vegetables', 'Wrapper', 'Oil'], barcode: 'STR004' },
+    
+    // Main Course
+    { name: 'Grilled Salmon', description: 'Fresh Atlantic salmon with herbs', categoryId: createdCategories[1].id, price: 24.99, cost: 12.00, isAvailable: true, isVeg: false, preparationTime: 25, ingredients: ['Salmon', 'Herbs', 'Lemon'], barcode: 'MNC001' },
+    { name: 'Chicken Alfredo', description: 'Creamy pasta with grilled chicken', categoryId: createdCategories[1].id, price: 18.99, cost: 7.00, isAvailable: true, isVeg: false, preparationTime: 20, ingredients: ['Pasta', 'Chicken', 'Cream'], barcode: 'MNC002' },
+    { name: 'Vegetable Stir Fry', description: 'Mixed vegetables in Asian sauce', categoryId: createdCategories[1].id, price: 14.99, cost: 5.00, isAvailable: true, isVeg: true, preparationTime: 15, ingredients: ['Vegetables', 'Soy Sauce', 'Garlic'], barcode: 'MNC003' },
+    { name: 'Beef Steak', description: 'Premium cut beef with sides', categoryId: createdCategories[1].id, price: 29.99, cost: 15.00, isAvailable: true, isVeg: false, preparationTime: 30, ingredients: ['Beef', 'Herbs', 'Butter'], barcode: 'MNC004' },
+    { name: 'Margherita Pizza', description: 'Classic Italian pizza', categoryId: createdCategories[1].id, price: 16.99, cost: 6.00, isAvailable: true, isVeg: true, preparationTime: 20, ingredients: ['Dough', 'Tomato', 'Mozzarella'], barcode: 'MNC005' },
+    
+    // Desserts
+    { name: 'Chocolate Cake', description: 'Rich chocolate layer cake', categoryId: createdCategories[2].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Chocolate', 'Flour', 'Cream'], barcode: 'DST001' },
+    { name: 'Ice Cream Sundae', description: 'Vanilla ice cream with toppings', categoryId: createdCategories[2].id, price: 6.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Ice Cream', 'Chocolate', 'Nuts'], barcode: 'DST002' },
+    { name: 'Tiramisu', description: 'Italian coffee flavored dessert', categoryId: createdCategories[2].id, price: 8.99, cost: 3.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Mascarpone', 'Coffee', 'Ladyfingers'], barcode: 'DST003' },
+    
+    // Beverages
+    { name: 'Fresh Orange Juice', description: 'Freshly squeezed orange juice', categoryId: createdCategories[3].id, price: 4.99, cost: 1.50, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Oranges'], barcode: 'BEV001' },
+    { name: 'Cappuccino', description: 'Italian style espresso with milk foam', categoryId: createdCategories[3].id, price: 4.49, cost: 1.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Coffee', 'Milk'], barcode: 'BEV002' },
+    { name: 'Iced Tea', description: 'Refreshing iced tea with lemon', categoryId: createdCategories[3].id, price: 3.99, cost: 0.75, isAvailable: true, isVeg: true, preparationTime: 3, ingredients: ['Tea', 'Lemon', 'Ice'], barcode: 'BEV003' },
+    { name: 'Mango Smoothie', description: 'Fresh mango blended with yogurt', categoryId: createdCategories[3].id, price: 5.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Mango', 'Yogurt', 'Honey'], barcode: 'BEV004' },
+    
+    // Soups
+    { name: 'Tomato Soup', description: 'Creamy tomato basil soup', categoryId: createdCategories[4].id, price: 6.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 10, ingredients: ['Tomatoes', 'Basil', 'Cream'], barcode: 'SOP001' },
+    { name: 'Chicken Noodle Soup', description: 'Classic chicken soup with noodles', categoryId: createdCategories[4].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: false, preparationTime: 12, ingredients: ['Chicken', 'Noodles', 'Vegetables'], barcode: 'SOP002' }
+  ];
+  menuItems.forEach(m => menuItemDB.create(m));
+  
+  // Create tables
+  for (let i = 1; i <= 12; i++) {
+    tableDB.create({
+      number: i,
+      capacity: i <= 4 ? 2 : i <= 8 ? 4 : 6,
+      status: 'available',
+      floor: i <= 6 ? 1 : 2
+    });
+  }
+  
+  // Create suppliers
+  const suppliers = [
+    { name: 'Fresh Foods Co.', email: 'contact@freshfoods.com', phone: '5551234567', address: '100 Market St', gstNumber: 'GST111222333', isActive: true },
+    { name: 'Beverage Distributors', email: 'orders@bevdist.com', phone: '5559876543', address: '200 Industrial Ave', gstNumber: 'GST444555666', isActive: true },
+    { name: 'Meat & Poultry Supplies', email: 'sales@meatpoultry.com', phone: '5551112222', address: '300 Farm Road', gstNumber: 'GST777888999', isActive: true }
+  ];
+  const createdSuppliers = suppliers.map(s => supplierDB.create(s));
+  
+  // Create inventory items
+  const inventoryItems = [
+    { name: 'Chicken Breast', unit: 'kg', quantity: 25, minQuantity: 10, costPerUnit: 8.00, supplierId: createdSuppliers[2].id, isActive: true },
+    { name: 'Salmon Fillet', unit: 'kg', quantity: 15, minQuantity: 5, costPerUnit: 15.00, supplierId: createdSuppliers[2].id, isActive: true },
+    { name: 'Tomatoes', unit: 'kg', quantity: 30, minQuantity: 15, costPerUnit: 2.50, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Lettuce', unit: 'kg', quantity: 20, minQuantity: 8, costPerUnit: 3.00, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Orange Juice', unit: 'L', quantity: 50, minQuantity: 20, costPerUnit: 4.00, supplierId: createdSuppliers[1].id, isActive: true },
+    { name: 'Coffee Beans', unit: 'kg', quantity: 10, minQuantity: 5, costPerUnit: 12.00, supplierId: createdSuppliers[1].id, isActive: true },
+    { name: 'Pasta', unit: 'kg', quantity: 40, minQuantity: 15, costPerUnit: 2.00, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Mozzarella Cheese', unit: 'kg', quantity: 8, minQuantity: 5, costPerUnit: 10.00, supplierId: createdSuppliers[0].id, isActive: true }
+  ];
+  inventoryItems.forEach(i => inventoryDB.create(i));
+  
+  // Create some sample orders for demo
+  const allMenuItems = menuItemDB.getAll();
+  const sampleOrders = [
+    {
+      tableId: tableDB.getAll()[0].id,
+      tableNumber: 1,
+      type: 'dine-in' as const,
+      items: [
+        { id: uuidv4(), menuItemId: allMenuItems[0].id, menuItemName: allMenuItems[0].name, quantity: 2, unitPrice: allMenuItems[0].price, totalPrice: allMenuItems[0].price * 2, status: 'served' as const },
+        { id: uuidv4(), menuItemId: allMenuItems[5].id, menuItemName: allMenuItems[5].name, quantity: 1, unitPrice: allMenuItems[5].price, totalPrice: allMenuItems[5].price, status: 'served' as const }
+      ],
+      subtotal: 27.97,
+      tax: 2.80,
+      discount: 0,
+      discountType: 'fixed' as const,
+      total: 30.77,
+      status: 'completed' as const,
+      customerName: 'John Doe',
+      waiterName: 'Sarah Waiter'
+    }
+  ];
+  
+  sampleOrders.forEach(o => {
+    const order = orderDB.create(o);
+    paymentDB.create({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amount: order.total,
+      method: 'card',
+      status: 'completed',
+      receivedBy: 'Lisa Cashier'
+    });
+  });
+  
+  // Create welcome notification
+  notificationDB.create({
+    type: 'system',
+    title: 'Welcome to Restaurant Manager',
+    message: 'Your restaurant management system is ready to use!'
+  });
+  
+  console.log('Sample data initialized successfully!');
+};
