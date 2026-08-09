@@ -5,6 +5,7 @@ import type {
   User, Employee, Category, MenuItem, Table, Order, Payment,
   Supplier, InventoryItem, PurchaseEntry, DailySales, Notification, AppSettings
 } from '../types';
+import { realtimeSync } from '../services/realtimeSync';
 
 const DB_PREFIX = 'restaurant_db_';
 
@@ -371,6 +372,9 @@ export const orderDB = {
       });
     }
     
+    // Broadcast to other physical devices (PC/phones) via WebSocket
+    realtimeSync.broadcastOrderCreated(newOrder);
+
     return newOrder;
   },
   
@@ -381,6 +385,10 @@ export const orderDB = {
     
     orders[index] = { ...orders[index], ...updates };
     setCollection('orders', orders);
+
+    // Broadcast status change to other physical devices (customer phone / PC)
+    realtimeSync.broadcastOrderUpdated(orders[index]);
+
     return orders[index];
   },
   
