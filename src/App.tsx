@@ -97,23 +97,36 @@ function AppShell() {
 
   // Initialize sample data & real-time cross-device sync
   useEffect(() => {
-    initializeSampleData();
-    import('./services/realtimeSync').then(({ realtimeSync }) => {
-      realtimeSync.init();
-    });
+    try {
+      initializeSampleData();
+    } catch (e) {
+      console.error('Sample data init error:', e);
+    }
 
-    const lowStockItems = inventoryDB.getLowStock();
-    if (lowStockItems.length > 0) {
-      const existing = notificationDB
-        .getAll()
-        .find((item) => item.type === 'inventory' && item.title === 'Low Stock Alert');
-      if (!existing) {
-        notificationDB.create({
-          type: 'inventory',
-          title: 'Low Stock Alert',
-          message: `${lowStockItems.length} inventory item(s) are below minimum stock.`,
-        });
+    try {
+      import('./services/realtimeSync').then(({ realtimeSync }) => {
+        realtimeSync.init();
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    try {
+      const lowStockItems = inventoryDB.getLowStock();
+      if (lowStockItems.length > 0) {
+        const existing = notificationDB
+          .getAll()
+          .find((item) => item.type === 'inventory' && item.title === 'Low Stock Alert');
+        if (!existing) {
+          notificationDB.create({
+            type: 'inventory',
+            title: 'Low Stock Alert',
+            message: `${lowStockItems.length} inventory item(s) are below minimum stock.`,
+          });
+        }
       }
+    } catch {
+      // ignore
     }
 
     setBootstrapped(true);

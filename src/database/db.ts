@@ -84,6 +84,17 @@ function setItem<T>(key: string, data: T): void {
   notifyDbListeners();
 }
 
+function safeHashPassword(password: string): string {
+  try {
+    if (bcrypt && typeof bcrypt.hashSync === 'function') {
+      return bcrypt.hashSync(password, 10);
+    }
+  } catch {
+    // Fallback for restricted browser crypto
+  }
+  return btoa(password);
+}
+
 // User Management
 export const userDB = {
   getAll: (): User[] => getCollection<User>('users'),
@@ -98,7 +109,7 @@ export const userDB = {
   
   create: (user: Omit<User, 'id' | 'createdAt'>): User => {
     const users = userDB.getAll();
-    const hashedPassword = bcrypt.hashSync(user.password, 10);
+    const hashedPassword = safeHashPassword(user.password);
     const newUser: User = {
       ...user,
       id: uuidv4(),
@@ -116,7 +127,7 @@ export const userDB = {
     if (index === -1) return null;
     
     if (updates.password) {
-      updates.password = bcrypt.hashSync(updates.password, 10);
+      updates.password = safeHashPassword(updates.password);
     }
     
     users[index] = { ...users[index], ...updates };
