@@ -122,7 +122,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
               <BarChart data={weeklyChartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} />
@@ -149,7 +149,7 @@ export const Dashboard: React.FC = () => {
           </h3>
           <div className="h-48">
             {paymentMethodData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
                 <PieChart>
                   <Pie
                     data={paymentMethodData}
