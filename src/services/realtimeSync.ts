@@ -21,9 +21,8 @@ class RealtimeSyncService {
   private async connect() {
     try {
       // Dynamic import to prevent circular top-level dependency
-      const { settingsDB } = await import('../database/db');
-      const settings = settingsDB.get();
-      const channelName = encodeURIComponent((settings?.restaurantName || 'default').toLowerCase().replace(/\s+/g, '_'));
+      // Use a fixed unified channel key so all physical devices (PC & phones) join the same room
+      const channelName = 'restaurant_system_b4pkadam';
       const wsUrl = `wss://free.piesocket.com/v3/${channelName}?api_key=VC5my8yAODEYUZWOjJVZ6OSi8aIc2kaXAkySubBu&notify_self=0`;
 
       this.ws = new WebSocket(wsUrl);

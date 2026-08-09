@@ -444,8 +444,15 @@ export const orderDB = {
       });
     }
     
+    // Create a system notification for the desktop PC
+    const notif = notificationDB.create({
+      type: 'order',
+      title: `📱 New QR Order #${newOrder.orderNumber}`,
+      message: `Table ${newOrder.tableNumber || 'N/A'} placed a new order for ${newOrder.items.length} item(s).`
+    });
+
     // Broadcast to other physical devices (PC/phones) via WebSocket
-    broadcastSync((s) => s.broadcastOrderCreated(newOrder));
+    broadcastSync((s) => s.broadcastOrderCreated(newOrder, notif));
 
     return newOrder;
   },

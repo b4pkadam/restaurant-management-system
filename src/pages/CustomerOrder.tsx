@@ -515,25 +515,29 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
         )}
       </main>
 
-      {/* Floating Bottom Cart Bar */}
-      {cartCount > 0 && !showCart && (
+      {/* Floating Bottom Cart Bar (Visible if cart has items OR active orders exist) */}
+      {(cartCount > 0 || activeOrders.length > 0) && !showCart && (
         <div className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-lg">
           <button
             onClick={() => setShowCart(true)}
-            className="flex w-full items-center justify-between rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white shadow-xl shadow-blue-500/20 active:scale-98 transition-all"
+            className="flex w-full items-center justify-between rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white shadow-xl shadow-blue-500/20 active:scale-98 transition-all cursor-pointer"
           >
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 font-bold">
-                {cartCount}
+                {cartCount > 0 ? cartCount : activeOrders.length}
               </div>
               <div className="text-left">
-                <p className="text-xs text-blue-100 font-medium">Cart Total</p>
-                <p className="font-bold text-base">{formatCurrency(total)}</p>
+                <p className="text-xs text-blue-100 font-medium">
+                  {cartCount > 0 ? 'Cart Total' : 'Active Orders Placed'}
+                </p>
+                <p className="font-bold text-base">
+                  {cartCount > 0 ? formatCurrency(total) : `${activeOrders.length} Active Order(s)`}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1 font-bold text-sm">
-              <span>View Order</span>
-              <ShoppingCart size={18} />
+              <span>{cartCount > 0 ? 'View Cart & Order' : 'View Order Status'}</span>
+              {cartCount > 0 ? <ShoppingCart size={18} /> : <Receipt size={18} />}
             </div>
           </button>
         </div>
@@ -546,7 +550,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-700">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="text-blue-600" size={22} />
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Your Cart</h2>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Your Orders & Cart</h2>
               </div>
               <button
                 onClick={() => setShowCart(false)}
@@ -556,76 +560,143 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
               </button>
             </div>
 
-            {/* Cart Items List */}
-            <div className="flex-1 overflow-y-auto py-4 space-y-3">
-              {cart.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between rounded-xl bg-gray-50 p-3 dark:bg-gray-900/50"
-                >
-                  <div className="flex-1 pr-3">
-                    <h4 className="font-semibold text-sm text-gray-900 dark:text-white">
-                      {item.menuItemName}
-                    </h4>
-                    <p className="text-xs text-gray-500">
-                      {formatCurrency(item.unitPrice)} × {item.quantity}
-                    </p>
+            <div className="flex-1 overflow-y-auto py-4 space-y-4">
+              {/* Active Placed Orders for this Table */}
+              {activeOrders.length > 0 && (
+                <div className="space-y-3 rounded-2xl bg-amber-50/80 p-3.5 border border-amber-200/80 dark:bg-amber-950/20 dark:border-amber-900/40">
+                  <div className="flex items-center justify-between pb-2 border-b border-amber-200/60 dark:border-amber-900/40">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="text-amber-600 dark:text-amber-400" size={18} />
+                      <h3 className="font-bold text-xs text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                        Active Placed Orders ({activeOrders.length})
+                      </h3>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 shadow-xs dark:bg-gray-800">
-                      <button
-                        onClick={() => updateQty(item.id, -1)}
-                        className="text-gray-500 hover:text-blue-600"
+                  <div className="space-y-3">
+                    {activeOrders.map((ord) => (
+                      <div
+                        key={ord.id}
+                        className="rounded-xl bg-white p-3 shadow-xs dark:bg-gray-800 border border-gray-100 dark:border-gray-700 space-y-2"
                       >
-                        <Minus size={14} />
-                      </button>
-                      <span className="font-bold text-sm w-4 text-center">{item.quantity}</span>
-                      <button
-                        onClick={() => updateQty(item.id, 1)}
-                        className="text-gray-500 hover:text-blue-600"
-                      >
-                        <Plus size={14} />
-                      </button>
-                    </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-sm text-gray-900 dark:text-white">
+                              {ord.orderNumber}
+                            </span>
+                            <p className="text-xs text-gray-500">
+                              {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                          {renderStatusBadge(ord.status)}
+                        </div>
 
-                    <span className="w-16 text-right font-bold text-sm text-gray-900 dark:text-white">
-                      {formatCurrency(item.totalPrice)}
-                    </span>
+                        <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                          {ord.items.map((it) => (
+                            <div key={it.id} className="flex justify-between">
+                              <span>
+                                {it.quantity}× {it.menuItemName}
+                              </span>
+                              <span className="font-medium">{formatCurrency(it.totalPrice)}</span>
+                            </div>
+                          ))}
+                        </div>
 
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                        <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-900 dark:text-white">
+                          <span>Total Amount</span>
+                          <span className="text-blue-600 dark:text-blue-400">{formatCurrency(ord.total)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Draft Cart Items */}
+              {cart.length > 0 ? (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-xs text-gray-500 uppercase tracking-wider">
+                    Unplaced Items in Cart ({cartCount})
+                  </h3>
+                  {cart.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-xl bg-gray-50 p-3 dark:bg-gray-900/50"
+                    >
+                      <div className="flex-1 pr-3">
+                        <h4 className="font-semibold text-sm text-gray-900 dark:text-white">
+                          {item.menuItemName}
+                        </h4>
+                        <p className="text-xs text-gray-500">
+                          {formatCurrency(item.unitPrice)} × {item.quantity}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 shadow-xs dark:bg-gray-800">
+                          <button
+                            onClick={() => updateQty(item.id, -1)}
+                            className="text-gray-500 hover:text-blue-600"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="font-bold text-sm w-4 text-center">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQty(item.id, 1)}
+                            className="text-gray-500 hover:text-blue-600"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+
+                        <span className="w-16 text-right font-bold text-sm text-gray-900 dark:text-white">
+                          {formatCurrency(item.totalPrice)}
+                        </span>
+
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                activeOrders.length === 0 && (
+                  <div className="py-8 text-center text-gray-500">
+                    <ShoppingCart size={36} className="mx-auto mb-2 text-gray-300" />
+                    <p className="text-sm font-medium">Your cart is empty</p>
+                  </div>
+                )
+              )}
             </div>
 
-            {/* Price Summary */}
-            <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-2 text-sm">
-              <div className="flex justify-between text-gray-500 dark:text-gray-400">
-                <span>Subtotal</span>
-                <span>{formatCurrency(subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-gray-500 dark:text-gray-400">
-                <span>Tax ({settings.taxPercentage}%)</span>
-                <span>{formatCurrency(tax)}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold text-gray-900 dark:text-white pt-2 border-t border-gray-100 dark:border-gray-700">
-                <span>Total Amount</span>
-                <span className="text-blue-600 dark:text-blue-400">{formatCurrency(total)}</span>
-              </div>
+            {/* Price Summary & Action */}
+            {cart.length > 0 && (
+              <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-2 text-sm">
+                <div className="flex justify-between text-gray-500 dark:text-gray-400">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-gray-500 dark:text-gray-400">
+                  <span>Tax ({settings.taxPercentage}%)</span>
+                  <span>{formatCurrency(tax)}</span>
+                </div>
+                <div className="flex justify-between text-base font-bold text-gray-900 dark:text-white pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <span>New Order Total</span>
+                  <span className="text-blue-600 dark:text-blue-400">{formatCurrency(total)}</span>
+                </div>
 
-              <button
-                onClick={placeOrder}
-                className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 font-bold text-white shadow-lg hover:bg-blue-700 active:scale-98 transition-all"
-              >
-                Place Order • {formatCurrency(total)}
-              </button>
-            </div>
+                <button
+                  onClick={placeOrder}
+                  className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 font-bold text-white shadow-lg hover:bg-blue-700 active:scale-98 transition-all cursor-pointer"
+                >
+                  Place New Order • {formatCurrency(total)}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
