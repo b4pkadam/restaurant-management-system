@@ -640,6 +640,7 @@ export const settingsDB = {
     const current = settingsDB.get();
     const updated = { ...current, ...updates };
     setItem('settings', updated);
+    realtimeSync.broadcastSettingsUpdated(updated);
     return updated;
   }
 };

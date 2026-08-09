@@ -1,8 +1,8 @@
 import { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners } from '../database/db';
-import type { Order, Table, Notification } from '../types';
+import type { Order, Table, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'TABLE_UPDATED' | 'REQUEST_INITIAL_SYNC' | 'INITIAL_SYNC_RESPONSE';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'REQUEST_INITIAL_SYNC' | 'INITIAL_SYNC_RESPONSE';
   payload: any;
   senderId: string;
 }
@@ -21,18 +21,15 @@ class RealtimeSyncService {
 
   private connect() {
     try {
-      // Free public WebSockets relay broker for real-time cross-device communication
       const settings = settingsDB.get();
       const channelName = encodeURIComponent((settings.restaurantName || 'default').toLowerCase().replace(/\s+/g, '_'));
-      
-      // Use PieSocket / Public WebSocket fallback relay
       const wsUrl = `wss://free.piesocket.com/v3/${channelName}?api_key=VC5my8yAODEYUZWOjJVZ6OSi8aIc2kaXAkySubBu&notify_self=0`;
 
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        // Request existing active orders from other online devices
+        // Request existing active orders and settings from other online devices
         this.send({
           type: 'REQUEST_INITIAL_SYNC',
           payload: {},
@@ -90,14 +87,12 @@ class RealtimeSyncService {
         const order: Order = message.payload.order;
         const notif: Notification = message.payload.notification;
 
-        // Upsert order locally without triggering another send
         const existing = orderDB.getById(order.id);
         if (!existing) {
           const orders = orderDB.getAll();
           orders.push(order);
           localStorage.setItem('restaurant_db_orders', JSON.stringify(orders));
 
-          // Auto-link table
           if (order.tableNumber) {
             let t = tableDB.getByNumber(order.tableNumber);
             if (!t) {
@@ -119,8 +114,6 @@ class RealtimeSyncService {
           }
 
           notifyDbListeners();
-
-          // Play notification chime on staff PC if available
           this.playAlertSound();
         }
         break;
@@ -138,12 +131,21 @@ class RealtimeSyncService {
         break;
       }
 
+      case 'SETTINGS_UPDATED': {
+        const settings: AppSettings = message.payload.settings;
+        if (settings) {
+          localStorage.setItem('restaurant_db_settings', JSON.stringify(settings));
+          notifyDbListeners();
+        }
+        break;
+      }
+
       case 'REQUEST_INITIAL_SYNC': {
-        // Send back current active orders to the newly connected device
         const activeOrders = orderDB.getActive();
+        const currentSettings = settingsDB.get();
         this.send({
           type: 'INITIAL_SYNC_RESPONSE',
-          payload: { orders: activeOrders },
+          payload: { orders: activeOrders, settings: currentSettings },
           senderId: SENDER_ID,
         });
         break;
@@ -151,6 +153,12 @@ class RealtimeSyncService {
 
       case 'INITIAL_SYNC_RESPONSE': {
         const remoteOrders: Order[] = message.payload.orders || [];
+        const remoteSettings: AppSettings = message.payload.settings;
+
+        if (remoteSettings) {
+          localStorage.setItem('restaurant_db_settings', JSON.stringify(remoteSettings));
+        }
+
         if (remoteOrders.length > 0) {
           const localOrders = orderDB.getAll();
           let updated = false;
@@ -168,9 +176,10 @@ class RealtimeSyncService {
 
           if (updated) {
             localStorage.setItem('restaurant_db_orders', JSON.stringify(localOrders));
-            notifyDbListeners();
           }
         }
+
+        notifyDbListeners();
         break;
       }
     }
@@ -182,8 +191,8 @@ class RealtimeSyncService {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 note
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15); // A5 note
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15);
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
       osc.connect(gain);
@@ -195,7 +204,6 @@ class RealtimeSyncService {
     }
   }
 
-  // Public methods to broadcast actions across physical devices
   public broadcastOrderCreated(order: Order, notification?: Notification) {
     this.send({
       type: 'ORDER_CREATED',
@@ -208,6 +216,14 @@ class RealtimeSyncService {
     this.send({
       type: 'ORDER_UPDATED',
       payload: { order },
+      senderId: SENDER_ID,
+    });
+  }
+
+  public broadcastSettingsUpdated(settings: AppSettings) {
+    this.send({
+      type: 'SETTINGS_UPDATED',
+      payload: { settings },
       senderId: SENDER_ID,
     });
   }
