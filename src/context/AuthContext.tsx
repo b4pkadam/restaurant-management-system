@@ -16,10 +16,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // Check for existing session
-    const savedUser = localStorage.getItem('current_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    // Check for existing session safely
+    try {
+      const savedUser = localStorage.getItem('current_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && parsed.username && parsed.role) {
+          setUser(parsed);
+        } else {
+          localStorage.removeItem('current_user');
+        }
+      }
+    } catch {
+      localStorage.removeItem('current_user');
     }
   }, []);
 

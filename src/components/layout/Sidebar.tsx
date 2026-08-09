@@ -139,15 +139,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
               <span className="text-blue-600 dark:text-blue-400 font-semibold">
-                {user.username.charAt(0).toUpperCase()}
+                {(user.username || 'U').charAt(0).toUpperCase()}
               </span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {user.username}
+                {user.username || 'User'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                {user.role}
+                {user.role || 'Staff'}
               </p>
             </div>
             {unreadCount > 0 && (
