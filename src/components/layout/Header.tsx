@@ -3,6 +3,7 @@ import { Bell, Search, Menu } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useNotifications } from '../../context/NotificationContext';
 import { format } from 'date-fns';
+import { safeFormatDate } from '../../utils/safeDate';
 
 interface HeaderProps {
   title: string;
@@ -107,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
                                 {notification.message}
                               </p>
                               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                {format(new Date(notification.createdAt), 'MMM d, h:mm a')}
+                                {safeFormatDate(notification.createdAt, 'MMM d, h:mm a')}
                               </p>
                             </div>
                           </div>
@@ -122,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
 
           {/* Current Time */}
           <div className="hidden lg:block text-sm text-gray-500 dark:text-gray-400">
-            {format(new Date(), 'EEE, MMM d, yyyy')}
+            {safeFormatDate(new Date(), 'EEE, MMM d, yyyy')}
           </div>
         </div>
       </div>

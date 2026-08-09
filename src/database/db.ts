@@ -5,6 +5,7 @@ import type {
   User, Employee, Category, MenuItem, Table, Order, Payment,
   Supplier, InventoryItem, PurchaseEntry, DailySales, Notification, AppSettings
 } from '../types';
+import initialDbData from './initialDbData.json';
 const DB_PREFIX = 'restaurant_db_';
 
 function broadcastSync(action: (sync: typeof import('../services/realtimeSync').realtimeSync) => void) {
@@ -809,6 +810,22 @@ export const initializeSampleData = (): void => {
   // Check if already initialized
   if (userDB.getAll().length > 0) return;
   
+  if (initialDbData) {
+    try {
+      if (initialDbData.settings) setItem('settings', initialDbData.settings);
+      if (initialDbData.users) setCollection('users', initialDbData.users);
+      if (initialDbData.employees) setCollection('employees', initialDbData.employees);
+      if (initialDbData.categories) setCollection('categories', initialDbData.categories);
+      if (initialDbData.menuItems) setCollection('menuItems', initialDbData.menuItems);
+      if (initialDbData.tables) setCollection('tables', initialDbData.tables);
+      if (initialDbData.suppliers) setCollection('suppliers', initialDbData.suppliers);
+      if (initialDbData.inventory) setCollection('inventory', initialDbData.inventory);
+      if (userDB.getAll().length > 0) return;
+    } catch {
+      // Fallback
+    }
+  }
+
   // Create default admin user
   userDB.create({
     username: 'admin',

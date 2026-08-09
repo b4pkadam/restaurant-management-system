@@ -1,0 +1,137 @@
+{
+  "settings": {
+    "restaurantName": "Gourmet Haven Restaurant",
+    "restaurantAddress": "123 Culinary Boulevard, Foodville",
+    "restaurantPhone": "+1 (555) 234-5678",
+    "gstNumber": "GST987654321",
+    "taxPercentage": 10,
+    "currency": "USD",
+    "currencySymbol": "$",
+    "theme": "light",
+    "language": "en",
+    "autoBackup": true,
+    "backupInterval": 24
+  },
+  "users": [
+    {
+      "id": "u-admin-01",
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "u-manager-01",
+      "username": "manager",
+      "password": "manager123",
+      "role": "manager",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "u-waiter-01",
+      "username": "waiter",
+      "password": "waiter123",
+      "role": "waiter",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "u-chef-01",
+      "username": "chef",
+      "password": "chef123",
+      "role": "chef",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "u-cashier-01",
+      "username": "cashier",
+      "password": "cashier123",
+      "role": "cashier",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "employees": [
+    {
+      "id": "emp-1",
+      "name": "John Manager",
+      "email": "john@restaurant.com",
+      "phone": "1234567890",
+      "role": "manager",
+      "salary": 5000,
+      "shift": "morning",
+      "joiningDate": "2023-01-15",
+      "isActive": true
+    },
+    {
+      "id": "emp-2",
+      "name": "Sarah Waiter",
+      "email": "sarah@restaurant.com",
+      "phone": "1234567891",
+      "role": "waiter",
+      "salary": 2500,
+      "shift": "evening",
+      "joiningDate": "2023-03-20",
+      "isActive": true
+    },
+    {
+      "id": "emp-3",
+      "name": "Mike Chef",
+      "email": "mike@restaurant.com",
+      "phone": "1234567892",
+      "role": "chef",
+      "salary": 4000,
+      "shift": "morning",
+      "joiningDate": "2022-11-10",
+      "isActive": true
+    },
+    {
+      "id": "emp-4",
+      "name": "Lisa Cashier",
+      "email": "lisa@restaurant.com",
+      "phone": "1234567893",
+      "role": "cashier",
+      "salary": 3000,
+      "shift": "flexible",
+      "joiningDate": "2023-06-01",
+      "isActive": true
+    }
+  ],
+  "categories": [
+    { "id": "cat-starters", "name": "Starters & Appetizers", "description": "Crispy starters and fresh salads", "icon": "🥗", "sortOrder": 1, "isActive": true },
+    { "id": "cat-mains", "name": "Main Course", "description": "Hearty main dishes and pastas", "icon": "🍝", "sortOrder": 2, "isActive": true },
+    { "id": "cat-pizzas", "name": "Artisanal Pizzas", "description": "Wood-fired specialty pizzas", "icon": "🍕", "sortOrder": 3, "isActive": true },
+    { "id": "cat-desserts", "name": "Desserts & Sweets", "description": "Decadent cakes and ice creams", "icon": "🍰", "sortOrder": 4, "isActive": true },
+    { "id": "cat-beverages", "name": "Beverages & Drinks", "description": "Refresing juices, coffees, and teas", "icon": "🥤", "sortOrder": 5, "isActive": true }
+  ],
+  "menuItems": [
+    { "id": "item-1", "name": "Truffle Mushroom Bruschetta", "description": "Crispy sourdough topped with sautéed wild mushrooms and truffle oil", "price": 12.99, "categoryId": "cat-starters", "categoryName": "Starters & Appetizers", "isAvailable": true, "preparationTime": 12, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-2", "name": "Classic Caesar Salad", "description": "Crisp romaine, garlic croutons, shaved parmesan, and creamy dressing", "price": 10.50, "categoryId": "cat-starters", "categoryName": "Starters & Appetizers", "isAvailable": true, "preparationTime": 10, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1546793665-c74683f339c1?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-3", "name": "Grilled Salmon Fillet", "description": "Pan-seared Atlantic salmon with asparagus and lemon-herb butter", "price": 24.50, "categoryId": "cat-mains", "categoryName": "Main Course", "isAvailable": true, "preparationTime": 20, "isVegetarian": false, "image": "https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-4", "name": "Creamy Fettuccine Alfredo", "description": "Handmade fettuccine tosssed in rich parmesan garlic cream sauce", "price": 18.00, "categoryId": "cat-mains", "categoryName": "Main Course", "isAvailable": true, "preparationTime": 15, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1645112411341-6c4fd023714a?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-5", "name": "Margherita Supreme Pizza", "description": "Fresh buffalo mozzarella, San Marzano tomatoes, and sweet basil", "price": 16.50, "categoryId": "cat-pizzas", "categoryName": "Artisanal Pizzas", "isAvailable": true, "preparationTime": 15, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-6", "name": "Molten Chocolate Lava Cake", "description": "Warm chocolate cake with oozing fudge center and vanilla gelato", "price": 9.00, "categoryId": "cat-desserts", "categoryName": "Desserts & Sweets", "isAvailable": true, "preparationTime": 10, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-7", "name": "Iced Berry Hibiscus Tea", "description": "Cold brewed hibiscus with wild berries and mint", "price": 4.99, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks", "isAvailable": true, "preparationTime": 5, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80" }
+  ],
+  "tables": [
+    { "id": "tbl-1", "number": 1, "capacity": 2, "status": "available", "qrCode": "?table=1" },
+    { "id": "tbl-2", "number": 2, "capacity": 4, "status": "available", "qrCode": "?table=2" },
+    { "id": "tbl-3", "number": 3, "capacity": 4, "status": "available", "qrCode": "?table=3" },
+    { "id": "tbl-4", "number": 4, "capacity": 6, "status": "available", "qrCode": "?table=4" },
+    { "id": "tbl-5", "number": 5, "capacity": 2, "status": "available", "qrCode": "?table=5" },
+    { "id": "tbl-6", "number": 6, "capacity": 8, "status": "available", "qrCode": "?table=6" }
+  ],
+  "inventory": [
+    { "id": "inv-1", "name": "Salmon Fillets", "category": "Seafood", "quantity": 15, "unit": "kg", "minStock": 5, "costPerUnit": 18.00, "supplierId": "sup-1", "lastRestocked": "2026-08-01" },
+    { "id": "inv-2", "name": "Mozzarella Cheese", "category": "Dairy", "quantity": 25, "unit": "kg", "minStock": 8, "costPerUnit": 6.50, "supplierId": "sup-2", "lastRestocked": "2026-08-02" },
+    { "id": "inv-3", "name": "Wild Mushrooms", "category": "Produce", "quantity": 10, "unit": "kg", "minStock": 3, "costPerUnit": 12.00, "supplierId": "sup-2", "lastRestocked": "2026-08-03" }
+  ],
+  "suppliers": [
+    { "id": "sup-1", "name": "Ocean Fresh Seafood Ltd", "contactPerson": "David Miller", "phone": "555-0192", "email": "orders@oceanfresh.com", "category": "Seafood", "address": "45 Harbor Way" },
+    { "id": "sup-2", "name": "Valley Organic Farms", "contactPerson": "Emma Green", "phone": "555-0193", "email": "emma@valleyfarms.com", "category": "Produce & Dairy", "address": "88 Country Lane" }
+  ],
+  "notifications": []
+}
