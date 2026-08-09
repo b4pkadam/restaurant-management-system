@@ -7,13 +7,14 @@ interface SyncMessage {
 }
 
 const SENDER_ID = Math.random().toString(36).substring(2, 10);
-const APP_TAG = 'restaurant_b4pkadam';
-const CLOUD_URL = 'https://api.restful-api.dev/objects';
+const CHANNEL = 'restaurant_pos_b4pkadam';
+const PUB_URL = `https://ps.pubnub.com/publish/demo/demo/0/${CHANNEL}/0/`;
+const HIST_URL = `https://ps.pubnub.com/v2/history/sub-key/demo/channel/${CHANNEL}?count=30`;
 
 class RealtimeSyncService {
   private isInitialized = false;
   private pollInterval: any = null;
-  private processedCloudIds = new Set<string>();
+  private processedTimestamps = new Set<string>();
 
   public init() {
     if (this.isInitialized) return;
@@ -41,28 +42,37 @@ class RealtimeSyncService {
 
   private startPolling() {
     if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll Cloud REST DB every 2 seconds for cross-device updates
-    this.pollInterval = setInterval(() => this.pollCloudDB(), 2000);
-    this.pollCloudDB();
+    // Poll PubNub cloud history every 1.5 seconds for cross-device updates
+    this.pollInterval = setInterval(() => this.pollCloudHistory(), 1500);
+    this.pollCloudHistory();
   }
 
-  private async pollCloudDB() {
+  private async pollCloudHistory() {
     try {
-      // Fetch recent objects posted under our app tag
-      const res = await fetch(CLOUD_URL);
+      const res = await fetch(HIST_URL);
       if (!res.ok) return;
-      const list = await res.json();
-      if (!Array.isArray(list)) return;
+      const data = await res.json();
+      if (!Array.isArray(data) || !Array.isArray(data[0])) return;
 
-      for (const item of list) {
-        if (!item || !item.name || !item.id || !item.data) continue;
-        if (!item.name.startsWith(APP_TAG)) continue;
-        if (this.processedCloudIds.has(item.id)) continue;
+      const messages = data[0];
+      const startTimetoken = data[1] ? String(data[1]) : '';
+      const endTimetoken = data[2] ? String(data[2]) : '';
 
-        this.processedCloudIds.add(item.id);
+      for (let i = 0; i < messages.length; i++) {
+        const msg: SyncMessage = messages[i];
+        if (!msg || typeof msg !== 'object') continue;
 
-        const msg: SyncMessage = item.data;
-        if (msg && msg.senderId !== SENDER_ID) {
+        // Generate unique message identifier using senderId + type + order/settings id
+        let msgKey = `${msg.senderId}_${msg.type}`;
+        if (msg.payload) {
+          if (msg.payload.order?.id) msgKey += `_${msg.payload.order.id}_${msg.payload.order.status}`;
+          if (msg.payload.settings?.updatedAt) msgKey += `_${msg.payload.settings.updatedAt}`;
+        }
+
+        if (this.processedTimestamps.has(msgKey)) continue;
+        this.processedTimestamps.add(msgKey);
+
+        if (msg.senderId !== SENDER_ID) {
           await this.handleIncomingMessage(msg);
         }
       }
@@ -71,16 +81,11 @@ class RealtimeSyncService {
     }
   }
 
-  private sendToCloud(objectName: string, msg: SyncMessage) {
-    // 1. Post to Cloud REST Database
-    fetch(CLOUD_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: `${APP_TAG}_${objectName}`,
-        data: msg,
-      }),
-    }).catch(() => {});
+  private sendToCloud(msg: SyncMessage) {
+    const jsonStr = JSON.stringify(msg);
+
+    // 1. Publish to PubNub High-Availability Cloud Relay
+    fetch(PUB_URL + encodeURIComponent(jsonStr)).catch(() => {});
 
     // 2. Broadcast to local tab/window instances
     try {
@@ -98,8 +103,8 @@ class RealtimeSyncService {
 
     switch (message.type) {
       case 'ORDER_CREATED': {
-        const order: Order = message.payload.order;
-        const notif: Notification = message.payload.notification;
+        const order: Order = message.payload?.order;
+        const notif: Notification = message.payload?.notification;
 
         if (!order || !order.id) return;
 
@@ -139,7 +144,7 @@ class RealtimeSyncService {
       }
 
       case 'ORDER_UPDATED': {
-        const order: Order = message.payload.order;
+        const order: Order = message.payload?.order;
         if (!order || !order.id) return;
 
         const orders = orderDB.getAll();
@@ -153,8 +158,8 @@ class RealtimeSyncService {
       }
 
       case 'SETTINGS_UPDATED': {
-        const settings: AppSettings = message.payload.settings;
-        if (settings) {
+        const settings: AppSettings = message.payload?.settings;
+        if (settings && settings.currency) {
           localStorage.setItem('restaurant_db_settings', JSON.stringify(settings));
           notifyDbListeners();
         }
@@ -183,30 +188,56 @@ class RealtimeSyncService {
   }
 
   public broadcastOrderCreated(order: Order, notification?: Notification) {
+    const compressedOrder: Order = {
+      ...order,
+      items: order.items.map((i) => ({
+        id: i.id,
+        menuItemId: i.menuItemId,
+        menuItemName: i.menuItemName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        totalPrice: i.totalPrice,
+        status: i.status || 'pending',
+      })),
+    };
+
     const msg: SyncMessage = {
       type: 'ORDER_CREATED',
-      payload: { order, notification },
+      payload: { order: compressedOrder, notification },
       senderId: SENDER_ID,
     };
-    this.sendToCloud('order', msg);
+    this.sendToCloud(msg);
   }
 
   public broadcastOrderUpdated(order: Order) {
+    const compressedOrder: Order = {
+      ...order,
+      items: order.items.map((i) => ({
+        id: i.id,
+        menuItemId: i.menuItemId,
+        menuItemName: i.menuItemName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        totalPrice: i.totalPrice,
+        status: i.status || 'pending',
+      })),
+    };
+
     const msg: SyncMessage = {
       type: 'ORDER_UPDATED',
-      payload: { order },
+      payload: { order: compressedOrder },
       senderId: SENDER_ID,
     };
-    this.sendToCloud('update', msg);
+    this.sendToCloud(msg);
   }
 
   public broadcastSettingsUpdated(settings: AppSettings) {
     const msg: SyncMessage = {
       type: 'SETTINGS_UPDATED',
-      payload: { settings },
+      payload: { settings: { ...settings, updatedAt: new Date().toISOString() } },
       senderId: SENDER_ID,
     };
-    this.sendToCloud('settings', msg);
+    this.sendToCloud(msg);
   }
 }
 
