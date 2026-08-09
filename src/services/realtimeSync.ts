@@ -10,6 +10,7 @@ interface SyncMessage {
 const SENDER_ID = Math.random().toString(36).substring(2, 10);
 const TOPIC = 'restaurant_pos_b4pkadam';
 const NTFY_URL = `https://ntfy.sh/${TOPIC}`;
+const REST_CLOUD_URL = 'https://api.restful-api.dev/objects';
 
 class RealtimeSyncService {
   private eventSource: EventSource | null = null;
@@ -77,32 +78,34 @@ class RealtimeSyncService {
 
   private startPolling() {
     if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll ntfy.sh every 2 seconds for recent events
+    // Poll endpoints every 2 seconds for recent events
     this.pollInterval = setInterval(() => this.pollEvents(), 2000);
     this.pollEvents();
   }
 
   private async pollEvents() {
+    // 1. Poll ntfy.sh stream
     try {
       const res = await fetch(`${NTFY_URL}/json?poll=1&since=2m`);
-      if (!res.ok) return;
-      const text = await res.text();
-      const lines = text.trim().split('\n');
+      if (res.ok) {
+        const text = await res.text();
+        const lines = text.trim().split('\n');
 
-      for (const line of lines) {
-        if (!line) continue;
-        try {
-          const data = JSON.parse(line);
-          if (data.event === 'message' && data.message) {
-            if (data.id && this.processedMessageIds.has(data.id)) continue;
-            if (data.id) this.processedMessageIds.add(data.id);
+        for (const line of lines) {
+          if (!line) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.event === 'message' && data.message) {
+              if (data.id && this.processedMessageIds.has(data.id)) continue;
+              if (data.id) this.processedMessageIds.add(data.id);
 
-            const msg: SyncMessage = JSON.parse(data.message);
-            if (msg && msg.senderId !== SENDER_ID) {
-              await this.handleIncomingMessage(msg);
+              const msg: SyncMessage = JSON.parse(data.message);
+              if (msg && msg.senderId !== SENDER_ID) {
+                await this.handleIncomingMessage(msg);
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
       }
     } catch {
       // Ignore polling errors
@@ -118,7 +121,19 @@ class RealtimeSyncService {
       body: payload,
     }).catch(() => {});
 
-    // 2. Broadcast to local tab/window instances
+    // 2. Post to RESTful API Cloud Objects Backup Store for persistent cloud sync
+    if (msg.type === 'ORDER_CREATED') {
+      fetch(REST_CLOUD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'restaurant_pos_b4pkadam_msg',
+          data: msg,
+        }),
+      }).catch(() => {});
+    }
+
+    // 3. Broadcast to local tab/window instances
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const bc = new BroadcastChannel('restaurant_db_channel');

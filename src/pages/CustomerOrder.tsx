@@ -219,8 +219,8 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
     switch (status) {
       case 'active':
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Order Sent to Kitchen 📋
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800 dark:bg-green-900/40 dark:text-green-300 border border-green-300 dark:border-green-700">
+            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" /> Order Placed ✅
           </span>
         );
       case 'preparing':
