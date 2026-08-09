@@ -63,11 +63,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isCollapsed ? 'justify-center' : 'justify-between'
       )}>
         {!isCollapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
               <UtensilsCrossed className="w-5 h-5 text-white" />
             </div>
-            <span className="font-bold text-gray-900 dark:text-white truncate">
+            <span className="font-bold text-gray-900 dark:text-white truncate block min-w-0" title={settings.restaurantName}>
               {settings.restaurantName}
             </span>
           </div>

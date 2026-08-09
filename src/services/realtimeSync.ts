@@ -1,7 +1,7 @@
 import type { Order, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'REQUEST_INITIAL_SYNC' | 'INITIAL_SYNC_RESPONSE';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'REQUEST_INITIAL_SYNC' | 'INITIAL_SYNC_RESPONSE' | 'ORDER_ACK';
   payload: any;
   senderId: string;
 }
@@ -16,6 +16,7 @@ class RealtimeSyncService {
   private isInitialized = false;
   private pollInterval: any = null;
   private processedMessageIds = new Set<string>();
+  private pendingOrderAcks = new Map<string, { order: Order; notification?: Notification; retryTimer: any }>();
 
   public init() {
     if (this.isInitialized) return;
@@ -25,13 +26,15 @@ class RealtimeSyncService {
     this.startPolling();
 
     // Broadcast initial sync request to get active state from online devices
-    setTimeout(() => {
-      this.send({
-        type: 'REQUEST_INITIAL_SYNC',
-        payload: {},
-        senderId: SENDER_ID,
-      });
-    }, 500);
+    this.requestInitialSync();
+  }
+
+  public requestInitialSync() {
+    this.send({
+      type: 'REQUEST_INITIAL_SYNC',
+      payload: {},
+      senderId: SENDER_ID,
+    });
   }
 
   private connectStream() {
@@ -81,7 +84,7 @@ class RealtimeSyncService {
 
   private async pollEvents() {
     try {
-      const res = await fetch(`${NTFY_URL}/json?poll=1&since=1m`);
+      const res = await fetch(`${NTFY_URL}/json?poll=1&since=2m`);
       if (!res.ok) return;
       const text = await res.text();
       const lines = text.trim().split('\n');
@@ -134,6 +137,13 @@ class RealtimeSyncService {
         const order: Order = message.payload.order;
         const notif: Notification = message.payload.notification;
 
+        // Send ACK back to mobile sender
+        this.send({
+          type: 'ORDER_ACK',
+          payload: { orderId: order.id },
+          senderId: SENDER_ID,
+        });
+
         const existing = orderDB.getById(order.id);
         if (!existing) {
           const orders = orderDB.getAll();
@@ -165,6 +175,16 @@ class RealtimeSyncService {
 
           notifyDbListeners();
           this.playAlertSound();
+        }
+        break;
+      }
+
+      case 'ORDER_ACK': {
+        const orderId: string = message.payload.orderId;
+        if (orderId && this.pendingOrderAcks.has(orderId)) {
+          const pending = this.pendingOrderAcks.get(orderId);
+          if (pending?.retryTimer) clearInterval(pending.retryTimer);
+          this.pendingOrderAcks.delete(orderId);
         }
         break;
       }
@@ -255,11 +275,27 @@ class RealtimeSyncService {
   }
 
   public broadcastOrderCreated(order: Order, notification?: Notification) {
-    this.send({
+    const msg: SyncMessage = {
       type: 'ORDER_CREATED',
       payload: { order, notification },
       senderId: SENDER_ID,
-    });
+    };
+
+    this.send(msg);
+
+    // Guaranteed ACK retry loop: retry sending every 1.5s for up to 15s until ACK is received from Desktop PC
+    let attempts = 0;
+    const retryTimer = setInterval(() => {
+      attempts++;
+      if (attempts > 10 || !this.pendingOrderAcks.has(order.id)) {
+        clearInterval(retryTimer);
+        this.pendingOrderAcks.delete(order.id);
+        return;
+      }
+      this.send(msg);
+    }, 1500);
+
+    this.pendingOrderAcks.set(order.id, { order, notification, retryTimer });
   }
 
   public broadcastOrderUpdated(order: Order) {

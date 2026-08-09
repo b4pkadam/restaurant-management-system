@@ -173,16 +173,8 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
   const placeOrder = () => {
     if (cart.length === 0) return;
-    if (!customerName.trim()) {
-      setShowNameModal(true);
-      return;
-    }
 
-    // Save customer name & phone for future orders
-    localStorage.setItem('customer_name', customerName.trim());
-    if (customerPhone.trim()) {
-      localStorage.setItem('customer_phone', customerPhone.trim());
-    }
+    const finalCustomerName = customerName.trim() || `Table ${tableNumber}`;
 
     const orderItems: OrderItem[] = cart.map((item) => ({
       id: item.id,
@@ -205,7 +197,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       discountType: 'fixed',
       total,
       status: 'active',
-      customerName: customerName.trim(),
+      customerName: finalCustomerName,
       customerPhone: customerPhone.trim() || undefined,
       notes: `QR Order from Table ${tableNumber}`,
     });
@@ -703,56 +695,6 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Customer Name Modal */}
-      {showNameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Enter Your Name</h3>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Please enter your name so our staff can serve your table correctly.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              <input
-                type="text"
-                placeholder="Your Name (e.g. John)"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 p-3 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                autoFocus
-              />
-              <input
-                type="tel"
-                placeholder="Phone Number (Optional)"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 p-3 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              />
-            </div>
-
-            <div className="mt-5 flex gap-2">
-              <button
-                onClick={() => setShowNameModal(false)}
-                className="flex-1 rounded-xl bg-gray-100 py-2.5 font-semibold text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (customerName.trim()) {
-                    setShowNameModal(false);
-                    placeOrder();
-                  }
-                }}
-                className="flex-1 rounded-xl bg-blue-600 py-2.5 font-semibold text-white hover:bg-blue-700"
-              >
-                Confirm & Order
-              </button>
-            </div>
           </div>
         </div>
       )}
