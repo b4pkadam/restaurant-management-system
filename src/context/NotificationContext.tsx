@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import type { Notification } from '../types';
-import { notificationDB } from '../database/db';
+import { notificationDB, subscribeDb } from '../database/db';
 
 interface NotificationContextType {
   notifications: Notification[];
@@ -23,6 +23,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   useEffect(() => {
     refresh();
+    const unsubscribe = subscribeDb(refresh);
+    return unsubscribe;
   }, [refresh]);
 
   const addNotification = (type: Notification['type'], title: string, message: string) => {

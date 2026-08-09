@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useDbUpdate } from '../hooks/useDbUpdate';
+import { formatCurrency, SUPPORTED_CURRENCIES } from '../utils/formatCurrency';
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -136,8 +138,8 @@ function SectionHeader({
   );
 }
 
-function currency(value: number, symbol = settingsDB.get().currencySymbol) {
-  return `${symbol}${value.toFixed(2)}`;
+function currency(value: number, symbol?: string) {
+  return formatCurrency(value, symbol);
 }
 
 function downloadFile(filename: string, content: string, type: string) {
@@ -653,6 +655,7 @@ export function MenuManagementPage() {
 }
 
 export function OrdersManagementPage() {
+  useDbUpdate();
   const { success } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
@@ -841,6 +844,7 @@ export function OrdersManagementPage() {
 }
 
 export function KitchenDisplayPage() {
+  useDbUpdate();
   const { success } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
@@ -943,6 +947,7 @@ export function KitchenDisplayPage() {
 }
 
 export function TableManagementPage() {
+  useDbUpdate();
   const { success, error } = useToast();
   const { user } = useAuth();
   const [tables, setTables] = useState<Table[]>([]);
@@ -1505,6 +1510,7 @@ export function InventoryManagementPage() {
 }
 
 export function SuppliersPage() {
+  useDbUpdate();
   const { success, error } = useToast();
   const { user } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -2054,6 +2060,7 @@ export function ReportsPage() {
 }
 
 export function SettingsPage() {
+  useDbUpdate();
   const { success, error, info } = useToast();
   const { setTheme } = useTheme();
   const [form, setForm] = useState<AppSettings>(settingsDB.get());
@@ -2108,8 +2115,32 @@ export function SettingsPage() {
             <Input label="GST Number" value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
             <Input label="Tax Percentage" type="number" value={String(form.taxPercentage)} onChange={(e) => setForm((prev) => ({ ...prev, taxPercentage: Number(e.target.value) }))} />
             <Input label="Backup Interval (hours)" type="number" value={String(form.backupInterval)} onChange={(e) => setForm((prev) => ({ ...prev, backupInterval: Number(e.target.value) }))} />
-            <Input label="Currency Code" value={form.currency} onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))} />
-            <Input label="Currency Symbol" value={form.currencySymbol} onChange={(e) => setForm((prev) => ({ ...prev, currencySymbol: e.target.value }))} />
+            <Select
+              label="Region & Currency"
+              value={form.currency}
+              onChange={(e) => {
+                const code = e.target.value;
+                const preset = SUPPORTED_CURRENCIES.find((c) => c.code === code);
+                if (preset) {
+                  setForm((prev) => ({
+                    ...prev,
+                    currency: preset.code,
+                    currencySymbol: preset.symbol,
+                  }));
+                } else {
+                  setForm((prev) => ({ ...prev, currency: code }));
+                }
+              }}
+              options={SUPPORTED_CURRENCIES.map((c) => ({
+                value: c.code,
+                label: `${c.label} (${c.region})`,
+              }))}
+            />
+            <Input
+              label="Currency Symbol"
+              value={form.currencySymbol}
+              onChange={(e) => setForm((prev) => ({ ...prev, currencySymbol: e.target.value }))}
+            />
           </div>
         </Card>
 

@@ -12,8 +12,11 @@ import {
 import { format } from 'date-fns';
 import { orderDB, tableDB, analyticsDB, settingsDB } from '../database/db';
 import { cn } from '../utils/cn';
+import { useDbUpdate } from '../hooks/useDbUpdate';
+import { formatCurrency } from '../utils/formatCurrency';
 
 export const Dashboard: React.FC = () => {
+  useDbUpdate();
   const settings = settingsDB.get();
   const today = new Date().toISOString().split('T')[0];
   
@@ -62,7 +65,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Today's Revenue"
-          value={`${settings.currencySymbol}${todaySales.totalRevenue.toFixed(2)}`}
+          value={formatCurrency(todaySales.totalRevenue)}
           icon={<DollarSign size={24} />}
           color="green"
         />
@@ -120,7 +123,7 @@ export const Dashboard: React.FC = () => {
                     borderRadius: '8px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                   }}
-                  formatter={(value) => [`${settings.currencySymbol}${Number(value).toFixed(2)}`, 'Revenue']}
+                  formatter={(value) => [formatCurrency(Number(value)), 'Revenue']}
                 />
                 <Bar dataKey="revenue" fill="#3B82F6" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -151,7 +154,7 @@ export const Dashboard: React.FC = () => {
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value) => [`${settings.currencySymbol}${Number(value).toFixed(2)}`]}
+                    formatter={(value) => [formatCurrency(Number(value))]}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -213,7 +216,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-gray-900 dark:text-white">
-                      {settings.currencySymbol}{order.total.toFixed(2)}
+                      {formatCurrency(order.total)}
                     </p>
                     <Badge
                       variant={
@@ -270,7 +273,7 @@ export const Dashboard: React.FC = () => {
                     </div>
                   </div>
                   <p className="font-semibold text-green-600 dark:text-green-400">
-                    {settings.currencySymbol}{item.revenue.toFixed(2)}
+                    {formatCurrency(item.revenue)}
                   </p>
                 </div>
               ))

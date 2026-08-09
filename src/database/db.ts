@@ -8,6 +8,52 @@ import type {
 
 const DB_PREFIX = 'restaurant_db_';
 
+// Event broadcasting for cross-tab and reactive updates
+const listeners = new Set<() => void>();
+let broadcastChannel: BroadcastChannel | null = null;
+try {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    broadcastChannel = new BroadcastChannel('restaurant_db_channel');
+    broadcastChannel.onmessage = () => {
+      listeners.forEach((cb) => cb());
+    };
+  }
+} catch {
+  // Fallback
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key && e.key.startsWith(DB_PREFIX)) {
+      listeners.forEach((cb) => cb());
+    }
+  });
+  window.addEventListener('db-update', () => {
+    listeners.forEach((cb) => cb());
+  });
+}
+
+export function subscribeDb(callback: () => void): () => void {
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
+export function notifyDbListeners(): void {
+  listeners.forEach((cb) => cb());
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('db-update'));
+  }
+  if (broadcastChannel) {
+    try {
+      broadcastChannel.postMessage('db-update');
+    } catch {
+      // ignore
+    }
+  }
+}
+
 // Generic storage functions
 function getCollection<T>(key: string): T[] {
   const data = localStorage.getItem(DB_PREFIX + key);
@@ -16,6 +62,7 @@ function getCollection<T>(key: string): T[] {
 
 function setCollection<T>(key: string, data: T[]): void {
   localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+  notifyDbListeners();
 }
 
 function getItem<T>(key: string): T | null {
@@ -25,6 +72,7 @@ function getItem<T>(key: string): T | null {
 
 function setItem<T>(key: string, data: T): void {
   localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+  notifyDbListeners();
 }
 
 // User Management
@@ -290,8 +338,24 @@ export const orderDB = {
   
   create: (order: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Order => {
     const orders = orderDB.getAll();
+    let targetTableId = order.tableId;
+
+    if (!targetTableId && order.tableNumber) {
+      let existingTable = tableDB.getByNumber(order.tableNumber);
+      if (!existingTable) {
+        existingTable = tableDB.create({
+          number: order.tableNumber,
+          capacity: 4,
+          status: 'occupied',
+          qrCode: `?table=${order.tableNumber}`,
+        });
+      }
+      targetTableId = existingTable.id;
+    }
+
     const newOrder: Order = {
       ...order,
+      tableId: targetTableId,
       id: uuidv4(),
       orderNumber: orderDB.generateOrderNumber(),
       createdAt: new Date().toISOString()
@@ -300,8 +364,8 @@ export const orderDB = {
     setCollection('orders', orders);
     
     // Update table status if dine-in
-    if (order.tableId) {
-      tableDB.update(order.tableId, { 
+    if (targetTableId) {
+      tableDB.update(targetTableId, { 
         status: 'occupied', 
         currentOrderId: newOrder.id 
       });

@@ -17,12 +17,15 @@ import {
 } from '../database/db';
 import type { MenuItem, OrderItem, Table } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useDbUpdate } from '../hooks/useDbUpdate';
+import { formatCurrency } from '../utils/formatCurrency';
 
 interface CartItem extends OrderItem {
   menuItem: MenuItem;
 }
 
 export const POSPage: React.FC = () => {
+  useDbUpdate();
   const { user } = useAuth();
   const { success, error } = useToast();
   const settings = settingsDB.get();
@@ -328,7 +331,7 @@ export const POSPage: React.FC = () => {
                       {item.name}
                     </h4>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {settings.currencySymbol}{item.price.toFixed(2)}
+                      {formatCurrency(item.price)}
                     </p>
                   </div>
                   <span className={cn(
@@ -474,21 +477,21 @@ export const POSPage: React.FC = () => {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between text-gray-600 dark:text-gray-400">
                 <span>Subtotal</span>
-                <span>{settings.currencySymbol}{subtotal.toFixed(2)}</span>
+                <span>{formatCurrency(subtotal)}</span>
               </div>
               {discountAmount > 0 && (
                 <div className="flex justify-between text-green-600 dark:text-green-400">
                   <span>Discount</span>
-                  <span>-{settings.currencySymbol}{discountAmount.toFixed(2)}</span>
+                  <span>-{formatCurrency(discountAmount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-gray-600 dark:text-gray-400">
                 <span>Tax ({settings.taxPercentage}%)</span>
-                <span>{settings.currencySymbol}{taxAmount.toFixed(2)}</span>
+                <span>{formatCurrency(taxAmount)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white pt-2 border-t border-gray-200 dark:border-gray-600">
                 <span>Total</span>
-                <span>{settings.currencySymbol}{total.toFixed(2)}</span>
+                <span>{formatCurrency(total)}</span>
               </div>
             </div>
 
@@ -499,7 +502,7 @@ export const POSPage: React.FC = () => {
               onClick={() => setShowPaymentModal(true)}
               leftIcon={<CreditCard size={20} />}
             >
-              Pay {settings.currencySymbol}{total.toFixed(2)} (F3)
+              Pay {formatCurrency(total)} (F3)
             </Button>
           </div>
         )}

@@ -25,7 +25,7 @@ import { initializeSampleData, inventoryDB, notificationDB, settingsDB } from '.
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { AlertTriangle, Bell, Laptop2, UtensilsCrossed } from 'lucide-react';
-import { canViewPage, getDefaultPageForRole, type AppPage } from './utils/access';
+import { useDbUpdate } from './hooks/useDbUpdate';
 
 type Page = AppPage;
 
@@ -72,6 +72,7 @@ function useAutoBackup() {
 }
 
 function AppShell() {
+  useDbUpdate();
   const { isAuthenticated, user } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
