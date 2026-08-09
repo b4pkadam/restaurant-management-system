@@ -1,4 +1,4 @@
-import type { Order, Table, Notification, AppSettings } from '../types';
+import type { Order, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
   type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'REQUEST_INITIAL_SYNC' | 'INITIAL_SYNC_RESPONSE';
@@ -8,101 +8,121 @@ interface SyncMessage {
 
 // Unique ID for this browser session
 const SENDER_ID = Math.random().toString(36).substring(2, 10);
+const TOPIC = 'restaurant_pos_b4pkadam';
+const NTFY_URL = `https://ntfy.sh/${TOPIC}`;
 
 class RealtimeSyncService {
-  private ws: WebSocket | null = null;
-  private isConnected = false;
-  private reconnectTimer: any = null;
-  private outboxQueue: SyncMessage[] = [];
+  private eventSource: EventSource | null = null;
+  private isInitialized = false;
+  private pollInterval: any = null;
+  private processedMessageIds = new Set<string>();
 
   public init() {
-    this.connect();
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+
+    this.connectStream();
+    this.startPolling();
+
+    // Broadcast initial sync request to get active state from online devices
+    setTimeout(() => {
+      this.send({
+        type: 'REQUEST_INITIAL_SYNC',
+        payload: {},
+        senderId: SENDER_ID,
+      });
+    }, 500);
   }
 
-  private async connect() {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
-
+  private connectStream() {
     try {
-      // Use a fixed unified channel key so all physical devices (PC & phones) join the same room
-      const channelName = 'restaurant_system_b4pkadam';
-      const wsUrl = `wss://free.piesocket.com/v3/${channelName}?api_key=VC5my8yAODEYUZWOjJVZ6OSi8aIc2kaXAkySubBu&notify_self=0`;
+      if (typeof window === 'undefined' || !('EventSource' in window)) return;
 
-      this.ws = new WebSocket(wsUrl);
+      if (this.eventSource) {
+        try {
+          this.eventSource.close();
+        } catch {}
+      }
 
-      this.ws.onopen = () => {
-        this.isConnected = true;
+      this.eventSource = new EventSource(`${NTFY_URL}/sse`);
 
-        // Flush outbox queue of messages generated while connecting/offline
-        while (this.outboxQueue.length > 0) {
-          const pending = this.outboxQueue.shift();
-          if (pending) {
-            try {
-              this.ws?.send(JSON.stringify(pending));
-            } catch {
-              // Ignore send error
+      this.eventSource.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'message' && data.message) {
+            if (data.id && this.processedMessageIds.has(data.id)) return;
+            if (data.id) this.processedMessageIds.add(data.id);
+
+            const msg: SyncMessage = JSON.parse(data.message);
+            if (msg && msg.senderId !== SENDER_ID) {
+              await this.handleIncomingMessage(msg);
             }
           }
-        }
-
-        // Request existing active orders and settings from other online devices
-        this.send({
-          type: 'REQUEST_INITIAL_SYNC',
-          payload: {},
-          senderId: SENDER_ID,
-        });
-      };
-
-      this.ws.onmessage = async (event) => {
-        try {
-          const message: SyncMessage = JSON.parse(event.data);
-          if (message.senderId === SENDER_ID) return; // Ignore self messages
-
-          await this.handleIncomingMessage(message);
         } catch {
           // Ignore invalid JSON
         }
       };
 
-      this.ws.onclose = () => {
-        this.isConnected = false;
-        this.scheduleReconnect();
-      };
-
-      this.ws.onerror = () => {
-        this.isConnected = false;
-        if (this.ws) {
-          try {
-            this.ws.close();
-          } catch {}
-        }
+      this.eventSource.onerror = () => {
+        // Reconnect after 3 seconds
+        setTimeout(() => this.connectStream(), 3000);
       };
     } catch {
-      this.scheduleReconnect();
+      // Stream fallback handled by polling
     }
   }
 
-  private scheduleReconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => {
-      this.connect();
-    }, 2000);
+  private startPolling() {
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    // Poll ntfy.sh every 3 seconds for recent events
+    this.pollInterval = setInterval(() => this.pollEvents(), 3000);
+    this.pollEvents();
+  }
+
+  private async pollEvents() {
+    try {
+      const res = await fetch(`${NTFY_URL}/json?poll=1&since=1m`);
+      if (!res.ok) return;
+      const text = await res.text();
+      const lines = text.trim().split('\n');
+
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.event === 'message' && data.message) {
+            if (data.id && this.processedMessageIds.has(data.id)) continue;
+            if (data.id) this.processedMessageIds.add(data.id);
+
+            const msg: SyncMessage = JSON.parse(data.message);
+            if (msg && msg.senderId !== SENDER_ID) {
+              await this.handleIncomingMessage(msg);
+            }
+          }
+        } catch {}
+      }
+    } catch {
+      // Ignore polling errors
+    }
   }
 
   private send(msg: SyncMessage) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      try {
-        this.ws.send(JSON.stringify(msg));
-        return;
-      } catch {
-        // Fall through to queueing
-      }
-    }
+    const payload = JSON.stringify(msg);
 
-    // Queue message in outbox if socket is connecting or temporarily disconnected
-    this.outboxQueue.push(msg);
-    this.connect();
+    // 1. Post to ntfy.sh public cloud relay (works on all networks & browsers)
+    fetch(NTFY_URL, {
+      method: 'POST',
+      body: payload,
+    }).catch(() => {});
+
+    // 2. Broadcast to local tab/window instances
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('restaurant_db_channel');
+        bc.postMessage({ type: 'SYNC_MSG', msg });
+        bc.close();
+      }
+    } catch {}
   }
 
   private async handleIncomingMessage(message: SyncMessage) {
