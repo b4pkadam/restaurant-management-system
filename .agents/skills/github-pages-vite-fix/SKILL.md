@@ -2,61 +2,36 @@
 name: github-pages-vite-fix
 description: >-
   Diagnose, fix, and automate GitHub Pages deployment for React, Vite, and single-page apps (SPA)
-  when the published GitHub Pages site shows a blank page or fails to load assets.
+  when the published GitHub Pages site shows a blank page, artifact errors, or deployment failures.
 ---
 
-# GitHub Pages Blank Page Fixer for Vite & React Projects
+# GitHub Pages Blank Page & Workflow Fixer for Vite & React Projects
 
-This skill provides step-by-step diagnostic and remediation workflows when a React / Vite single-page application (SPA) published to GitHub Pages displays a **blank white page**, Node deprecation warnings, or asset loading errors.
+This skill provides step-by-step diagnostic and remediation workflows when a React / Vite single-page application (SPA) published to GitHub Pages displays a **blank white page**, artifact duplication errors (`Multiple artifacts named "github-pages" unexpectedly found`), or Node runner deprecation warnings.
 
 ---
 
-## Root Causes of Blank Pages on GitHub Pages
+## Root Causes of Blank Pages & Workflow Failures
 
-1. **Incorrect Base Path or Missing `base` in `vite.config.ts`**:
+1. **"Multiple artifacts named 'github-pages' were unexpectedly found" Error**:
+   Combining `upload-pages-artifact` and `deploy-pages` in a single job causes duplicate artifact uploads when re-running or retrying workflow steps. GitHub Actions retains multiple `github-pages` artifacts under the same run ID, causing `deploy-pages@v4` to fail.
+   **Fix**: Separate the workflow into two distinct jobs: `build` (which uploads the artifact) and `deploy` (which depends on `build` via `needs: build`).
+
+2. **Incorrect Base Path in `vite.config.ts`**:
    By default, Vite assumes root hosting (`/`). GitHub Pages repositories are hosted under a subpath `https://<user>.github.io/<repo-name>/`. Setting `base: '/<repo-name>/'` (e.g. `base: '/restaurant-management-system/'`) ensures Vite generates exact asset URLs pointing to the repository path.
 
-2. **Using `vite-plugin-singlefile` on Web Hosts**:
+3. **Using `vite-plugin-singlefile` on Web Hosts**:
    `viteSingleFile()` inlines all JS/CSS into a single massive `index.html` file (~1.7 MB). Browsers often fail to parse or execute huge inline `<script type="module">` tags, causing a silent JavaScript failure and leaving `<div id="root"></div>` blank. Removing `viteSingleFile()` allows standard, fast Vite chunking (`dist/assets/index-xxx.js`).
 
-3. **Deploying Raw Source Code instead of Built Bundle (`dist/`)**:
+4. **Deploying Raw Source Code instead of Built Bundle (`dist/`)**:
    If GitHub Pages is set to deploy directly from the `main` branch root, browsers receive uncompiled `<script type="module" src="/src/main.tsx"></script>`. Browsers cannot parse `.tsx` / JSX natively, leaving the page blank.
 
-4. **Node 20 Deprecation Warning in GitHub Actions**:
+5. **Node 20 Deprecation Warning in GitHub Actions**:
    GitHub Actions runners have deprecated Node 20. Workflows should specify `node-version: 22` (or latest LTS).
 
 ---
 
-## Remediation Workflow
-
-### Step 1: Configure `vite.config.ts`
-
-Set the exact base path matching your repository name (e.g. `base: "/restaurant-management-system/"`) and use standard Vite asset plugins (remove `viteSingleFile()`):
-
-```typescript
-import path from "path";
-import { fileURLToPath } from "url";
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default defineConfig({
-  base: "/restaurant-management-system/",
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
-  },
-});
-```
-
-### Step 2: Update GitHub Actions Workflow (`.github/workflows/deploy.yml`)
-
-Use `node-version: 22` to avoid runner deprecation warnings and automate production builds:
+## Standard 2-Job GitHub Actions Workflow (`.github/workflows/deploy.yml`)
 
 ```yaml
 name: Deploy to GitHub Pages
@@ -76,10 +51,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -105,18 +77,26 @@ jobs:
         with:
           path: './dist'
 
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 ```
 
-### Step 3: Verify & Deploy
+---
 
-1. Run `npm run build` locally to verify clean compilation:
-   - Check `dist/index.html` to confirm asset links point to `/restaurant-management-system/assets/index-xxx.js`.
-2. Push changes:
+## Verification & Deployment
+
+1. Commit and push the changes:
    ```bash
-   git add .
-   git commit -m "Fix GitHub Pages blank page asset paths and update Node runner version"
+   git add .github/workflows/deploy.yml
+   git commit -m "Fix GitHub Actions artifact conflict by using 2-job build and deploy architecture"
    git push origin main
    ```
+2. In GitHub repository settings → Pages → Source: ensure **GitHub Actions** is selected.
