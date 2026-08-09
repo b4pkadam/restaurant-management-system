@@ -1,4 +1,3 @@
-import { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners } from '../database/db';
 import type { Order, Table, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
@@ -19,10 +18,12 @@ class RealtimeSyncService {
     this.connect();
   }
 
-  private connect() {
+  private async connect() {
     try {
+      // Dynamic import to prevent circular top-level dependency
+      const { settingsDB } = await import('../database/db');
       const settings = settingsDB.get();
-      const channelName = encodeURIComponent((settings.restaurantName || 'default').toLowerCase().replace(/\s+/g, '_'));
+      const channelName = encodeURIComponent((settings?.restaurantName || 'default').toLowerCase().replace(/\s+/g, '_'));
       const wsUrl = `wss://free.piesocket.com/v3/${channelName}?api_key=VC5my8yAODEYUZWOjJVZ6OSi8aIc2kaXAkySubBu&notify_self=0`;
 
       this.ws = new WebSocket(wsUrl);
@@ -37,12 +38,12 @@ class RealtimeSyncService {
         });
       };
 
-      this.ws.onmessage = (event) => {
+      this.ws.onmessage = async (event) => {
         try {
           const message: SyncMessage = JSON.parse(event.data);
           if (message.senderId === SENDER_ID) return; // Ignore self messages
 
-          this.handleIncomingMessage(message);
+          await this.handleIncomingMessage(message);
         } catch {
           // Ignore invalid JSON
         }
@@ -81,7 +82,10 @@ class RealtimeSyncService {
     }
   }
 
-  private handleIncomingMessage(message: SyncMessage) {
+  private async handleIncomingMessage(message: SyncMessage) {
+    // Dynamically import database module to break top-level circular dependency
+    const { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners } = await import('../database/db');
+
     switch (message.type) {
       case 'ORDER_CREATED': {
         const order: Order = message.payload.order;

@@ -5,9 +5,17 @@ import type {
   User, Employee, Category, MenuItem, Table, Order, Payment,
   Supplier, InventoryItem, PurchaseEntry, DailySales, Notification, AppSettings
 } from '../types';
-import { realtimeSync } from '../services/realtimeSync';
-
 const DB_PREFIX = 'restaurant_db_';
+
+function broadcastSync(action: (sync: typeof import('../services/realtimeSync').realtimeSync) => void) {
+  import('../services/realtimeSync').then(({ realtimeSync }) => {
+    try {
+      action(realtimeSync);
+    } catch {
+      // ignore
+    }
+  }).catch(() => {});
+}
 
 // Event broadcasting for cross-tab and reactive updates
 const listeners = new Set<() => void>();
@@ -373,7 +381,7 @@ export const orderDB = {
     }
     
     // Broadcast to other physical devices (PC/phones) via WebSocket
-    realtimeSync.broadcastOrderCreated(newOrder);
+    broadcastSync((s) => s.broadcastOrderCreated(newOrder));
 
     return newOrder;
   },
@@ -387,7 +395,7 @@ export const orderDB = {
     setCollection('orders', orders);
 
     // Broadcast status change to other physical devices (customer phone / PC)
-    realtimeSync.broadcastOrderUpdated(orders[index]);
+    broadcastSync((s) => s.broadcastOrderUpdated(orders[index]));
 
     return orders[index];
   },
@@ -640,7 +648,7 @@ export const settingsDB = {
     const current = settingsDB.get();
     const updated = { ...current, ...updates };
     setItem('settings', updated);
-    realtimeSync.broadcastSettingsUpdated(updated);
+    broadcastSync((s) => s.broadcastSettingsUpdated(updated));
     return updated;
   }
 };

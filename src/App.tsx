@@ -26,7 +26,6 @@ import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
 import { AlertTriangle, Bell, Laptop2, UtensilsCrossed } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
-import { realtimeSync } from './services/realtimeSync';
 
 type Page = AppPage;
 
@@ -99,7 +98,9 @@ function AppShell() {
   // Initialize sample data & real-time cross-device sync
   useEffect(() => {
     initializeSampleData();
-    realtimeSync.init();
+    import('./services/realtimeSync').then(({ realtimeSync }) => {
+      realtimeSync.init();
+    });
 
     const lowStockItems = inventoryDB.getLowStock();
     if (lowStockItems.length > 0) {
