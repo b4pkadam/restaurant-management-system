@@ -3,8 +3,15 @@ import { APP_VERSION, BUILD_TIMESTAMP } from '../utils/version';
 import { useAuth } from '../context/AuthContext';
 
 export const VersionBadge: React.FC = () => {
-  const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
+  let user = null;
+
+  try {
+    const auth = useAuth();
+    user = auth?.user;
+  } catch {
+    // Gracefully handle rendering outside AuthProvider
+  }
 
   // Show ONLY in staff/admin logged-in mode on Desktop PC
   if (!user) return null;
