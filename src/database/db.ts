@@ -98,16 +98,25 @@ function safeHashPassword(password: string): string {
 
 function safeComparePassword(password: string, hash: string): boolean {
   if (!password || !hash) return false;
-  if (hash.startsWith('$2')) {
+  const p = password.trim();
+  const h = hash.trim();
+
+  // Direct comparison (fastest & handles unhashed seed data)
+  if (p === h) return true;
+  if (btoa(p) === h) return true;
+
+  // Bcrypt comparison
+  if (h.startsWith('$2')) {
     try {
       if (bcrypt && typeof bcrypt.compareSync === 'function') {
-        return bcrypt.compareSync(password, hash);
+        return bcrypt.compareSync(p, h);
       }
     } catch {
       // ignore
     }
   }
-  return password === hash || btoa(password) === hash;
+
+  return false;
 }
 
 // User Management
@@ -119,7 +128,8 @@ export const userDB = {
   },
   
   getByUsername: (username: string): User | undefined => {
-    return userDB.getAll().find(u => u.username.toLowerCase() === username.toLowerCase());
+    const clean = (username || '').trim().toLowerCase();
+    return userDB.getAll().find(u => (u.username || '').trim().toLowerCase() === clean);
   },
   
   create: (user: Omit<User, 'id' | 'createdAt'>): User => {
@@ -159,9 +169,19 @@ export const userDB = {
   },
   
   authenticate: (username: string, password: string): User | null => {
-    const user = userDB.getByUsername(username);
+    const cleanUsername = (username || '').trim();
+    const cleanPassword = (password || '').trim();
+
+    let user = userDB.getByUsername(cleanUsername);
+    
+    // Auto-repair: If user not found in local storage, ensure sample data is seeded
+    if (!user) {
+      initializeSampleData();
+      user = userDB.getByUsername(cleanUsername);
+    }
+
     if (!user || !user.isActive) return null;
-    if (!safeComparePassword(password, user.password)) return null;
+    if (!safeComparePassword(cleanPassword, user.password)) return null;
     
     userDB.update(user.id, { lastLogin: new Date().toISOString() });
     return user;
@@ -807,26 +827,28 @@ export const backupDB = {
 
 // Initialize with sample data
 export const initializeSampleData = (): void => {
-  // Check if already initialized
-  if (userDB.getAll().length > 0) return;
-  
-  if (initialDbData) {
-    try {
-      if (initialDbData.settings) setItem('settings', initialDbData.settings);
-      if (initialDbData.users) setCollection('users', initialDbData.users);
-      if (initialDbData.employees) setCollection('employees', initialDbData.employees);
-      if (initialDbData.categories) setCollection('categories', initialDbData.categories);
-      if (initialDbData.menuItems) setCollection('menuItems', initialDbData.menuItems);
-      if (initialDbData.tables) setCollection('tables', initialDbData.tables);
-      if (initialDbData.suppliers) setCollection('suppliers', initialDbData.suppliers);
-      if (initialDbData.inventory) setCollection('inventory', initialDbData.inventory);
-      if (userDB.getAll().length > 0) return;
-    } catch {
-      // Fallback
+  const users = userDB.getAll();
+  const hasAdmin = users.some(u => (u.username || '').toLowerCase() === 'admin');
+
+  if (!hasAdmin || users.length === 0) {
+    if (initialDbData) {
+      try {
+        if (initialDbData.settings) setItem('settings', initialDbData.settings);
+        if (initialDbData.users) setCollection('users', initialDbData.users);
+        if (initialDbData.employees && employeeDB.getAll().length === 0) setCollection('employees', initialDbData.employees);
+        if (initialDbData.categories && categoryDB.getAll().length === 0) setCollection('categories', initialDbData.categories);
+        if (initialDbData.menuItems && menuItemDB.getAll().length === 0) setCollection('menuItems', initialDbData.menuItems);
+        if (initialDbData.tables && tableDB.getAll().length === 0) setCollection('tables', initialDbData.tables);
+        if (initialDbData.suppliers && supplierDB.getAll().length === 0) setCollection('suppliers', initialDbData.suppliers);
+        if (initialDbData.inventory && inventoryDB.getAll().length === 0) setCollection('inventory', initialDbData.inventory);
+        return;
+      } catch {
+        // Fallback
+      }
     }
   }
-
-  // Create default admin user
+  
+  if (userDB.getAll().length > 0) return;
   userDB.create({
     username: 'admin',
     password: 'admin123',
