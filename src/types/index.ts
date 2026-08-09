@@ -56,7 +56,8 @@ export interface Table {
   number: number;
   capacity: number;
   status: 'available' | 'occupied' | 'reserved' | 'cleaning';
-  floor: number;
+  floor?: number;
+  qrCode?: string;
   positionX?: number;
   positionY?: number;
   currentOrderId?: string;
