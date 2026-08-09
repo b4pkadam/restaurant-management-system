@@ -13,14 +13,18 @@ class RealtimeSyncService {
   private ws: WebSocket | null = null;
   private isConnected = false;
   private reconnectTimer: any = null;
+  private outboxQueue: SyncMessage[] = [];
 
   public init() {
     this.connect();
   }
 
   private async connect() {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     try {
-      // Dynamic import to prevent circular top-level dependency
       // Use a fixed unified channel key so all physical devices (PC & phones) join the same room
       const channelName = 'restaurant_system_b4pkadam';
       const wsUrl = `wss://free.piesocket.com/v3/${channelName}?api_key=VC5my8yAODEYUZWOjJVZ6OSi8aIc2kaXAkySubBu&notify_self=0`;
@@ -29,6 +33,19 @@ class RealtimeSyncService {
 
       this.ws.onopen = () => {
         this.isConnected = true;
+
+        // Flush outbox queue of messages generated while connecting/offline
+        while (this.outboxQueue.length > 0) {
+          const pending = this.outboxQueue.shift();
+          if (pending) {
+            try {
+              this.ws?.send(JSON.stringify(pending));
+            } catch {
+              // Ignore send error
+            }
+          }
+        }
+
         // Request existing active orders and settings from other online devices
         this.send({
           type: 'REQUEST_INITIAL_SYNC',
@@ -56,7 +73,9 @@ class RealtimeSyncService {
       this.ws.onerror = () => {
         this.isConnected = false;
         if (this.ws) {
-          this.ws.close();
+          try {
+            this.ws.close();
+          } catch {}
         }
       };
     } catch {
@@ -68,17 +87,22 @@ class RealtimeSyncService {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
-    }, 5000);
+    }, 2000);
   }
 
   private send(msg: SyncMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify(msg));
+        return;
       } catch {
-        // Send error
+        // Fall through to queueing
       }
     }
+
+    // Queue message in outbox if socket is connecting or temporarily disconnected
+    this.outboxQueue.push(msg);
+    this.connect();
   }
 
   private async handleIncomingMessage(message: SyncMessage) {
@@ -112,8 +136,11 @@ class RealtimeSyncService {
 
           if (notif) {
             const notifications = notificationDB.getAll();
-            notifications.push(notif);
-            localStorage.setItem('restaurant_db_notifications', JSON.stringify(notifications));
+            const existsNotif = notifications.find((n) => n.id === notif.id);
+            if (!existsNotif) {
+              notifications.unshift(notif);
+              localStorage.setItem('restaurant_db_notifications', JSON.stringify(notifications));
+            }
           }
 
           notifyDbListeners();

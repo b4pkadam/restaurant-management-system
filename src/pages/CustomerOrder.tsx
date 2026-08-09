@@ -38,8 +38,14 @@ interface CustomerOrderPageProps {
 }
 
 export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProps) {
-  // Subscribe to DB updates for real-time order status updates on customer view
+  // Subscribe to DB updates & real-time sync for customer view
   useDbUpdate();
+
+  useEffect(() => {
+    import('../services/realtimeSync').then(({ realtimeSync }) => {
+      realtimeSync.init();
+    }).catch(() => {});
+  }, []);
 
   const settings = settingsDB.get();
   
