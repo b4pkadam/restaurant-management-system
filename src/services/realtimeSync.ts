@@ -67,8 +67,8 @@ class RealtimeSyncService {
       };
 
       this.eventSource.onerror = () => {
-        // Reconnect after 3 seconds
-        setTimeout(() => this.connectStream(), 3000);
+        // Reconnect after 2 seconds
+        setTimeout(() => this.connectStream(), 2000);
       };
     } catch {
       // Stream fallback handled by polling
@@ -77,8 +77,8 @@ class RealtimeSyncService {
 
   private startPolling() {
     if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll ntfy.sh every 3 seconds for recent events
-    this.pollInterval = setInterval(() => this.pollEvents(), 3000);
+    // Poll ntfy.sh every 2 seconds for recent events
+    this.pollInterval = setInterval(() => this.pollEvents(), 2000);
     this.pollEvents();
   }
 
@@ -112,7 +112,7 @@ class RealtimeSyncService {
   private send(msg: SyncMessage) {
     const payload = JSON.stringify(msg);
 
-    // 1. Post to ntfy.sh public cloud relay (works on all networks & browsers)
+    // 1. Post to ntfy.sh public cloud relay
     fetch(NTFY_URL, {
       method: 'POST',
       body: payload,
@@ -213,9 +213,24 @@ class RealtimeSyncService {
       case 'REQUEST_INITIAL_SYNC': {
         const activeOrders = orderDB.getActive();
         const currentSettings = settingsDB.get();
+
+        // Compress active orders to prevent HTTP size limits
+        const compressedOrders = activeOrders.map((o) => ({
+          ...o,
+          items: o.items.map((i) => ({
+            id: i.id,
+            menuItemId: i.menuItemId,
+            menuItemName: i.menuItemName,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            totalPrice: i.totalPrice,
+            status: i.status || 'pending',
+          })),
+        }));
+
         this.send({
           type: 'INITIAL_SYNC_RESPONSE',
-          payload: { orders: activeOrders, settings: currentSettings },
+          payload: { orders: compressedOrders, settings: currentSettings },
           senderId: SENDER_ID,
         });
         break;
@@ -275,19 +290,33 @@ class RealtimeSyncService {
   }
 
   public broadcastOrderCreated(order: Order, notification?: Notification) {
+    // Compress order item fields to guarantee fast, lightweight transmission for bulk orders
+    const compressedOrder: Order = {
+      ...order,
+      items: order.items.map((i) => ({
+        id: i.id,
+        menuItemId: i.menuItemId,
+        menuItemName: i.menuItemName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        totalPrice: i.totalPrice,
+        status: i.status || 'pending',
+      })),
+    };
+
     const msg: SyncMessage = {
       type: 'ORDER_CREATED',
-      payload: { order, notification },
+      payload: { order: compressedOrder, notification },
       senderId: SENDER_ID,
     };
 
     this.send(msg);
 
-    // Guaranteed ACK retry loop: retry sending every 1.5s for up to 15s until ACK is received from Desktop PC
+    // Guaranteed ACK retry loop: retry sending every 1.5s until ACK is received from Desktop PC
     let attempts = 0;
     const retryTimer = setInterval(() => {
       attempts++;
-      if (attempts > 10 || !this.pendingOrderAcks.has(order.id)) {
+      if (attempts > 15 || !this.pendingOrderAcks.has(order.id)) {
         clearInterval(retryTimer);
         this.pendingOrderAcks.delete(order.id);
         return;
@@ -299,9 +328,22 @@ class RealtimeSyncService {
   }
 
   public broadcastOrderUpdated(order: Order) {
+    const compressedOrder: Order = {
+      ...order,
+      items: order.items.map((i) => ({
+        id: i.id,
+        menuItemId: i.menuItemId,
+        menuItemName: i.menuItemName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        totalPrice: i.totalPrice,
+        status: i.status || 'pending',
+      })),
+    };
+
     this.send({
       type: 'ORDER_UPDATED',
-      payload: { order },
+      payload: { order: compressedOrder },
       senderId: SENDER_ID,
     });
   }
