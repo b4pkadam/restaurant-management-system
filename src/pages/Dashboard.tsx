@@ -29,20 +29,31 @@ export const Dashboard: React.FC = () => {
   const occupiedTables = tables.filter(t => t.status === 'occupied').length;
   const availableTables = tables.filter(t => t.status === 'available').length;
 
-  const weeklyChartData = weeklySales.map(day => ({
-    name: format(new Date(day.date), 'EEE'),
-    revenue: day.totalRevenue,
-    orders: day.totalOrders
-  }));
+  const weeklyChartData = weeklySales.map((day) => {
+    let dayName = day.date;
+    try {
+      const d = new Date(day.date + (day.date.includes('T') ? '' : 'T00:00:00'));
+      if (!isNaN(d.getTime())) {
+        dayName = format(d, 'EEE');
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      name: dayName,
+      revenue: day.totalRevenue || 0,
+      orders: day.totalOrders || 0,
+    };
+  });
 
   const paymentMethodData = [
-    { name: 'Cash', value: todaySales.cashPayments, color: '#10B981' },
-    { name: 'Card', value: todaySales.cardPayments, color: '#3B82F6' },
-    { name: 'UPI', value: todaySales.upiPayments, color: '#8B5CF6' }
+    { name: 'Cash', value: todaySales.cashPayments || 0, color: '#10B981' },
+    { name: 'Card', value: todaySales.cardPayments || 0, color: '#3B82F6' },
+    { name: 'UPI', value: todaySales.upiPayments || 0, color: '#8B5CF6' }
   ].filter(d => d.value > 0);
 
   const recentOrders = orderDB.getAll()
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort((a, b) => (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0))
     .slice(0, 5);
 
   return (

@@ -95,6 +95,20 @@ function safeHashPassword(password: string): string {
   return btoa(password);
 }
 
+function safeComparePassword(password: string, hash: string): boolean {
+  if (!password || !hash) return false;
+  if (hash.startsWith('$2')) {
+    try {
+      if (bcrypt && typeof bcrypt.compareSync === 'function') {
+        return bcrypt.compareSync(password, hash);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return password === hash || btoa(password) === hash;
+}
+
 // User Management
 export const userDB = {
   getAll: (): User[] => getCollection<User>('users'),
@@ -146,7 +160,7 @@ export const userDB = {
   authenticate: (username: string, password: string): User | null => {
     const user = userDB.getByUsername(username);
     if (!user || !user.isActive) return null;
-    if (!bcrypt.compareSync(password, user.password)) return null;
+    if (!safeComparePassword(password, user.password)) return null;
     
     userDB.update(user.id, { lastLogin: new Date().toISOString() });
     return user;
