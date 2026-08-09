@@ -7,6 +7,24 @@ import type {
 } from '../types';
 import initialDbData from './initialDbData.json';
 const DB_PREFIX = 'restaurant_db_';
+const CURRENT_DB_VERSION = 'v3';
+
+// Auto-purge stale browser cache from previous builds
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const installedVersion = localStorage.getItem('restaurant_db_schema_version');
+    if (installedVersion !== CURRENT_DB_VERSION) {
+      localStorage.removeItem('current_user');
+      localStorage.removeItem(DB_PREFIX + 'users');
+      localStorage.removeItem(DB_PREFIX + 'settings');
+      localStorage.removeItem(DB_PREFIX + 'categories');
+      localStorage.removeItem(DB_PREFIX + 'menuItems');
+      localStorage.setItem('restaurant_db_schema_version', CURRENT_DB_VERSION);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 function broadcastSync(action: (sync: typeof import('../services/realtimeSync').realtimeSync) => void) {
   import('../services/realtimeSync').then(({ realtimeSync }) => {
