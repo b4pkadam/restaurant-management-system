@@ -7,43 +7,56 @@ description: >-
 
 # GitHub Pages Blank Page Fixer for Vite & React Projects
 
-This skill provides step-by-step diagnostic and remediation workflows when a React / Vite single-page application (SPA) published to GitHub Pages displays a **blank white page** or asset loading errors (404 Not Found).
+This skill provides step-by-step diagnostic and remediation workflows when a React / Vite single-page application (SPA) published to GitHub Pages displays a **blank white page**, Node deprecation warnings, or asset loading errors.
 
 ---
 
 ## Root Causes of Blank Pages on GitHub Pages
 
-1. **Missing `base: './'` in `vite.config.ts`**:
-   By default, Vite assumes root hosting (`/`). GitHub Pages repositories are hosted under a subpath `https://<user>.github.io/<repo-name>/`. Without relative base paths, asset URLs look for `https://<user>.github.io/assets/...` which returns 404.
+1. **Incorrect Base Path or Missing `base` in `vite.config.ts`**:
+   By default, Vite assumes root hosting (`/`). GitHub Pages repositories are hosted under a subpath `https://<user>.github.io/<repo-name>/`. Setting `base: '/<repo-name>/'` (e.g. `base: '/restaurant-management-system/'`) ensures Vite generates exact asset URLs pointing to the repository path.
 
-2. **Deploying Raw Source Code instead of Built Production Bundle (`dist/`)**:
-   If GitHub Pages is set to deploy directly from the `main` branch root, browsers receive uncompiled `<script type="module" src="/src/main.tsx"></script>`. Browsers cannot parse `.tsx` / JSX natively, causing script execution to fail completely and leaving `<div id="root"></div>` empty.
+2. **Using `vite-plugin-singlefile` on Web Hosts**:
+   `viteSingleFile()` inlines all JS/CSS into a single massive `index.html` file (~1.7 MB). Browsers often fail to parse or execute huge inline `<script type="module">` tags, causing a silent JavaScript failure and leaving `<div id="root"></div>` blank. Removing `viteSingleFile()` allows standard, fast Vite chunking (`dist/assets/index-xxx.js`).
 
-3. **Incorrect GitHub Pages Source Setting**:
-   The GitHub Pages source in GitHub Repository Settings must be configured to **"GitHub Actions"** (for automatic workflow builds) or point to the built branch (e.g. `gh-pages`).
+3. **Deploying Raw Source Code instead of Built Bundle (`dist/`)**:
+   If GitHub Pages is set to deploy directly from the `main` branch root, browsers receive uncompiled `<script type="module" src="/src/main.tsx"></script>`. Browsers cannot parse `.tsx` / JSX natively, leaving the page blank.
+
+4. **Node 20 Deprecation Warning in GitHub Actions**:
+   GitHub Actions runners have deprecated Node 20. Workflows should specify `node-version: 22` (or latest LTS).
 
 ---
 
 ## Remediation Workflow
 
-### Step 1: Fix Relative Base Path in `vite.config.ts`
+### Step 1: Configure `vite.config.ts`
 
-Ensure `base: './'` is set in `vite.config.ts`:
+Set the exact base path matching your repository name (e.g. `base: "/restaurant-management-system/"`) and use standard Vite asset plugins (remove `viteSingleFile()`):
 
 ```typescript
-import { defineConfig } from "vite";
+import path from "path";
+import { fileURLToPath } from "url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default defineConfig({
-  base: "./",
-  plugins: [react()],
-  // ... rest of config
+  base: "/restaurant-management-system/",
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+    },
+  },
 });
 ```
 
-### Step 2: Add GitHub Actions Automated Deployment Workflow
+### Step 2: Update GitHub Actions Workflow (`.github/workflows/deploy.yml`)
 
-Create `.github/workflows/deploy.yml` to automatically build `dist/` and deploy to GitHub Pages on every push to `main`:
+Use `node-version: 22` to avoid runner deprecation warnings and automate production builds:
 
 ```yaml
 name: Deploy to GitHub Pages
@@ -75,7 +88,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -97,39 +110,13 @@ jobs:
         uses: actions/deploy-pages@v4
 ```
 
-### Step 3: Add `gh-pages` Helper Scripts to `package.json`
+### Step 3: Verify & Deploy
 
-In `package.json`, add deployment scripts and `gh-pages` dev dependency:
-
-```json
-{
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
-  },
-  "devDependencies": {
-    "gh-pages": "^6.3.0"
-  }
-}
-```
-
-Run `npm install` to install `gh-pages`.
-
-### Step 4: Configure GitHub Repository Settings
-
-1. Go to your GitHub repository on github.com.
-2. Click **Settings** -> **Pages**.
-3. Under **Build and deployment** -> **Source**:
-   - Choose **GitHub Actions** (recommended if using `.github/workflows/deploy.yml`).
-   - *Or* if using `npm run deploy`, choose **Deploy from a branch** and select branch `gh-pages` / `root`.
-
----
-
-## Verification
-
-1. Run `npm run build` locally to ensure zero build errors.
-2. Commit and push the changes to GitHub (`git add . && git commit -m "Fix GitHub Pages deployment" && git push`).
-3. Monitor the GitHub Actions tab in the repository to confirm successful deployment.
+1. Run `npm run build` locally to verify clean compilation:
+   - Check `dist/index.html` to confirm asset links point to `/restaurant-management-system/assets/index-xxx.js`.
+2. Push changes:
+   ```bash
+   git add .
+   git commit -m "Fix GitHub Pages blank page asset paths and update Node runner version"
+   git push origin main
+   ```
