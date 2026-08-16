@@ -340,13 +340,15 @@ export const POSPage: React.FC = () => {
           {/* Active Table Bills Quick Bar */}
           {activeTableOrders.length > 0 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar bg-amber-50 dark:bg-amber-950/30 p-2 rounded-xl border border-amber-200 dark:border-amber-900/40">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-200 shrink-0 uppercase tracking-wider flex items-center gap-1">
-                <Table2 size={15} /> Active Table Bills ({activeTableOrders.length}):
-              </span>
+              <div className="flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-200 shrink-0 uppercase tracking-wider">
+                <Table2 size={15} />
+                <span>Active Table Bills ({activeTableOrders.length}):</span>
+              </div>
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
                 {activeTableOrders.map((ord) => (
                   <button
                     key={ord.id}
+                    type="button"
                     onClick={() => loadActiveOrder(ord)}
                     className={cn(
                       'shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer',
@@ -643,11 +645,12 @@ export const POSPage: React.FC = () => {
         size="lg"
       >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {tables.map(table => {
-            const activeOrd = activeTableOrders.find(o => o.tableNumber === table.number || o.tableId === table.id);
+          {tables.map((table) => {
+            const activeOrd = activeTableOrders.find((o) => o.tableNumber === table.number || o.tableId === table.id);
             return (
               <button
                 key={table.id}
+                type="button"
                 onClick={() => {
                   if (activeOrd) {
                     loadActiveOrder(activeOrd);
@@ -658,21 +661,23 @@ export const POSPage: React.FC = () => {
                   }
                 }}
                 className={cn(
-                  'aspect-square rounded-xl flex flex-col items-center justify-center p-3 transition-all cursor-pointer border text-center',
+                  'aspect-square rounded-xl flex flex-col items-center justify-center p-3 transition-all cursor-pointer border text-center space-y-1',
                   table.status === 'available' && 'bg-green-50 border-green-200 dark:bg-green-900/20 text-green-700 dark:text-green-300 hover:bg-green-100',
                   table.status === 'occupied' && 'bg-amber-50 border-amber-300 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 hover:bg-amber-100 ring-2 ring-amber-400/50',
                   table.status === 'reserved' && 'bg-purple-50 border-purple-200 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300',
                   selectedTable?.id === table.id && 'ring-2 ring-blue-600 font-bold'
                 )}
               >
-                <span className="text-xl font-bold">Table {table.number}</span>
-                <span className="text-xs text-gray-500 mt-0.5">{table.capacity} seats</span>
-                <StatusBadge status={table.status} showDot={false} />
-                {activeOrd && (
-                  <span className="mt-1.5 rounded-lg bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                <span className="text-xl font-bold block">Table {table.number}</span>
+                <span className="text-xs text-gray-500 block">{table.capacity} seats</span>
+                <div className="pt-0.5">
+                  <StatusBadge status={table.status} showDot={false} />
+                </div>
+                {activeOrd ? (
+                  <span className="inline-block mt-1 rounded-lg bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
                     Pay {formatCurrency(activeOrd.total)} 💳
                   </span>
-                )}
+                ) : null}
               </button>
             );
           })}
