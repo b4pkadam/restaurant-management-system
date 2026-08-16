@@ -28,6 +28,7 @@ import {
 import type { MenuItem, Order, OrderItem } from '../types';
 import { formatCurrency } from '../utils/formatCurrency';
 import { useDbUpdate } from '../hooks/useDbUpdate';
+import { APP_VERSION } from '../utils/version';
 
 interface CartItem extends OrderItem {
   menuItem: MenuItem;
@@ -124,10 +125,24 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   });
 
   const [showCart, setShowCart] = useState(false);
+  const [showActiveOrdersModal, setShowActiveOrdersModal] = useState(false);
+  const [waiterCalled, setWaiterCalled] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [placedOrderNumber, setPlacedOrderNumber] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [orderNotes, setOrderNotes] = useState('');
+
+  // Call Waiter handler
+  const handleCallWaiter = useCallback(() => {
+    if (waiterCalled) return;
+    setWaiterCalled(true);
+    notificationDB.create({
+      type: 'table',
+      title: '🔔 Waiter Assistance Request!',
+      message: `Table ${tableNumber} has called for waiter service.`,
+    });
+    setTimeout(() => setWaiterCalled(false), 8000);
+  }, [tableNumber, waiterCalled]);
 
   // Active orders for this table
   const activeOrders = useMemo(() => {
@@ -457,16 +472,18 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
           </div>
 
           <button
-            onClick={() => setShowCart(true)}
-            className="relative flex items-center gap-2 rounded-xl bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400"
-          >
-            <ShoppingCart size={18} />
-            <span>Cart</span>
-            {cartCount > 0 && (
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-xs text-white">
-                {cartCount}
-              </span>
+            onClick={handleCallWaiter}
+            disabled={waiterCalled}
+            className={cn(
+              'relative flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer',
+              waiterCalled
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                : 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
             )}
+            title="Call waiter for table service"
+          >
+            <BellRing size={16} className={waiterCalled ? 'text-emerald-600 animate-none' : 'text-amber-600 animate-bounce'} />
+            <span>{waiterCalled ? 'Waiter Called ✅' : 'Call Waiter 🔔'}</span>
           </button>
         </div>
 
@@ -567,57 +584,6 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
       {/* Main Content */}
       <main className="mx-auto max-w-lg px-4 pt-4 pb-36 space-y-6">
-        {/* Active Orders Status Banner */}
-        {activeOrders.length > 0 && (
-          <section className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
-            <div className="flex items-center justify-between pb-2 border-b border-amber-200 dark:border-amber-900/40">
-              <div className="flex items-center gap-2">
-                <Receipt className="text-amber-600 dark:text-amber-400" size={20} />
-                <h3 className="font-bold text-amber-900 dark:text-amber-200">
-                  Active Table Orders ({activeOrders.length})
-                </h3>
-              </div>
-              <span className="text-xs text-amber-700 dark:text-amber-300">Live Status</span>
-            </div>
-
-            <div className="mt-3 space-y-3">
-              {activeOrders.map((ord) => (
-                <div
-                  key={ord.id}
-                  className="rounded-xl bg-white p-3 shadow-xs dark:bg-gray-800 border border-gray-100 dark:border-gray-700 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-sm text-gray-900 dark:text-white">
-                        {ord.orderNumber}
-                      </span>
-                      <p className="text-xs text-gray-500">
-                        {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                    {renderStatusBadge(ord.status)}
-                  </div>
-
-                  <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                    {ord.items.map((it) => (
-                      <div key={it.id} className="flex justify-between">
-                        <span>
-                          {it.quantity}× {it.menuItemName}
-                        </span>
-                        <span className="font-medium">{formatCurrency(it.totalPrice)}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-900 dark:text-white">
-                    <span>Total Bill Amount</span>
-                    <span className="text-blue-600 dark:text-blue-400">{formatCurrency(ord.total)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Menu Items List - Category Section Grouped */}
         {menuItems.length === 0 ? (
@@ -753,44 +719,79 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
             ))}
           </div>
         )}
+        {/* Footer info & Version */}
+        <div className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 pb-4 space-y-1">
+          <p className="font-semibold text-gray-600 dark:text-gray-400">{settings.restaurantName} • Table {tableNumber}</p>
+          <p className="font-mono text-[11px] text-gray-400 dark:text-gray-500">RMS Digital Menu • {APP_VERSION}</p>
+        </div>
       </main>
 
-      {/* Floating Bottom Cart Bar (Visible if cart has items OR active orders exist) */}
-      {(cartCount > 0 || activeOrders.length > 0) && !showCart && (
-        <div className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-lg">
-          <button
-            onClick={() => setShowCart(true)}
-            className="flex w-full items-center justify-between rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white shadow-xl shadow-blue-500/20 active:scale-98 transition-all cursor-pointer"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 font-bold">
-                {cartCount > 0 ? cartCount : activeOrders.length}
-              </div>
-              <div className="text-left">
-                <p className="text-xs text-blue-100 font-medium">
-                  {cartCount > 0 ? 'Cart Total' : 'Active Orders Placed'}
-                </p>
-                <p className="font-bold text-base">
-                  {cartCount > 0 ? formatCurrency(total) : `${activeOrders.length} Active Order(s)`}
-                </p>
-              </div>
+      {/* Single Floating Bottom Bar: Cart OR Active Order Live Status */}
+      {!showCart && !showActiveOrdersModal && (
+        <>
+          {/* 1. If Unplaced Items in Cart: Show Floating Cart Bar */}
+          {cartCount > 0 ? (
+            <div className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-lg">
+              <button
+                onClick={() => setShowCart(true)}
+                className="flex w-full items-center justify-between rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white shadow-xl shadow-blue-500/25 active:scale-98 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 font-black text-sm">
+                    {cartCount}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs text-blue-100 font-medium">Cart Total</p>
+                    <p className="font-bold text-base">{formatCurrency(total)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 font-bold text-sm bg-white/15 px-3 py-1.5 rounded-xl">
+                  <span>View Cart & Order</span>
+                  <ShoppingCart size={18} />
+                </div>
+              </button>
             </div>
-            <div className="flex items-center gap-1 font-bold text-sm">
-              <span>{cartCount > 0 ? 'View Cart & Order' : 'View Order Status'}</span>
-              {cartCount > 0 ? <ShoppingCart size={18} /> : <Receipt size={18} />}
-            </div>
-          </button>
-        </div>
+          ) : (
+            /* 2. If Cart is Empty but Table has Active Orders: Show Floating Active Order Tracker Bar */
+            activeOrders.length > 0 && (
+              <div className="fixed bottom-4 left-4 right-4 z-40 mx-auto max-w-lg">
+                <button
+                  onClick={() => setShowActiveOrdersModal(true)}
+                  className="flex w-full items-center justify-between rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 p-4 text-white shadow-xl shadow-emerald-500/25 active:scale-98 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 font-black text-sm">
+                      {activeOrders.length}
+                    </div>
+                    <div className="text-left">
+                      <p className="text-xs text-emerald-100 font-medium">
+                        Live Order #{activeOrders[0].orderNumber}
+                      </p>
+                      <p className="font-bold text-sm flex items-center gap-1.5">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-300 animate-pulse" />
+                        <span className="uppercase">{activeOrders[0].status}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 font-bold text-xs bg-white/20 px-3 py-1.5 rounded-xl">
+                    <span>Track Order</span>
+                    <Receipt size={16} />
+                  </div>
+                </button>
+              </div>
+            )
+          )}
+        </>
       )}
 
-      {/* Cart Drawer / Slide-up Modal */}
+      {/* Cart Drawer / Slide-up Modal (Purely for unplaced items & checkout) */}
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
           <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl dark:bg-gray-800 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-700">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="text-blue-600" size={22} />
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Your Orders & Cart</h2>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Your Cart ({cartCount})</h2>
               </div>
               <button
                 onClick={() => setShowCart(false)}
@@ -801,83 +802,13 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
             </div>
 
             <div className="flex-1 overflow-y-auto py-4 space-y-4">
-              {/* Active Placed Orders for this Table */}
-              {activeOrders.length > 0 && (
-                <div className="space-y-3 rounded-2xl bg-amber-50/80 p-3.5 border border-amber-200/80 dark:bg-amber-950/20 dark:border-amber-900/40">
-                  <div className="flex items-center justify-between pb-2 border-b border-amber-200/60 dark:border-amber-900/40">
-                    <div className="flex items-center gap-2">
-                      <Receipt className="text-amber-600 dark:text-amber-400" size={18} />
-                      <h3 className="font-bold text-xs text-amber-900 dark:text-amber-200 uppercase tracking-wider">
-                        Active Placed Orders ({activeOrders.length})
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {activeOrders.map((ord) => (
-                      <div
-                        key={ord.id}
-                        className="rounded-xl bg-white p-3 shadow-xs dark:bg-gray-800 border border-gray-100 dark:border-gray-700 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="font-bold text-sm text-gray-900 dark:text-white">
-                              {ord.orderNumber}
-                            </span>
-                            <p className="text-xs text-gray-500">
-                              {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          </div>
-                          {renderStatusBadge(ord.status)}
-                        </div>
-
-                        {ord.notes && (
-                          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 p-2 text-[11px] text-amber-900 dark:text-amber-200">
-                            <span className="font-bold">🚨 Order Request: </span>
-                            <span>{ord.notes}</span>
-                          </div>
-                        )}
-
-                        <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                          {ord.items.map((it) => (
-                            <div key={it.id} className="flex justify-between flex-wrap gap-1">
-                              <div>
-                                <span className="font-semibold">
-                                  {it.quantity}× {it.menuItemName}
-                                </span>
-                                {(it.spiceLevel || it.selectedDrink || it.notes) && (
-                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                                    {it.spiceLevel && <span className="text-rose-600 dark:text-rose-400 font-bold">🌶️ {it.spiceLevel}</span>}
-                                    {it.selectedDrink && <span className="text-blue-600 dark:text-blue-400 font-bold">🥤 {it.selectedDrink}</span>}
-                                    {it.notes && <span className="text-amber-700 dark:text-amber-300 font-semibold bg-amber-50 dark:bg-amber-950/40 px-1 rounded">📝 {it.notes}</span>}
-                                  </div>
-                                )}
-                              </div>
-                              <span className="font-medium">{formatCurrency(it.totalPrice)}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-900 dark:text-white">
-                          <span>Total Amount</span>
-                          <span className="text-blue-600 dark:text-blue-400">{formatCurrency(ord.total)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Draft Cart Items */}
               {cart.length > 0 ? (
                 <div className="space-y-3">
-                  <h3 className="font-bold text-xs text-gray-500 uppercase tracking-wider">
-                    Unplaced Items in Cart ({cartCount})
-                  </h3>
                   {cart.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between rounded-xl bg-gray-50 p-3 dark:bg-gray-900/50"
+                      className="flex items-center justify-between rounded-xl bg-gray-50 p-3 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800"
                     >
                       <div className="flex-1 pr-3">
                         <h4 className="font-semibold text-sm text-gray-900 dark:text-white">
@@ -894,7 +825,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                               🥤 {item.selectedDrink}
                             </span>
                           )}
-                          {item.notes && <span className="italic text-amber-600 dark:text-amber-400">({item.notes})</span>}
+                          {item.notes && <span className="text-amber-700 dark:text-amber-300 font-semibold bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-900/40">📝 {item.notes}</span>}
                         </div>
                         <p className="mt-1 text-xs text-gray-500">
                           {formatCurrency(item.unitPrice)} × {item.quantity}
@@ -933,16 +864,20 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                   ))}
                 </div>
               ) : (
-                activeOrders.length === 0 && (
-                  <div className="py-8 text-center text-gray-500">
-                    <ShoppingCart size={36} className="mx-auto mb-2 text-gray-300" />
-                    <p className="text-sm font-medium">Your cart is empty</p>
-                  </div>
-                )
+                <div className="py-12 text-center text-gray-500">
+                  <ShoppingCart size={40} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                  <p className="text-sm font-medium">Your cart is currently empty</p>
+                  <button
+                    onClick={() => setShowCart(false)}
+                    className="mt-3 inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700"
+                  >
+                    Browse Menu
+                  </button>
+                </div>
               )}
             </div>
 
-            {/* Price Summary & Action */}
+            {/* Price Summary & Place Order Action */}
             {cart.length > 0 && (
               <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-2 text-sm">
                 <div className="flex justify-between text-gray-500 dark:text-gray-400">
@@ -954,14 +889,14 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                   <span>{formatCurrency(tax)}</span>
                 </div>
                 <div className="flex justify-between text-base font-bold text-gray-900 dark:text-white pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <span>New Order Total</span>
+                  <span>Order Total</span>
                   <span className="text-blue-600 dark:text-blue-400">{formatCurrency(total)}</span>
                 </div>
 
                 {/* Overall Order Special Instructions */}
                 <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-gray-700">
                   <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
-                    <span>📝 Order Request / Note for Kitchen (Optional)</span>
+                    <span>📝 Entire Order Request / Kitchen Note (Optional)</span>
                   </label>
                   <input
                     type="text"
@@ -974,12 +909,103 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
                 <button
                   onClick={placeOrder}
-                  className="mt-2 w-full rounded-xl bg-blue-600 py-3.5 font-bold text-white shadow-lg hover:bg-blue-700 active:scale-98 transition-all cursor-pointer"
+                  className="mt-2 w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 font-bold text-white shadow-lg shadow-blue-500/20 hover:from-blue-700 hover:to-indigo-700 active:scale-98 transition-all cursor-pointer"
                 >
-                  Place New Order • {formatCurrency(total)}
+                  Place Order • {formatCurrency(total)}
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Active Orders Live Tracking Drawer / Modal */}
+      {showActiveOrdersModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl dark:bg-gray-800 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2">
+                <Receipt className="text-emerald-600" size={22} />
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Table {tableNumber} Orders ({activeOrders.length})
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowActiveOrdersModal(false)}
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-4 space-y-4">
+              {activeOrders.length === 0 ? (
+                <div className="py-12 text-center text-gray-500">
+                  <Receipt size={40} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                  <p className="text-sm font-medium">No active orders placed yet</p>
+                </div>
+              ) : (
+                activeOrders.map((ord) => (
+                  <div
+                    key={ord.id}
+                    className="rounded-2xl bg-gray-50 p-4 shadow-xs dark:bg-gray-900/50 border border-gray-200/70 dark:border-gray-700 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-base text-gray-900 dark:text-white">
+                          {ord.orderNumber}
+                        </span>
+                        <p className="text-xs text-gray-500">
+                          Placed at {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      {renderStatusBadge(ord.status)}
+                    </div>
+
+                    {ord.notes && (
+                      <div className="rounded-xl bg-amber-500/15 dark:bg-amber-950/70 border border-amber-400 p-2.5 text-xs text-amber-950 dark:text-amber-200">
+                        <span className="font-bold">🚨 Order Request: </span>
+                        <span>{ord.notes}</span>
+                      </div>
+                    )}
+
+                    <div className="text-xs text-gray-600 dark:text-gray-300 space-y-2 border-t border-gray-200 dark:border-gray-700 pt-2">
+                      {ord.items.map((it) => (
+                        <div key={it.id} className="flex justify-between items-start">
+                          <div>
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {it.quantity}× {it.menuItemName}
+                            </span>
+                            {(it.spiceLevel || it.selectedDrink || it.notes) && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                                {it.spiceLevel && <span className="text-rose-600 dark:text-rose-400 font-bold">🌶️ {it.spiceLevel}</span>}
+                                {it.selectedDrink && <span className="text-blue-600 dark:text-blue-400 font-bold">🥤 {it.selectedDrink}</span>}
+                                {it.notes && <span className="text-amber-700 dark:text-amber-300 font-semibold bg-amber-50 dark:bg-amber-950/40 px-1 rounded">📝 {it.notes}</span>}
+                              </div>
+                            )}
+                          </div>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{formatCurrency(it.totalPrice)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700 text-sm font-bold text-gray-900 dark:text-white">
+                      <span>Total Amount</span>
+                      <span className="text-blue-600 dark:text-blue-400">{formatCurrency(ord.total)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+              <button
+                onClick={() => setShowActiveOrdersModal(false)}
+                className="w-full rounded-xl bg-gray-100 dark:bg-gray-700 py-3 text-xs font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                Close Tracking
+              </button>
+            </div>
           </div>
         </div>
       )}
