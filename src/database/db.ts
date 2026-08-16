@@ -401,12 +401,23 @@ export const orderDB = {
     });
   },
   
-  generateOrderNumber: (): string => {
+  generateOrderNumber: (type?: string, tableNumber?: number): string => {
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
     const todayOrders = orderDB.getToday();
-    const orderNum = (todayOrders.length + 1).toString().padStart(4, '0');
-    return `ORD-${dateStr}-${orderNum}`;
+    const orderNum = (todayOrders.length + 1).toString().padStart(3, '0');
+    
+    let prefix = 'ORD';
+    if (type === 'pos') {
+      prefix = 'POS';
+    } else if (tableNumber) {
+      prefix = `TBL-T${String(tableNumber).padStart(2, '0')}`;
+    } else if (type === 'takeaway') {
+      prefix = 'TAK';
+    }
+    
+    const salt = Math.floor(10 + Math.random() * 90);
+    return `${prefix}-${dateStr}-${orderNum}${salt}`;
   },
   
   create: (order: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Order => {
@@ -430,7 +441,7 @@ export const orderDB = {
       ...order,
       tableId: targetTableId,
       id: uuidv4(),
-      orderNumber: orderDB.generateOrderNumber(),
+      orderNumber: (order as any).orderNumber || orderDB.generateOrderNumber(order.type, order.tableNumber),
       createdAt: new Date().toISOString()
     };
     orders.push(newOrder);
@@ -447,7 +458,7 @@ export const orderDB = {
     // Create a system notification for the desktop PC
     const notif = notificationDB.create({
       type: 'order',
-      title: `📱 New QR Order #${newOrder.orderNumber}`,
+      title: `📱 New Order #${newOrder.orderNumber}`,
       message: `Table ${newOrder.tableNumber || 'N/A'} placed a new order for ${newOrder.items.length} item(s).`
     });
 
@@ -464,6 +475,20 @@ export const orderDB = {
     
     orders[index] = { ...orders[index], ...updates };
     setCollection('orders', orders);
+
+    // Free up table automatically if order is completed or cancelled
+    if (['completed', 'cancelled'].includes(orders[index].status)) {
+      const targetTableId = orders[index].tableId;
+      const targetTableNumber = orders[index].tableNumber;
+      if (targetTableId) {
+        tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined });
+      } else if (targetTableNumber) {
+        const tbl = tableDB.getByNumber(targetTableNumber);
+        if (tbl) {
+          tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined });
+        }
+      }
+    }
 
     // Broadcast status change to other physical devices (customer phone / PC)
     broadcastSync((s) => s.broadcastOrderUpdated(orders[index]));

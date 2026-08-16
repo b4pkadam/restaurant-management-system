@@ -43,11 +43,19 @@ export const POSPage: React.FC = () => {
   const [showTableModal, setShowTableModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
   const [cashReceived, setCashReceived] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
   
   const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), []);
   const tables = useMemo(() => tableDB.getAll(), []);
   
+  // Active table orders pending payment
+  const activeTableOrders = useMemo(() => {
+    return orderDB
+      .getAll()
+      .filter((o) => o.status !== 'completed' && o.status !== 'cancelled')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, []);
+
   const menuItems = useMemo(() => {
     let items = menuItemDB.getAll().filter(m => m.isAvailable);
     
@@ -74,6 +82,42 @@ export const POSPage: React.FC = () => {
   const taxAmount = (subtotal - discountAmount) * (settings.taxPercentage / 100);
   const total = subtotal - discountAmount + taxAmount;
   const change = paymentMethod === 'cash' ? Number(cashReceived) - total : 0;
+
+  // Load active table order into POS cart
+  const loadActiveOrder = useCallback((ord: Order) => {
+    setLoadedOrderId(ord.id);
+    setOrderType((ord.type as any) || 'dine-in');
+    setCustomerName(ord.customerName || '');
+    setCustomerPhone(ord.customerPhone || '');
+    
+    if (ord.tableNumber) {
+      const tbl = tableDB.getAll().find((t) => t.number === ord.tableNumber);
+      if (tbl) setSelectedTable(tbl);
+    }
+
+    const items: CartItem[] = ord.items.map((it) => {
+      const foundMenu = menuItemDB.getById(it.menuItemId) || {
+        id: it.menuItemId,
+        name: it.menuItemName,
+        price: it.unitPrice,
+        cost: 0,
+        categoryId: '',
+        isAvailable: true,
+        isVeg: true,
+        preparationTime: 10,
+        ingredients: [],
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        ...it,
+        menuItem: foundMenu,
+      };
+    });
+
+    setCart(items);
+    setShowTableModal(false);
+    success(`Loaded Order #${ord.orderNumber} for Table ${ord.tableNumber || 'N/A'} (${formatCurrency(ord.total)})`);
+  }, [success]);
 
   // Add item to cart
   const addToCart = useCallback((menuItem: MenuItem) => {
@@ -131,6 +175,7 @@ export const POSPage: React.FC = () => {
   const clearCart = useCallback(() => {
     setCart([]);
     setSelectedTable(null);
+    setLoadedOrderId(null);
     setCustomerName('');
     setCustomerPhone('');
     setDiscount(0);
@@ -166,55 +211,102 @@ export const POSPage: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      // Create order
-      const orderItems: OrderItem[] = cart.map(item => ({
-        id: item.id,
-        menuItemId: item.menuItemId,
-        menuItemName: item.menuItemName,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        status: 'pending'
-      }));
+      if (loadedOrderId) {
+        // Complete existing table order
+        const updated = orderDB.update(loadedOrderId, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          subtotal,
+          tax: taxAmount,
+          discount: discountAmount,
+          total,
+          items: cart.map((item) => ({
+            id: item.id,
+            menuItemId: item.menuItemId,
+            menuItemName: item.menuItemName,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            spiceLevel: item.spiceLevel,
+            selectedDrink: item.selectedDrink,
+            notes: item.notes,
+            status: 'served',
+          })),
+        });
 
-      const order = orderDB.create({
-        tableId: selectedTable?.id,
-        tableNumber: selectedTable?.number,
-        type: orderType,
-        items: orderItems,
-        subtotal,
-        tax: taxAmount,
-        discount: discountAmount,
-        discountType,
-        total,
-        status: 'active',
-        customerName: customerName || undefined,
-        customerPhone: customerPhone || undefined,
-        waiterId: user?.id,
-        waiterName: user?.username
-      });
+        paymentDB.create({
+          orderId: loadedOrderId,
+          orderNumber: updated?.orderNumber || 'POS-PAY',
+          amount: total,
+          method: paymentMethod,
+          status: 'completed',
+          receivedBy: user?.username || 'Cashier',
+        });
 
-      // Record payment while keeping the order active for kitchen/order workflow.
-      paymentDB.create({
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        amount: total,
-        method: paymentMethod,
-        status: 'completed',
-        receivedBy: user?.username || 'Unknown'
-      });
+        if (selectedTable) {
+          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined });
+        }
 
-      // Notification
-      notificationDB.create({
-        type: 'order',
-        title: 'New Order',
-        message: `Order ${order.orderNumber} has been placed (${settings.currencySymbol}${total.toFixed(2)}) and sent to the kitchen.`
-      });
+        success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || 'N/A'} is now AVAILABLE ✅`);
+      } else {
+        // Create new POS order with distinct order number
+        const newOrderNum = orderDB.generateOrderNumber('pos', selectedTable?.number);
 
-      success(`Order ${order.orderNumber} created successfully and sent to kitchen.`);
+        const orderItems: OrderItem[] = cart.map(item => ({
+          id: item.id,
+          menuItemId: item.menuItemId,
+          menuItemName: item.menuItemName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          spiceLevel: item.spiceLevel,
+          selectedDrink: item.selectedDrink,
+          notes: item.notes,
+          status: 'served'
+        }));
+
+        const order = orderDB.create({
+          tableId: selectedTable?.id,
+          tableNumber: selectedTable?.number,
+          type: orderType,
+          items: orderItems,
+          subtotal,
+          tax: taxAmount,
+          discount: discountAmount,
+          discountType,
+          total,
+          status: 'completed',
+          customerName: customerName || undefined,
+          customerPhone: customerPhone || undefined,
+          waiterId: user?.id,
+          waiterName: user?.username,
+          orderNumber: newOrderNum,
+        } as any);
+
+        paymentDB.create({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          amount: total,
+          method: paymentMethod,
+          status: 'completed',
+          receivedBy: user?.username || 'Unknown'
+        });
+
+        if (selectedTable) {
+          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined });
+        }
+
+        notificationDB.create({
+          type: 'order',
+          title: 'POS Order Paid',
+          message: `POS Order ${order.orderNumber} completed (${formatCurrency(total)}).`
+        });
+
+        success(`POS Order ${order.orderNumber} completed! Table set to Available.`);
+      }
+
       setShowPaymentModal(false);
       clearCart();
-      
     } catch (err) {
       error('Failed to process payment');
     } finally {
@@ -245,6 +337,34 @@ export const POSPage: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Search & Categories */}
         <div className="mb-4 space-y-3">
+          {/* Active Table Bills Quick Bar */}
+          {activeTableOrders.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar bg-amber-50 dark:bg-amber-950/30 p-2 rounded-xl border border-amber-200 dark:border-amber-900/40">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-200 shrink-0 uppercase tracking-wider flex items-center gap-1">
+                <Table2 size={15} /> Active Table Bills ({activeTableOrders.length}):
+              </span>
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                {activeTableOrders.map((ord) => (
+                  <button
+                    key={ord.id}
+                    onClick={() => loadActiveOrder(ord)}
+                    className={cn(
+                      'shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition-all border flex items-center gap-2 cursor-pointer',
+                      loadedOrderId === ord.id
+                        ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                        : 'bg-white text-amber-900 border-amber-200 hover:bg-amber-100 dark:bg-gray-800 dark:border-amber-900/50 dark:text-amber-200'
+                    )}
+                  >
+                    <span>Table {ord.tableNumber || 'Takeaway'}</span>
+                    <span className="rounded bg-amber-900/10 dark:bg-amber-100/10 px-1.5 py-0.5 text-[11px] font-extrabold">
+                      {formatCurrency(ord.total)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <div className="flex-1">
               <Input
@@ -415,6 +535,13 @@ export const POSPage: React.FC = () => {
                     <p className="font-medium text-gray-900 dark:text-white truncate">
                       {item.menuItemName}
                     </p>
+                    {(item.spiceLevel || item.selectedDrink || item.notes) && (
+                      <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+                        {item.spiceLevel && <span className="font-bold text-rose-600 dark:text-rose-400">🌶️ {item.spiceLevel}</span>}
+                        {item.selectedDrink && <span className="font-bold text-blue-600 dark:text-blue-400">🥤 {item.selectedDrink}</span>}
+                        {item.notes && <span className="italic">({item.notes})</span>}
+                      </div>
+                    )}
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       {settings.currencySymbol}{item.unitPrice.toFixed(2)} × {item.quantity}
                     </p>
@@ -515,30 +642,40 @@ export const POSPage: React.FC = () => {
         title="Select Table"
         size="lg"
       >
-        <div className="grid grid-cols-4 gap-3">
-          {tables.map(table => (
-            <button
-              key={table.id}
-              onClick={() => {
-                if (table.status === 'available') {
-                  setSelectedTable(table);
-                  setShowTableModal(false);
-                }
-              }}
-              disabled={table.status !== 'available'}
-              className={cn(
-                'aspect-square rounded-xl flex flex-col items-center justify-center transition-all',
-                table.status === 'available' && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50',
-                table.status === 'occupied' && 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 cursor-not-allowed opacity-60',
-                table.status === 'reserved' && 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 cursor-not-allowed opacity-60',
-                selectedTable?.id === table.id && 'ring-2 ring-blue-500'
-              )}
-            >
-              <span className="text-2xl font-bold">{table.number}</span>
-              <span className="text-xs">{table.capacity} seats</span>
-              <StatusBadge status={table.status} showDot={false} />
-            </button>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {tables.map(table => {
+            const activeOrd = activeTableOrders.find(o => o.tableNumber === table.number || o.tableId === table.id);
+            return (
+              <button
+                key={table.id}
+                onClick={() => {
+                  if (activeOrd) {
+                    loadActiveOrder(activeOrd);
+                  } else {
+                    setSelectedTable(table);
+                    setLoadedOrderId(null);
+                    setShowTableModal(false);
+                  }
+                }}
+                className={cn(
+                  'aspect-square rounded-xl flex flex-col items-center justify-center p-3 transition-all cursor-pointer border text-center',
+                  table.status === 'available' && 'bg-green-50 border-green-200 dark:bg-green-900/20 text-green-700 dark:text-green-300 hover:bg-green-100',
+                  table.status === 'occupied' && 'bg-amber-50 border-amber-300 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 hover:bg-amber-100 ring-2 ring-amber-400/50',
+                  table.status === 'reserved' && 'bg-purple-50 border-purple-200 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300',
+                  selectedTable?.id === table.id && 'ring-2 ring-blue-600 font-bold'
+                )}
+              >
+                <span className="text-xl font-bold">Table {table.number}</span>
+                <span className="text-xs text-gray-500 mt-0.5">{table.capacity} seats</span>
+                <StatusBadge status={table.status} showDot={false} />
+                {activeOrd && (
+                  <span className="mt-1.5 rounded-lg bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                    Pay {formatCurrency(activeOrd.total)} 💳
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </Modal>
 

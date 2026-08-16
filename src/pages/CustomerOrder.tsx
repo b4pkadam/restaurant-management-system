@@ -641,8 +641,11 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                           </div>
                         )}
 
-                        {/* Dish Information */}
-                        <div className="min-w-0 flex-1 space-y-0.5 pr-0.5">
+                        {/* Dish Information (Clickable to view full details & options) */}
+                        <div
+                          onClick={() => openCustomizationModal(item)}
+                          className="min-w-0 flex-1 space-y-0.5 pr-0.5 cursor-pointer"
+                        >
                           <div className="flex items-start gap-1.5">
                             {/* Veg / Non-Veg Icon */}
                             <span
@@ -661,7 +664,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                                 )}
                               />
                             </span>
-                            <h3 className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white leading-snug line-clamp-2">
+                            <h3 className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white leading-snug line-clamp-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                               {item.name}
                             </h3>
                           </div>
@@ -682,6 +685,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                                 {item.preparationTime}m
                               </span>
                             )}
+                            <span className="text-[10px] text-gray-400 underline decoration-dotted">Details</span>
                           </div>
                         </div>
 
@@ -970,35 +974,72 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
               </button>
             </div>
 
-            {/* 5-Stage Spice Level Selection */}
+            {/* Dish Info Details Box inside Modal */}
+            <div className="rounded-2xl bg-blue-50/50 p-3.5 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 space-y-2 text-xs">
+              {customizingItem.description && (
+                <p className="text-gray-700 dark:text-gray-300 leading-relaxed font-normal">
+                  {customizingItem.description}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold border',
+                  customizingItem.isVeg
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300'
+                    : 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300'
+                )}>
+                  {customizingItem.isVeg ? '🌱 Vegetarian' : '🍗 Non-Vegetarian'}
+                </span>
+                {customizingItem.preparationTime && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                    <Clock size={11} />
+                    {customizingItem.preparationTime}m prep time
+                  </span>
+                )}
+              </div>
+              {customizingItem.ingredients && customizingItem.ingredients.length > 0 && (
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
+                  <span className="font-bold text-gray-700 dark:text-gray-300">Ingredients:</span> {customizingItem.ingredients.join(', ')}
+                </p>
+              )}
+            </div>
+
+            {/* 5-Stage Spice Level Selection - Compact Horizontal 1-Line Segment Bar */}
             {shouldShowSpiceOption(customizingItem) && (
-              <div className="space-y-2 rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/60 border border-gray-100 dark:border-gray-700/60">
+              <div className="space-y-2 rounded-2xl bg-rose-50/50 p-3.5 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <span>🌶️ Choose Spice Level (5 Stages)</span>
+                  <label className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-1">
+                    <span>🌶️ Spice Level (5 Stages)</span>
                   </label>
-                  <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">Selectable</span>
+                  {selectedSpiceLevel && (
+                    <span className="text-xs font-black text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/50 px-2 py-0.5 rounded-full">
+                      {selectedSpiceLevel}
+                    </span>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {SPICE_LEVELS.map((lvl) => (
-                    <button
-                      key={lvl.id}
-                      type="button"
-                      onClick={() => setSelectedSpiceLevel(lvl.id)}
-                      className={cn(
-                        'flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all border cursor-pointer',
-                        selectedSpiceLevel === lvl.id
-                          ? 'border-rose-500 bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200 ring-2 ring-rose-500/20'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{lvl.icon}</span>
-                        <span>{lvl.label}</span>
-                      </div>
-                      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{lvl.desc}</span>
-                    </button>
-                  ))}
+                <div className="grid grid-cols-5 gap-1.5 pt-1">
+                  {SPICE_LEVELS.map((lvl, idx) => {
+                    const isSelected = selectedSpiceLevel === lvl.id;
+                    const stageLabel = lvl.label.split('-')[1]?.trim() || lvl.label;
+                    return (
+                      <button
+                        key={lvl.id}
+                        type="button"
+                        onClick={() => setSelectedSpiceLevel(lvl.id)}
+                        className={cn(
+                          'flex flex-col items-center justify-center rounded-xl py-2 px-1 text-center transition-all border cursor-pointer',
+                          isSelected
+                            ? 'border-rose-600 bg-gradient-to-b from-rose-500 to-rose-600 text-white font-bold shadow-md scale-105 z-10'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-rose-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                        )}
+                      >
+                        <span className="text-[11px] font-black leading-none">{idx + 1}</span>
+                        <span className="text-[10px] font-semibold truncate max-w-full leading-tight mt-1 opacity-95">
+                          {stageLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
