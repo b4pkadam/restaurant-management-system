@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import initialDbData from './initialDbData.json';
 const DB_PREFIX = 'restaurant_db_';
-const CURRENT_DB_VERSION = 'v3';
+const CURRENT_DB_VERSION = 'v4';
 
 // Auto-purge stale browser cache from previous builds
 if (typeof window !== 'undefined' && window.localStorage) {
@@ -896,47 +896,19 @@ export const initializeSampleData = (): void => {
   userDB.create({ username: 'chef', password: 'chef123', role: 'chef', isActive: true });
   userDB.create({ username: 'cashier', password: 'cashier123', role: 'cashier', isActive: true });
   
-  // Create categories
-  const categories = [
-    { name: 'Starters', description: 'Appetizers and starters', icon: '🥗', sortOrder: 1, isActive: true },
-    { name: 'Main Course', description: 'Main dishes', icon: '🍝', sortOrder: 2, isActive: true },
-    { name: 'Desserts', description: 'Sweet treats', icon: '🍰', sortOrder: 3, isActive: true },
-    { name: 'Beverages', description: 'Drinks and beverages', icon: '🥤', sortOrder: 4, isActive: true },
-    { name: 'Soups', description: 'Hot and cold soups', icon: '🍲', sortOrder: 5, isActive: true }
-  ];
-  const createdCategories = categories.map(c => categoryDB.create(c));
-  
-  // Create menu items
-  const menuItems = [
-    // Starters
-    { name: 'Caesar Salad', description: 'Fresh romaine lettuce with caesar dressing', categoryId: createdCategories[0].id, price: 8.99, cost: 3.50, isAvailable: true, isVeg: true, preparationTime: 10, ingredients: ['Lettuce', 'Croutons', 'Parmesan'], barcode: 'STR001' },
-    { name: 'Garlic Bread', description: 'Toasted bread with garlic butter', categoryId: createdCategories[0].id, price: 5.99, cost: 1.50, isAvailable: true, isVeg: true, preparationTime: 8, ingredients: ['Bread', 'Garlic', 'Butter'], barcode: 'STR002' },
-    { name: 'Chicken Wings', description: 'Crispy fried chicken wings', categoryId: createdCategories[0].id, price: 12.99, cost: 5.00, isAvailable: true, isVeg: false, preparationTime: 15, ingredients: ['Chicken', 'Spices', 'Oil'], barcode: 'STR003' },
-    { name: 'Spring Rolls', description: 'Crispy vegetable spring rolls', categoryId: createdCategories[0].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: true, preparationTime: 12, ingredients: ['Vegetables', 'Wrapper', 'Oil'], barcode: 'STR004' },
-    
-    // Main Course
-    { name: 'Grilled Salmon', description: 'Fresh Atlantic salmon with herbs', categoryId: createdCategories[1].id, price: 24.99, cost: 12.00, isAvailable: true, isVeg: false, preparationTime: 25, ingredients: ['Salmon', 'Herbs', 'Lemon'], barcode: 'MNC001' },
-    { name: 'Chicken Alfredo', description: 'Creamy pasta with grilled chicken', categoryId: createdCategories[1].id, price: 18.99, cost: 7.00, isAvailable: true, isVeg: false, preparationTime: 20, ingredients: ['Pasta', 'Chicken', 'Cream'], barcode: 'MNC002' },
-    { name: 'Vegetable Stir Fry', description: 'Mixed vegetables in Asian sauce', categoryId: createdCategories[1].id, price: 14.99, cost: 5.00, isAvailable: true, isVeg: true, preparationTime: 15, ingredients: ['Vegetables', 'Soy Sauce', 'Garlic'], barcode: 'MNC003' },
-    { name: 'Beef Steak', description: 'Premium cut beef with sides', categoryId: createdCategories[1].id, price: 29.99, cost: 15.00, isAvailable: true, isVeg: false, preparationTime: 30, ingredients: ['Beef', 'Herbs', 'Butter'], barcode: 'MNC004' },
-    { name: 'Margherita Pizza', description: 'Classic Italian pizza', categoryId: createdCategories[1].id, price: 16.99, cost: 6.00, isAvailable: true, isVeg: true, preparationTime: 20, ingredients: ['Dough', 'Tomato', 'Mozzarella'], barcode: 'MNC005' },
-    
-    // Desserts
-    { name: 'Chocolate Cake', description: 'Rich chocolate layer cake', categoryId: createdCategories[2].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Chocolate', 'Flour', 'Cream'], barcode: 'DST001' },
-    { name: 'Ice Cream Sundae', description: 'Vanilla ice cream with toppings', categoryId: createdCategories[2].id, price: 6.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Ice Cream', 'Chocolate', 'Nuts'], barcode: 'DST002' },
-    { name: 'Tiramisu', description: 'Italian coffee flavored dessert', categoryId: createdCategories[2].id, price: 8.99, cost: 3.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Mascarpone', 'Coffee', 'Ladyfingers'], barcode: 'DST003' },
-    
-    // Beverages
-    { name: 'Fresh Orange Juice', description: 'Freshly squeezed orange juice', categoryId: createdCategories[3].id, price: 4.99, cost: 1.50, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Oranges'], barcode: 'BEV001' },
-    { name: 'Cappuccino', description: 'Italian style espresso with milk foam', categoryId: createdCategories[3].id, price: 4.49, cost: 1.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Coffee', 'Milk'], barcode: 'BEV002' },
-    { name: 'Iced Tea', description: 'Refreshing iced tea with lemon', categoryId: createdCategories[3].id, price: 3.99, cost: 0.75, isAvailable: true, isVeg: true, preparationTime: 3, ingredients: ['Tea', 'Lemon', 'Ice'], barcode: 'BEV003' },
-    { name: 'Mango Smoothie', description: 'Fresh mango blended with yogurt', categoryId: createdCategories[3].id, price: 5.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 5, ingredients: ['Mango', 'Yogurt', 'Honey'], barcode: 'BEV004' },
-    
-    // Soups
-    { name: 'Tomato Soup', description: 'Creamy tomato basil soup', categoryId: createdCategories[4].id, price: 6.99, cost: 2.00, isAvailable: true, isVeg: true, preparationTime: 10, ingredients: ['Tomatoes', 'Basil', 'Cream'], barcode: 'SOP001' },
-    { name: 'Chicken Noodle Soup', description: 'Classic chicken soup with noodles', categoryId: createdCategories[4].id, price: 7.99, cost: 2.50, isAvailable: true, isVeg: false, preparationTime: 12, ingredients: ['Chicken', 'Noodles', 'Vegetables'], barcode: 'SOP002' }
-  ];
-  menuItems.forEach(m => menuItemDB.create(m));
+  // Create categories from initialDbData
+  initialDbData.categories.forEach((c) => categoryDB.create(c as Category));
+
+  // Create menu items from initialDbData
+  initialDbData.menuItems.forEach((m) =>
+    menuItemDB.create({
+      ...m,
+      price: Number(m.price),
+      isAvailable: m.isAvailable ?? true,
+      isVeg: m.isVeg ?? (m as any).isVegetarian ?? true,
+      imageUrl: m.imageUrl || (m as any).image,
+    } as MenuItem)
+  );
   
   // Create tables
   for (let i = 1; i <= 12; i++) {

@@ -1,12 +1,12 @@
 {
   "settings": {
-    "restaurantName": "Gourmet Haven Restaurant",
-    "restaurantAddress": "123 Culinary Boulevard, Foodville",
-    "restaurantPhone": "+1 (555) 234-5678",
-    "gstNumber": "GST987654321",
+    "restaurantName": "宮カレー (Miya Curry)",
+    "restaurantAddress": "ネキスト宮の橋ビル 2F, 3-3-1 Odori, Utsunomiya, Tochigi 320-0811",
+    "restaurantPhone": "+81 28-632-1234",
+    "gstNumber": "JP9876543210",
     "taxPercentage": 10,
-    "currency": "USD",
-    "currencySymbol": "$",
+    "currency": "JPY",
+    "currencySymbol": "¥",
     "theme": "light",
     "language": "en",
     "autoBackup": true,
@@ -58,10 +58,10 @@
     {
       "id": "emp-1",
       "name": "John Manager",
-      "email": "john@restaurant.com",
+      "email": "john@miyacurry.com",
       "phone": "1234567890",
       "role": "manager",
-      "salary": 5000,
+      "salary": 350000,
       "shift": "morning",
       "joiningDate": "2023-01-15",
       "isActive": true
@@ -69,52 +69,75 @@
     {
       "id": "emp-2",
       "name": "Sarah Waiter",
-      "email": "sarah@restaurant.com",
+      "email": "sarah@miyacurry.com",
       "phone": "1234567891",
       "role": "waiter",
-      "salary": 2500,
+      "salary": 220000,
       "shift": "evening",
       "joiningDate": "2023-03-20",
       "isActive": true
     },
     {
       "id": "emp-3",
-      "name": "Mike Chef",
-      "email": "mike@restaurant.com",
+      "name": "Head Chef Miya",
+      "email": "chef@miyacurry.com",
       "phone": "1234567892",
       "role": "chef",
-      "salary": 4000,
+      "salary": 450000,
       "shift": "morning",
       "joiningDate": "2022-11-10",
-      "isActive": true
-    },
-    {
-      "id": "emp-4",
-      "name": "Lisa Cashier",
-      "email": "lisa@restaurant.com",
-      "phone": "1234567893",
-      "role": "cashier",
-      "salary": 3000,
-      "shift": "flexible",
-      "joiningDate": "2023-06-01",
       "isActive": true
     }
   ],
   "categories": [
-    { "id": "cat-starters", "name": "Starters & Appetizers", "description": "Crispy starters and fresh salads", "icon": "🥗", "sortOrder": 1, "isActive": true },
-    { "id": "cat-mains", "name": "Main Course", "description": "Hearty main dishes and pastas", "icon": "🍝", "sortOrder": 2, "isActive": true },
-    { "id": "cat-pizzas", "name": "Artisanal Pizzas", "description": "Wood-fired specialty pizzas", "icon": "🍕", "sortOrder": 3, "isActive": true },
-    { "id": "cat-desserts", "name": "Desserts & Sweets", "description": "Decadent cakes and ice creams", "icon": "🍰", "sortOrder": 4, "isActive": true },
-    { "id": "cat-beverages", "name": "Beverages & Drinks", "description": "Refresing juices, coffees, and teas", "icon": "🥤", "sortOrder": 5, "isActive": true }
+    { "id": "cat-curry", "name": "Curries (カレー)", "description": "Authentic Indian & Nepalese curry specialties", "icon": "🍛", "sortOrder": 1, "isActive": true },
+    { "id": "cat-sets", "name": "Special Sets & Meals (セット)", "description": "Curry sets with naan, rice, tandoori & drinks", "icon": "🍱", "sortOrder": 2, "isActive": true },
+    { "id": "cat-biryani", "name": "Biryani & Rice (ビリヤニ)", "description": "Aromatic basmati rice cooked with Indian spices", "icon": "🍚", "sortOrder": 3, "isActive": true },
+    { "id": "cat-naan", "name": "Tandoori Breads (ナン＆パン)", "description": "Fresh tandoor baked naan and breads", "icon": "🫓", "sortOrder": 4, "isActive": true },
+    { "id": "cat-starters", "name": "Starters & Snacks (一品料理)", "description": "Momo, samosas, tandoori chicken and Nepalese snacks", "icon": "🥟", "sortOrder": 5, "isActive": true },
+    { "id": "cat-beverages", "name": "Beverages & Drinks (ドリンク)", "description": "Lassi, chai, beers and refreshing drinks", "icon": "🍹", "sortOrder": 6, "isActive": true }
   ],
   "menuItems": [
-    { "id": "item-1", "name": "Truffle Mushroom Bruschetta", "description": "Crispy sourdough topped with sautéed wild mushrooms and truffle oil", "price": 12.99, "categoryId": "cat-starters", "categoryName": "Starters & Appetizers", "isAvailable": true, "preparationTime": 12, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-2", "name": "Classic Caesar Salad", "description": "Crisp romaine, garlic croutons, shaved parmesan, and creamy dressing", "price": 10.50, "categoryId": "cat-starters", "categoryName": "Starters & Appetizers", "isAvailable": true, "preparationTime": 10, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1546793665-c74683f339c1?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-3", "name": "Grilled Salmon Fillet", "description": "Pan-seared Atlantic salmon with asparagus and lemon-herb butter", "price": 24.50, "categoryId": "cat-mains", "categoryName": "Main Course", "isAvailable": true, "preparationTime": 20, "isVegetarian": false, "image": "https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-4", "name": "Creamy Fettuccine Alfredo", "description": "Handmade fettuccine tosssed in rich parmesan garlic cream sauce", "price": 18.00, "categoryId": "cat-mains", "categoryName": "Main Course", "isAvailable": true, "preparationTime": 15, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1645112411341-6c4fd023714a?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-5", "name": "Margherita Supreme Pizza", "description": "Fresh buffalo mozzarella, San Marzano tomatoes, and sweet basil", "price": 16.50, "categoryId": "cat-pizzas", "categoryName": "Artisanal Pizzas", "isAvailable": true, "preparationTime": 15, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-6", "name": "Molten Chocolate Lava Cake", "description": "Warm chocolate cake with oozing fudge center and vanilla gelato", "price": 9.00, "categoryId": "cat-desserts", "categoryName": "Desserts & Sweets", "isAvailable": true, "preparationTime": 10, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80" },
-    { "id": "item-7", "name": "Iced Berry Hibiscus Tea", "description": "Cold brewed hibiscus with wild berries and mint", "price": 4.99, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks", "isAvailable": true, "preparationTime": 5, "isVegetarian": true, "image": "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80" }
+    { "id": "item-1", "name": "Butter Chicken Curry (バターチキンカレー)", "description": "Rich and creamy tomato-cashew curry cooked with tender chicken pieces", "price": 980, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-2", "name": "Chicken Curry (チキンカレー)", "description": "Traditional onion, garlic & ginger based savory chicken curry", "price": 880, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-3", "name": "Chicken Keema Curry (チキンキーマカレー)", "description": "Flavorful minced chicken cooked with green peas and warm spices", "price": 880, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-4", "name": "Mutton Curry (マトンカレー)", "description": "Slow-cooked tender mutton chunks in rich traditional Nepalese curry", "price": 1080, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 20, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1545247181-516773cae754?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-5", "name": "Saag Chicken Curry (ほうれん草チキン)", "description": "Creamy spinach puree cooked with juicy chicken and spices", "price": 950, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-6", "name": "Dal Lentil Curry (ダールカレー)", "description": "Yellow lentils tempered with cumin seeds, garlic, ghee & fresh coriander", "price": 780, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 12, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-7", "name": "Mixed Vegetable Curry (ベジタブルカレー)", "description": "Carrots, potatoes, peas & cauliflower in fragrant curry sauce", "price": 850, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 15, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-8", "name": "Seafood Coconut Curry (シーフードカレー)", "description": "Prawns and squid simmered in mild coconut milk curry", "price": 1050, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 18, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-9", "name": "Pork Curry (ポークカレー)", "description": "Tender pork pieces braised in spicy Nepalese style curry gravy", "price": 980, "categoryId": "cat-curry", "categoryName": "Curries (カレー)", "isAvailable": true, "preparationTime": 20, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80" },
+    
+    { "id": "item-10", "name": "Miya Special Set (宮スペシャルセット)", "description": "2 choice curries, rice, naan (free 1 refill), tandoori chicken, salad, pickles, dessert & drink", "price": 1280, "categoryId": "cat-sets", "categoryName": "Special Sets & Meals (セット)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-11", "name": "Maharaja Set (マハラジャセット)", "description": "3 choice curries, choice naan, chicken biryani, tandoori chicken, vegetable pakora, salad & drink", "price": 2480, "categoryId": "cat-sets", "categoryName": "Special Sets & Meals (セット)", "isAvailable": true, "preparationTime": 20, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-12", "name": "Thakali Set (タカリセット - Weekend Special)", "description": "Traditional Nepalese Thakali thali with dal, bhat, tarkari, pickles & curry", "price": 1480, "categoryId": "cat-sets", "categoryName": "Special Sets & Meals (セット)", "isAvailable": true, "preparationTime": 18, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-13", "name": "Ladies Lunch Set (レディースセット)", "description": "2 choice curries, cheese/plain naan, mini rice, salad, dessert & drink", "price": 1180, "categoryId": "cat-sets", "categoryName": "Special Sets & Meals (セット)", "isAvailable": true, "preparationTime": 12, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-14", "name": "Lunch Curry Set (ランチカレーセット)", "description": "1 choice curry, freshly baked naan or rice, pickles, salad & soft drink", "price": 850, "categoryId": "cat-sets", "categoryName": "Special Sets & Meals (セット)", "isAvailable": true, "preparationTime": 10, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&q=80" },
+
+    { "id": "item-15", "name": "Hyderabadi Chicken Biryani (チキンビリヤニ)", "description": "Fragrant basmati rice dum cooked with marinated chicken & spices, served with drink", "price": 1380, "categoryId": "cat-biryani", "categoryName": "Biryani & Rice (ビリヤニ)", "isAvailable": true, "preparationTime": 18, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-16", "name": "Mutton Biryani (マトンビリヤニ)", "description": "Richly spiced basmati rice layer-cooked with tender mutton & saffron", "price": 1480, "categoryId": "cat-biryani", "categoryName": "Biryani & Rice (ビリヤニ)", "isAvailable": true, "preparationTime": 20, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1633945274405-b6c8069047b0?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-17", "name": "Egg Biryani (エッグビリヤニ)", "description": "Spicy aromatic rice cooked with roasted hard-boiled eggs & herbs", "price": 1180, "categoryId": "cat-biryani", "categoryName": "Biryani & Rice (ビリヤニ)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-18", "name": "Veg & Cheese Biryani (野菜＆チーズビリヤニ)", "description": "Fragrant basmati rice layered with paneer cheese, vegetables & saffron", "price": 1280, "categoryId": "cat-biryani", "categoryName": "Biryani & Rice (ビリヤニ)", "isAvailable": true, "preparationTime": 15, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-19", "name": "Steamed Basmati Rice (プレーンライス)", "description": "Fluffy long-grain aromatic Indian basmati rice", "price": 300, "categoryId": "cat-biryani", "categoryName": "Biryani & Rice (ビリヤニ)", "isAvailable": true, "preparationTime": 5, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1516684732162-798a0062be99?auto=format&fit=crop&w=600&q=80" },
+
+    { "id": "item-20", "name": "Cheese Naan (チーズナン)", "description": "Tandoor-baked naan packed with gooey melted mozzarella cheese", "price": 550, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 8, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-21", "name": "Garlic Cheese Naan (ガーリックチーズナン)", "description": "Naan filled with cheese and topped with minced roasted garlic & butter", "price": 620, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 8, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-22", "name": "Plain Naan (プレーンナン)", "description": "Traditional clay oven baked soft Indian flatbread", "price": 330, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 5, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-23", "name": "Garlic Naan (ガーリックナン)", "description": "Naan topped with fresh garlic and cilantro", "price": 420, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 6, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-24", "name": "Chicken Keema Naan (キーマナン)", "description": "Tandoori naan stuffed with spiced minced chicken filling", "price": 580, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 10, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-25", "name": "Butter Naan (バターナン)", "description": "Flaky layered tandoori naan brushed with rich butter", "price": 380, "categoryId": "cat-naan", "categoryName": "Tandoori Breads (ナン＆パン)", "isAvailable": true, "preparationTime": 6, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=600&q=80" },
+
+    { "id": "item-26", "name": "Steamed Chicken Momo (スチームモモ - 6個)", "description": "Traditional Nepalese steamed dumplings served with tomato-sesame chutney", "price": 880, "categoryId": "cat-starters", "categoryName": "Starters & Snacks (一品料理)", "isAvailable": true, "preparationTime": 12, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1625220194771-7ebdea0b70b9?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-27", "name": "Tandoori Chicken (タンドリーチキン - 2個)", "description": "Yogurt and spice marinated chicken roasted over charcoal in clay tandoor", "price": 780, "categoryId": "cat-starters", "categoryName": "Starters & Snacks (一品料理)", "isAvailable": true, "preparationTime": 15, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-28", "name": "Vegetable Samosa (サモサ - 2個)", "description": "Golden crispy pastry filled with spiced potato and green peas", "price": 500, "categoryId": "cat-starters", "categoryName": "Starters & Snacks (一品料理)", "isAvailable": true, "preparationTime": 8, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-29", "name": "Sukuti Mutton Fry (スクティ - 炒め物)", "description": "Nepalese style sun-dried mutton sautéed with garlic, chili & onions", "price": 980, "categoryId": "cat-starters", "categoryName": "Starters & Snacks (一品料理)", "isAvailable": true, "preparationTime": 12, "isVeg": false, "imageUrl": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-30", "name": "Vegetable Pakora (ベジタブルパコダ)", "description": "Crispy spiced chickpea batter fritters served with mint chutney", "price": 650, "categoryId": "cat-starters", "categoryName": "Starters & Snacks (一品料理)", "isAvailable": true, "preparationTime": 10, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=600&q=80" },
+
+    { "id": "item-31", "name": "Mango Lassi (マンゴーラッシー)", "description": "Chilled sweet yogurt drink blended with Alphonso mango puree", "price": 420, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks (ドリンク)", "isAvailable": true, "preparationTime": 3, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-32", "name": "Plain Lassi (プレーンラッシー)", "description": "Traditional sweet refreshing chilled yogurt drink", "price": 350, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks (ドリンク)", "isAvailable": true, "preparationTime": 3, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-33", "name": "Blueberry Lassi (ブルーベリーラッシー)", "description": "Creamy yogurt beverage blended with wild blueberry reduction", "price": 450, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks (ドリンク)", "isAvailable": true, "preparationTime": 4, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1553530666-ba11a7da3888?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-34", "name": "Hot Masala Chai (ホットマサラチャイ)", "description": "Traditional Indian spiced tea brewed with milk, cardamom & ginger", "price": 350, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks (ドリンク)", "isAvailable": true, "preparationTime": 5, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" },
+    { "id": "item-35", "name": "Draft Japanese Beer (生ビール)", "description": "Chilled premium Japanese draft beer (Asahi / Kirin)", "price": 550, "categoryId": "cat-beverages", "categoryName": "Beverages & Drinks (ドリンク)", "isAvailable": true, "preparationTime": 2, "isVeg": true, "imageUrl": "https://images.unsplash.com/photo-1608270586620-248524c67de9?auto=format&fit=crop&w=600&q=80" }
   ],
   "tables": [
     { "id": "tbl-1", "number": 1, "capacity": 2, "status": "available", "qrCode": "?table=1" },
@@ -125,13 +148,13 @@
     { "id": "tbl-6", "number": 6, "capacity": 8, "status": "available", "qrCode": "?table=6" }
   ],
   "inventory": [
-    { "id": "inv-1", "name": "Salmon Fillets", "category": "Seafood", "quantity": 15, "unit": "kg", "minStock": 5, "costPerUnit": 18.00, "supplierId": "sup-1", "lastRestocked": "2026-08-01" },
-    { "id": "inv-2", "name": "Mozzarella Cheese", "category": "Dairy", "quantity": 25, "unit": "kg", "minStock": 8, "costPerUnit": 6.50, "supplierId": "sup-2", "lastRestocked": "2026-08-02" },
-    { "id": "inv-3", "name": "Wild Mushrooms", "category": "Produce", "quantity": 10, "unit": "kg", "minStock": 3, "costPerUnit": 12.00, "supplierId": "sup-2", "lastRestocked": "2026-08-03" }
+    { "id": "inv-1", "name": "Basmati Rice", "category": "Grains", "quantity": 50, "unit": "kg", "minStock": 10, "costPerUnit": 300, "supplierId": "sup-1", "lastRestocked": "2026-08-01" },
+    { "id": "inv-2", "name": "Mozzarella & Paneer Cheese", "category": "Dairy", "quantity": 30, "unit": "kg", "minStock": 8, "costPerUnit": 800, "supplierId": "sup-2", "lastRestocked": "2026-08-02" },
+    { "id": "inv-3", "name": "Chicken Breasts & Thighs", "category": "Poultry", "quantity": 40, "unit": "kg", "minStock": 10, "costPerUnit": 600, "supplierId": "sup-2", "lastRestocked": "2026-08-03" }
   ],
   "suppliers": [
-    { "id": "sup-1", "name": "Ocean Fresh Seafood Ltd", "contactPerson": "David Miller", "phone": "555-0192", "email": "orders@oceanfresh.com", "category": "Seafood", "address": "45 Harbor Way" },
-    { "id": "sup-2", "name": "Valley Organic Farms", "contactPerson": "Emma Green", "phone": "555-0193", "email": "emma@valleyfarms.com", "category": "Produce & Dairy", "address": "88 Country Lane" }
+    { "id": "sup-1", "name": "Utsunomiya Food Supplies Ltd", "contactPerson": "Taro Tanaka", "phone": "028-632-0001", "email": "orders@utsunomiyafood.jp", "category": "Grains & Spices", "address": "1-2-3 Odori, Utsunomiya" },
+    { "id": "sup-2", "name": "Tochigi Fresh Poultry & Dairy", "contactPerson": "Ken Sato", "phone": "028-632-0002", "email": "ken@tochigifresh.jp", "category": "Poultry & Dairy", "address": "4-5-6 Station Road, Utsunomiya" }
   ],
   "notifications": []
 }
