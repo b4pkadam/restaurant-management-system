@@ -623,31 +623,31 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                     return (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3.5 shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700/60"
+                        className="flex items-center gap-2.5 sm:gap-3 rounded-2xl bg-white p-3 shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700/60 overflow-hidden w-full"
                       >
                         {/* Food Image Thumbnail */}
                         {imageSrc ? (
                           <img
                             src={imageSrc}
                             alt={item.name}
-                            className="h-18 w-18 shrink-0 rounded-xl object-cover border border-gray-100 dark:border-gray-700"
+                            className="h-16 w-16 sm:h-18 sm:w-18 shrink-0 rounded-xl object-cover border border-gray-100 dark:border-gray-700"
                             onError={(e) => {
                               (e.target as HTMLElement).style.display = 'none';
                             }}
                           />
                         ) : (
-                          <div className="flex h-18 w-18 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600 font-bold text-xl dark:from-gray-700 dark:to-gray-800 dark:text-blue-400">
+                          <div className="flex h-16 w-16 sm:h-18 sm:w-18 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600 font-bold text-lg sm:text-xl dark:from-gray-700 dark:to-gray-800 dark:text-blue-400">
                             {item.name.charAt(0)}
                           </div>
                         )}
 
                         {/* Dish Information */}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1 space-y-0.5 pr-0.5">
+                          <div className="flex items-start gap-1.5">
                             {/* Veg / Non-Veg Icon */}
                             <span
                               className={cn(
-                                'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-xs border p-0.5',
+                                'mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-xs border p-0.5',
                                 item.isVeg
                                   ? 'border-emerald-600 dark:border-emerald-400'
                                   : 'border-rose-600 dark:border-rose-400'
@@ -661,24 +661,24 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                                 )}
                               />
                             </span>
-                            <h3 className="font-bold text-sm text-gray-900 dark:text-white leading-tight truncate">
+                            <h3 className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white leading-snug line-clamp-2">
                               {item.name}
                             </h3>
                           </div>
 
                           {item.description && (
-                            <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                            <p className="line-clamp-1 text-[11px] text-gray-500 dark:text-gray-400">
                               {item.description}
                             </p>
                           )}
 
-                          <div className="mt-2 flex items-center gap-3">
-                            <span className="text-sm font-black text-blue-600 dark:text-blue-400">
+                          <div className="mt-1 flex items-center gap-2 text-xs sm:text-sm">
+                            <span className="font-black text-blue-600 dark:text-blue-400">
                               {formatCurrency(item.price)}
                             </span>
                             {item.preparationTime && (
-                              <span className="flex items-center gap-1 text-[11px] text-gray-400">
-                                <Clock size={12} />
+                              <span className="flex items-center gap-0.5 text-[10px] sm:text-[11px] text-gray-400">
+                                <Clock size={11} />
                                 {item.preparationTime}m
                               </span>
                             )}
@@ -686,31 +686,31 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                         </div>
 
                         {/* Add / Stepper Button */}
-                        <div className="shrink-0">
+                        <div className="shrink-0 min-w-max flex items-center justify-end">
                           {inCart ? (
-                            <div className="flex items-center gap-1.5 rounded-xl bg-blue-50 p-1 dark:bg-blue-900/30">
+                            <div className="flex items-center gap-1 rounded-xl bg-blue-50 p-1 dark:bg-blue-900/30">
                               <button
                                 onClick={() => updateQty(inCart.id, -1)}
-                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-blue-600 shadow-xs active:scale-90 transition-all dark:bg-gray-800 dark:text-blue-400"
+                                className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white text-blue-600 shadow-xs active:scale-90 transition-all dark:bg-gray-800 dark:text-blue-400"
                                 aria-label="Decrease quantity"
                               >
-                                <Minus size={14} />
+                                <Minus size={13} />
                               </button>
-                              <span className="w-5 text-center font-bold text-sm text-blue-700 dark:text-blue-300">
+                              <span className="w-4 text-center font-bold text-xs sm:text-sm text-blue-700 dark:text-blue-300">
                                 {inCart.quantity}
                               </span>
                               <button
                                 onClick={() => updateQty(inCart.id, 1)}
-                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs active:scale-90 transition-all"
+                                className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs active:scale-90 transition-all"
                                 aria-label="Increase quantity"
                               >
-                                <Plus size={14} />
+                                <Plus size={13} />
                               </button>
                             </div>
                           ) : (
                             <button
                               onClick={() => addToCart(item)}
-                              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:from-blue-700 hover:to-indigo-700 active:scale-95 transition-all"
+                              className="flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-2 text-xs font-bold text-white shadow-xs hover:from-blue-700 hover:to-indigo-700 active:scale-95 transition-all cursor-pointer"
                             >
                               <Plus size={14} />
                               <span>ADD</span>
