@@ -30,8 +30,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Default duration set to 10.75 seconds (10750ms) as requested
-  const addToast = useCallback((type: ToastType, message: string, duration = 10750) => {
+  // Default duration set to 0.75 seconds (750ms) as requested
+  const addToast = useCallback((type: ToastType, message: string, duration = 750) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
     setToasts((prev) => [...prev, { id, type, message, duration }]);
 
@@ -84,7 +84,8 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onC
 
     let leaveTimer: any;
     if (toast.duration && toast.duration > 0) {
-      leaveTimer = setTimeout(() => setIsLeaving(true), toast.duration - 400);
+      const exitBuffer = Math.min(180, Math.floor(toast.duration * 0.25));
+      leaveTimer = setTimeout(() => setIsLeaving(true), toast.duration - exitBuffer);
     }
 
     return () => {
@@ -110,7 +111,7 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onC
   return (
     <div
       className={cn(
-        'pointer-events-auto flex w-full max-w-md items-center gap-3.5 p-3.5 sm:p-4 rounded-2xl border-2 shadow-2xl backdrop-blur-md transition-all duration-350 ease-out transform',
+        'pointer-events-auto flex w-full max-w-md items-center gap-3.5 p-3.5 sm:p-4 rounded-2xl border-2 shadow-2xl backdrop-blur-md transition-all duration-200 ease-out transform',
         backgrounds[toast.type],
         !isEntered
           ? '-translate-y-8 opacity-0 scale-90'
@@ -124,7 +125,7 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onC
       <button
         onClick={() => {
           setIsLeaving(true);
-          setTimeout(onClose, 300);
+          setTimeout(onClose, 200);
         }}
         className="rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
         title="Dismiss Notification"
