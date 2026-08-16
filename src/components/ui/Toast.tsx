@@ -27,22 +27,23 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const addToast = useCallback((type: ToastType, message: string, duration = 4000) => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, type, message, duration }]);
-    
+  // Default duration set to 10.75 seconds (10750ms) as requested
+  const addToast = useCallback((type: ToastType, message: string, duration = 10750) => {
+    const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
+    setToasts((prev) => [...prev, { id, type, message, duration }]);
+
     if (duration > 0) {
       setTimeout(() => removeToast(id), duration);
     }
   }, [removeToast]);
 
-  const success = useCallback((message: string) => addToast('success', message), [addToast]);
-  const error = useCallback((message: string) => addToast('error', message), [addToast]);
-  const warning = useCallback((message: string) => addToast('warning', message), [addToast]);
-  const info = useCallback((message: string) => addToast('info', message), [addToast]);
+  const success = useCallback((message: string, duration?: number) => addToast('success', message, duration), [addToast]);
+  const error = useCallback((message: string, duration?: number) => addToast('error', message, duration), [addToast]);
+  const warning = useCallback((message: string, duration?: number) => addToast('warning', message, duration), [addToast]);
+  const info = useCallback((message: string, duration?: number) => addToast('info', message, duration), [addToast]);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast, success, error, warning, info }}>
@@ -60,13 +61,13 @@ export const useToast = (): ToastContextType => {
   return context;
 };
 
-const ToastContainer: React.FC<{ toasts: Toast[]; removeToast: (id: string) => void }> = ({ 
-  toasts, 
-  removeToast 
+const ToastContainer: React.FC<{ toasts: Toast[]; removeToast: (id: string) => void }> = ({
+  toasts,
+  removeToast,
 }) => {
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-      {toasts.map(toast => (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2.5 max-w-lg w-full px-4 pointer-events-none">
+      {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
       ))}
     </div>
@@ -75,41 +76,58 @@ const ToastContainer: React.FC<{ toasts: Toast[]; removeToast: (id: string) => v
 
 const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onClose }) => {
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isEntered, setIsEntered] = useState(false);
 
   useEffect(() => {
+    // Drop and pop-up entrance animation trigger
+    const enterTimer = requestAnimationFrame(() => setIsEntered(true));
+
+    let leaveTimer: any;
     if (toast.duration && toast.duration > 0) {
-      const timer = setTimeout(() => setIsLeaving(true), toast.duration - 300);
-      return () => clearTimeout(timer);
+      leaveTimer = setTimeout(() => setIsLeaving(true), toast.duration - 400);
     }
+
+    return () => {
+      cancelAnimationFrame(enterTimer);
+      if (leaveTimer) clearTimeout(leaveTimer);
+    };
   }, [toast.duration]);
 
   const icons = {
-    success: <CheckCircle className="w-5 h-5 text-green-500" />,
-    error: <XCircle className="w-5 h-5 text-red-500" />,
-    warning: <AlertCircle className="w-5 h-5 text-yellow-500" />,
-    info: <Info className="w-5 h-5 text-blue-500" />
+    success: <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />,
+    error: <XCircle className="w-5 h-5 text-rose-500 shrink-0" />,
+    warning: <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />,
+    info: <Info className="w-5 h-5 text-blue-500 shrink-0" />,
   };
 
   const backgrounds = {
-    success: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
-    error: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
-    warning: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800',
-    info: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+    success: 'bg-white/95 dark:bg-gray-900/95 border-emerald-400/60 dark:border-emerald-700 shadow-emerald-500/10 text-emerald-950 dark:text-emerald-100',
+    error: 'bg-white/95 dark:bg-gray-900/95 border-rose-400/60 dark:border-rose-700 shadow-rose-500/10 text-rose-950 dark:text-rose-100',
+    warning: 'bg-white/95 dark:bg-gray-900/95 border-amber-400/60 dark:border-amber-700 shadow-amber-500/10 text-amber-950 dark:text-amber-100',
+    info: 'bg-white/95 dark:bg-gray-900/95 border-blue-400/60 dark:border-blue-700 shadow-blue-500/10 text-blue-950 dark:text-blue-100',
   };
 
   return (
     <div
       className={cn(
-        'flex items-start gap-3 p-4 rounded-lg border shadow-lg backdrop-blur-sm transition-all duration-300',
+        'pointer-events-auto flex w-full max-w-md items-center gap-3.5 p-3.5 sm:p-4 rounded-2xl border-2 shadow-2xl backdrop-blur-md transition-all duration-350 ease-out transform',
         backgrounds[toast.type],
-        isLeaving ? 'opacity-0 translate-x-full' : 'opacity-100 translate-x-0'
+        !isEntered
+          ? '-translate-y-8 opacity-0 scale-90'
+          : isLeaving
+          ? '-translate-y-6 opacity-0 scale-95'
+          : 'translate-y-0 opacity-100 scale-100'
       )}
     >
       {icons[toast.type]}
-      <p className="flex-1 text-sm text-gray-800 dark:text-gray-200">{toast.message}</p>
+      <p className="flex-1 text-xs sm:text-sm font-semibold leading-snug">{toast.message}</p>
       <button
-        onClick={onClose}
-        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+        onClick={() => {
+          setIsLeaving(true);
+          setTimeout(onClose, 300);
+        }}
+        className="rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+        title="Dismiss Notification"
       >
         <X className="w-4 h-4" />
       </button>

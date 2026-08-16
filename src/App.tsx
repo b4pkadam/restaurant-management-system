@@ -131,6 +131,20 @@ function AppShell() {
       // ignore
     }
 
+    // Auto-resolve stale waiter calls on startup
+    try {
+      const notifs = notificationDB.getAll();
+      const now = Date.now();
+      notifs.forEach((n) => {
+        if (!n.isRead && (n.type === 'table' || n.title.toLowerCase().includes('waiter'))) {
+          const age = now - new Date(n.createdAt).getTime();
+          if (age > 3 * 60 * 1000) {
+            notificationDB.markAsRead(n.id);
+          }
+        }
+      });
+    } catch {}
+
     setBootstrapped(true);
   }, []);
 

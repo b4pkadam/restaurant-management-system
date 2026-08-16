@@ -14,10 +14,14 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
-  // Active unread waiter call notifications
-  const unreadWaiterCalls = notifications.filter(
-    (n) => !n.isRead && (n.type === 'table' || n.title.toLowerCase().includes('waiter') || n.title.includes('Calling Waiter'))
-  );
+  // Active unread waiter call notifications (active within the last 3 minutes)
+  const unreadWaiterCalls = notifications.filter((n) => {
+    if (n.isRead) return false;
+    const isWaiter = n.type === 'table' || n.title.toLowerCase().includes('waiter') || n.title.includes('Calling Waiter');
+    if (!isWaiter) return false;
+    const ageMs = Date.now() - new Date(n.createdAt).getTime();
+    return ageMs < 3 * 60 * 1000;
+  });
 
   return (
     <div className="sticky top-0 z-30 flex flex-col">

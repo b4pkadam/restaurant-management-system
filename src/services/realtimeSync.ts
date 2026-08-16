@@ -168,10 +168,16 @@ class RealtimeSyncService {
         const { tableNumber, message: waiterMsg, timestamp } = message.payload || {};
         if (!tableNumber) return;
 
+        // Strictly ignore stale or historical waiter calls on reload or if older than 25 seconds
+        const isFresh = timestamp ? (Date.now() - timestamp < 25000 && timestamp >= this.startupTime - 3000) : false;
+        if (isInitialSync || !isFresh) {
+          return;
+        }
+
         const notifications = notificationDB.getAll();
         const notifTitle = `🔔 Table ${tableNumber} Calling Waiter!`;
         const existsNotif = notifications.find(
-          (n) => !n.isRead && n.type === 'table' && n.title === notifTitle
+          (n) => n.type === 'table' && n.title === notifTitle && (Date.now() - new Date(n.createdAt).getTime() < 30000)
         );
 
         if (!existsNotif) {
@@ -180,12 +186,7 @@ class RealtimeSyncService {
             title: notifTitle,
             message: waiterMsg || `Table ${tableNumber} has requested immediate waiter service / assistance.`,
           });
-        }
-
-        notifyDbListeners();
-        // NEVER play sound on reload / initial history poll or for old messages (> 20s old)
-        const isFresh = timestamp ? (Date.now() - timestamp < 20000 && timestamp >= this.startupTime - 3000) : false;
-        if (!isInitialSync && isFresh) {
+          notifyDbListeners();
           this.playWaiterCallSound();
         }
         break;
