@@ -38,6 +38,24 @@ interface CustomerOrderPageProps {
   onExit?: () => void;
 }
 
+export const SPICE_LEVELS: Array<{ id: NonNullable<OrderItem['spiceLevel']>; label: string; icon: string; desc: string }> = [
+  { id: '1 - Mild (甘口)', label: '1 - Mild (甘口)', icon: '🌶️', desc: 'Mild & Smooth' },
+  { id: '2 - Medium (中辛)', label: '2 - Medium (中辛)', icon: '🌶️🌶️', desc: 'Standard Medium' },
+  { id: '3 - Spicy (辛口)', label: '3 - Spicy (辛口)', icon: '🌶️🌶️🌶️', desc: 'Hot & Zesty' },
+  { id: '4 - Very Spicy (激辛)', label: '4 - Very Spicy (激辛)', icon: '🌶️🌶️🌶️🌶️', desc: 'Extra Spicy' },
+  { id: '5 - Crazy Hot (超激辛)', label: '5 - Crazy Hot (超激辛)', icon: '🌶️🌶️🌶️🌶️🌶️', desc: 'Chef Special Heat' },
+];
+
+export const DRINK_OPTIONS = [
+  'Mango Lassi (マンゴーラッシー)',
+  'Plain Lassi (プレーンラッシー)',
+  'Hot Masala Chai (ホットマサラチャイ)',
+  'Iced Tea (アイスティー)',
+  'Oolong Tea (ウーロン茶)',
+  'Coca-Cola (コカ・コーラ)',
+  'Orange Juice (オレンジジュース)',
+];
+
 export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProps) {
   // Subscribe to DB updates & real-time sync for customer view
   useDbUpdate();
@@ -72,6 +90,12 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   
+  // Customization Modal State
+  const [customizingItem, setCustomizingItem] = useState<MenuItem | null>(null);
+  const [selectedSpiceLevel, setSelectedSpiceLevel] = useState<NonNullable<OrderItem['spiceLevel']>>('2 - Medium (中辛)');
+  const [selectedDrinkOption, setSelectedDrinkOption] = useState<string>('Mango Lassi (マンゴーラッシー)');
+  const [itemCustomNotes, setItemCustomNotes] = useState<string>('');
+
   // Load draft cart from localStorage if present
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
@@ -155,31 +179,92 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   const tax = subtotal * (settings.taxPercentage / 100);
   const total = subtotal + tax;
 
-  const addToCart = useCallback((menuItem: MenuItem) => {
+  const shouldShowSpiceOption = useCallback((item: MenuItem) => {
+    if (item.allowsSpiceLevel === false) return false;
+    return (
+      item.categoryId === 'cat-curry' ||
+      item.categoryId === 'cat-sets' ||
+      item.categoryId === 'cat-biryani' ||
+      item.allowsSpiceLevel === true ||
+      item.name.toLowerCase().includes('curry') ||
+      item.name.toLowerCase().includes('biryani') ||
+      item.name.toLowerCase().includes('セット') ||
+      item.name.toLowerCase().includes('カレー')
+    );
+  }, []);
+
+  const shouldShowDrinkOption = useCallback((item: MenuItem) => {
+    if (item.includesDrink === true) return true;
+    return (
+      item.categoryId === 'cat-sets' ||
+      item.name.toLowerCase().includes('set') ||
+      item.name.toLowerCase().includes('セット') ||
+      item.name.toLowerCase().includes('drink')
+    );
+  }, []);
+
+  const openCustomizationModal = useCallback((item: MenuItem) => {
+    setCustomizingItem(item);
+    setSelectedSpiceLevel('2 - Medium (中辛)');
+    setSelectedDrinkOption('Mango Lassi (マンゴーラッシー)');
+    setItemCustomNotes('');
+  }, []);
+
+  const confirmAddToCartWithOptions = useCallback(() => {
+    if (!customizingItem) return;
+
+    const showSpice = shouldShowSpiceOption(customizingItem);
+    const showDrink = shouldShowDrinkOption(customizingItem);
+
+    const spiceVal = showSpice ? selectedSpiceLevel : undefined;
+    const drinkVal = showDrink ? selectedDrinkOption : undefined;
+    const noteVal = itemCustomNotes.trim() || undefined;
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.menuItemId === menuItem.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.menuItemId === menuItem.id
-            ? { ...item, quantity: item.quantity + 1, totalPrice: (item.quantity + 1) * item.unitPrice }
+      const existingIndex = prev.findIndex(
+        (item) =>
+          item.menuItemId === customizingItem.id &&
+          item.spiceLevel === spiceVal &&
+          item.selectedDrink === drinkVal &&
+          item.notes === noteVal
+      );
+
+      if (existingIndex > -1) {
+        return prev.map((item, index) =>
+          index === existingIndex
+            ? {
+                ...item,
+                quantity: item.quantity + 1,
+                totalPrice: (item.quantity + 1) * item.unitPrice,
+              }
             : item
         );
       }
+
       return [
         ...prev,
         {
           id: uuidv4(),
-          menuItemId: menuItem.id,
-          menuItemName: menuItem.name,
+          menuItemId: customizingItem.id,
+          menuItemName: customizingItem.name,
           quantity: 1,
-          unitPrice: menuItem.price,
-          totalPrice: menuItem.price,
+          unitPrice: customizingItem.price,
+          totalPrice: customizingItem.price,
+          spiceLevel: spiceVal,
+          selectedDrink: drinkVal,
+          notes: noteVal,
           status: 'pending' as const,
-          menuItem,
+          menuItem: customizingItem,
         },
       ];
     });
-  }, []);
+
+    setCustomizingItem(null);
+  }, [customizingItem, itemCustomNotes, selectedDrinkOption, selectedSpiceLevel, shouldShowDrinkOption, shouldShowSpiceOption]);
+
+  const addToCart = useCallback((menuItem: MenuItem) => {
+    openCustomizationModal(menuItem);
+  }, [openCustomizationModal]);
 
   const updateQty = useCallback((id: string, delta: number) => {
     setCart((prev) =>
@@ -210,6 +295,9 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       totalPrice: item.totalPrice,
+      spiceLevel: item.spiceLevel,
+      selectedDrink: item.selectedDrink,
+      notes: item.notes,
       status: 'pending',
     }));
 
@@ -717,10 +805,19 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
                         <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
                           {ord.items.map((it) => (
-                            <div key={it.id} className="flex justify-between">
-                              <span>
-                                {it.quantity}× {it.menuItemName}
-                              </span>
+                            <div key={it.id} className="flex justify-between flex-wrap gap-1">
+                              <div>
+                                <span className="font-semibold">
+                                  {it.quantity}× {it.menuItemName}
+                                </span>
+                                {(it.spiceLevel || it.selectedDrink || it.notes) && (
+                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {it.spiceLevel && <span className="text-rose-600 dark:text-rose-400 font-bold">🌶️ {it.spiceLevel}</span>}
+                                    {it.selectedDrink && <span className="text-blue-600 dark:text-blue-400 font-bold">🥤 {it.selectedDrink}</span>}
+                                    {it.notes && <span className="italic">({it.notes})</span>}
+                                  </div>
+                                )}
+                              </div>
                               <span className="font-medium">{formatCurrency(it.totalPrice)}</span>
                             </div>
                           ))}
@@ -751,7 +848,20 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                         <h4 className="font-semibold text-sm text-gray-900 dark:text-white">
                           {item.menuItemName}
                         </h4>
-                        <p className="text-xs text-gray-500">
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                          {item.spiceLevel && (
+                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                              🌶️ {item.spiceLevel}
+                            </span>
+                          )}
+                          {item.selectedDrink && (
+                            <span className="rounded-md bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                              🥤 {item.selectedDrink}
+                            </span>
+                          )}
+                          {item.notes && <span className="italic text-amber-600 dark:text-amber-400">({item.notes})</span>}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">
                           {formatCurrency(item.unitPrice)} × {item.quantity}
                         </p>
                       </div>
@@ -821,6 +931,139 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Dish Options & Customization Modal */}
+      {customizingItem && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
+          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-white p-5 shadow-2xl dark:bg-gray-800 max-h-[90vh] overflow-y-auto space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                {(customizingItem.imageUrl || (customizingItem as any).image) ? (
+                  <img
+                    src={customizingItem.imageUrl || (customizingItem as any).image}
+                    alt={customizingItem.name}
+                    className="h-14 w-14 rounded-xl object-cover border border-gray-100 dark:border-gray-700"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-100 font-bold text-blue-600 text-lg dark:bg-blue-900/40 dark:text-blue-300">
+                    {customizingItem.name.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <h3 className="font-bold text-base text-gray-900 dark:text-white leading-tight">
+                    {customizingItem.name}
+                  </h3>
+                  <p className="text-sm font-black text-blue-600 dark:text-blue-400 mt-0.5">
+                    {formatCurrency(customizingItem.price)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCustomizingItem(null)}
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 5-Stage Spice Level Selection */}
+            {shouldShowSpiceOption(customizingItem) && (
+              <div className="space-y-2 rounded-2xl bg-gray-50 p-4 dark:bg-gray-900/60 border border-gray-100 dark:border-gray-700/60">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🌶️ Choose Spice Level (5 Stages)</span>
+                  </label>
+                  <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">Selectable</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {SPICE_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl.id}
+                      type="button"
+                      onClick={() => setSelectedSpiceLevel(lvl.id)}
+                      className={cn(
+                        'flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all border cursor-pointer',
+                        selectedSpiceLevel === lvl.id
+                          ? 'border-rose-500 bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200 ring-2 ring-rose-500/20'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{lvl.icon}</span>
+                        <span>{lvl.label}</span>
+                      </div>
+                      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{lvl.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Drink Selection */}
+            {shouldShowDrinkOption(customizingItem) && (
+              <div className="space-y-2 rounded-2xl bg-blue-50/60 p-4 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-blue-950 dark:text-blue-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🥤 Select Included Drink</span>
+                  </label>
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">Included</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {DRINK_OPTIONS.map((drink) => (
+                    <button
+                      key={drink}
+                      type="button"
+                      onClick={() => setSelectedDrinkOption(drink)}
+                      className={cn(
+                        'flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition-all border text-left cursor-pointer',
+                        selectedDrinkOption === drink
+                          ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                      )}
+                    >
+                      <span>🥤</span>
+                      <span className="truncate">{drink}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Special Instructions / Notes */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Special Instructions / Allergy Note (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., extra sauce, no onion, separate dressing..."
+                value={itemCustomNotes}
+                onChange={(e) => setItemCustomNotes(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-xs focus:border-blue-500 focus:bg-white focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCustomizingItem(null)}
+                className="flex-1 rounded-xl border border-gray-200 py-3 text-xs font-bold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddToCartWithOptions}
+                className="flex-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 text-xs font-bold text-white shadow-lg shadow-blue-500/20 hover:from-blue-700 hover:to-indigo-700 active:scale-98 transition-all cursor-pointer"
+              >
+                Confirm & Add to Order • {formatCurrency(customizingItem.price)}
+              </button>
+            </div>
           </div>
         </div>
       )}

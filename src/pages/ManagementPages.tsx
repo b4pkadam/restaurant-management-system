@@ -310,6 +310,8 @@ export function MenuManagementPage() {
       barcode: '',
       isAvailable: true,
       isVeg: true,
+      allowsSpiceLevel: true,
+      includesDrink: false,
       preparationTime: '10',
       ingredients: '',
     });
@@ -338,8 +340,10 @@ export function MenuManagementPage() {
       barcode: item.barcode || '',
       isAvailable: item.isAvailable,
       isVeg: item.isVeg,
+      allowsSpiceLevel: item.allowsSpiceLevel ?? true,
+      includesDrink: item.includesDrink ?? false,
       preparationTime: String(item.preparationTime),
-      ingredients: item.ingredients.join(', '),
+      ingredients: item.ingredients ? item.ingredients.join(', ') : '',
     });
     setShowItemModal(true);
   };
@@ -372,6 +376,8 @@ export function MenuManagementPage() {
       barcode: itemForm.barcode.trim() || undefined,
       isAvailable: itemForm.isAvailable,
       isVeg: itemForm.isVeg,
+      allowsSpiceLevel: itemForm.allowsSpiceLevel,
+      includesDrink: itemForm.includesDrink,
       preparationTime: Number(itemForm.preparationTime) || 0,
       ingredients: itemForm.ingredients
         .split(',')
@@ -615,7 +621,7 @@ export function MenuManagementPage() {
           <Input label="Image URL" value={itemForm.imageUrl} onChange={(e) => setItemForm((prev) => ({ ...prev, imageUrl: e.target.value }))} />
           <Textarea label="Description" value={itemForm.description} onChange={(e) => setItemForm((prev) => ({ ...prev, description: e.target.value }))} rows={3} />
           <Textarea label="Ingredients (comma separated)" value={itemForm.ingredients} onChange={(e) => setItemForm((prev) => ({ ...prev, ingredients: e.target.value }))} rows={3} />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <input type="checkbox" checked={itemForm.isVeg} onChange={(e) => setItemForm((prev) => ({ ...prev, isVeg: e.target.checked }))} />
               <span className="text-sm text-gray-700 dark:text-gray-300">Vegetarian item</span>
@@ -623,6 +629,14 @@ export function MenuManagementPage() {
             <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <input type="checkbox" checked={itemForm.isAvailable} onChange={(e) => setItemForm((prev) => ({ ...prev, isAvailable: e.target.checked }))} />
               <span className="text-sm text-gray-700 dark:text-gray-300">Available for sale</span>
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <input type="checkbox" checked={itemForm.allowsSpiceLevel} onChange={(e) => setItemForm((prev) => ({ ...prev, allowsSpiceLevel: e.target.checked }))} />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Enable 5-Stage Spice Choice</span>
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <input type="checkbox" checked={itemForm.includesDrink} onChange={(e) => setItemForm((prev) => ({ ...prev, includesDrink: e.target.checked }))} />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Enable Drink Selection</span>
             </label>
           </div>
           <div className="flex justify-end gap-3">

@@ -48,6 +48,8 @@ export interface MenuItem {
   isVeg: boolean;
   preparationTime: number; // in minutes
   ingredients: string[];
+  allowsSpiceLevel?: boolean;
+  includesDrink?: boolean;
   createdAt: string;
 }
 
@@ -77,6 +79,8 @@ export interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   notes?: string;
+  spiceLevel?: '1 - Mild (甘口)' | '2 - Medium (中辛)' | '3 - Spicy (辛口)' | '4 - Very Spicy (激辛)' | '5 - Crazy Hot (超激辛)';
+  selectedDrink?: string;
   status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled';
 }
 
