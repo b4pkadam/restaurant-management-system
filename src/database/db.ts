@@ -932,7 +932,7 @@ export const initializeSampleData = (): void => {
       isAvailable: m.isAvailable ?? true,
       isVeg: m.isVeg ?? (m as any).isVegetarian ?? true,
       imageUrl: m.imageUrl || (m as any).image,
-    } as MenuItem)
+    } as unknown as MenuItem)
   );
   
   // Create tables

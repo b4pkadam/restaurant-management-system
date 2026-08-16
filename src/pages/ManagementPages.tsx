@@ -77,6 +77,7 @@ import type {
   InventoryItem,
   MenuItem,
   Order,
+  OrderItem,
   PurchaseEntry,
   Supplier,
   Table,
@@ -267,6 +268,8 @@ export function MenuManagementPage() {
     barcode: '',
     isAvailable: true,
     isVeg: true,
+    allowsSpiceLevel: true,
+    includesDrink: false,
     preparationTime: '10',
     ingredients: '',
   });
@@ -1030,7 +1033,7 @@ export function KitchenDisplayPage() {
                             onChange={(e) => updateItemStatus(order, item.id, e.target.value as OrderItem['status'])}
                             className={cn(
                               'rounded-lg border px-2 py-1 text-xs font-semibold shadow-sm focus:outline-none focus:ring-2',
-                              (itemStatus === 'pending' || itemStatus === 'active') && 'border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+                              ((itemStatus as string) === 'pending' || (itemStatus as string) === 'active') && 'border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
                               itemStatus === 'preparing' && 'border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
                               itemStatus === 'ready' && 'border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/30 dark:text-green-300',
                               itemStatus === 'served' && 'border-gray-300 bg-gray-100 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400',
@@ -1053,7 +1056,7 @@ export function KitchenDisplayPage() {
                               <CheckCircle2 size={13} />
                               Ready
                             </button>
-                          ) : (itemStatus === 'pending' || itemStatus === 'active') ? (
+                          ) : ((itemStatus as string) === 'pending' || (itemStatus as string) === 'active') ? (
                             <button
                               type="button"
                               onClick={() => updateItemStatus(order, item.id, 'preparing')}

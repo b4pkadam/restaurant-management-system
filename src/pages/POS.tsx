@@ -15,7 +15,7 @@ import {
   menuItemDB, categoryDB, tableDB, orderDB, paymentDB, settingsDB,
   notificationDB
 } from '../database/db';
-import type { MenuItem, OrderItem, Table } from '../types';
+import type { MenuItem, OrderItem, Table, Order } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
@@ -43,6 +43,7 @@ export const POSPage: React.FC = () => {
   const [showTableModal, setShowTableModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
   const [cashReceived, setCashReceived] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
   
   const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), []);
