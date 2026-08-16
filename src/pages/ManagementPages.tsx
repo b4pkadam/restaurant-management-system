@@ -776,27 +776,39 @@ export function OrdersManagementPage() {
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
-                      {(item.spiceLevel || item.selectedDrink || item.notes) && (
-                        <div className="mt-1.5 space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-                            {item.spiceLevel && (
-                              <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                🌶️ {item.spiceLevel}
-                              </span>
-                            )}
-                            {item.selectedDrink && (
-                              <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                🥤 {item.selectedDrink}
-                              </span>
+                      {(() => {
+                        const nameLower = item.menuItemName.toLowerCase();
+                        const isBev = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('beer') || nameLower.includes('juice') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
+                        const isSet = nameLower.includes('set') || nameLower.includes('セット') || nameLower.includes('thali') || nameLower.includes('combo') || nameLower.includes('maharaja') || nameLower.includes('special');
+
+                        const displaySpice = item.spiceLevel || (!isBev ? '2 - Medium (中辛)' : undefined);
+                        const displayDrink = item.selectedDrink || (isSet ? 'Mango Lassi (マンゴーラッシー)' : undefined);
+                        const displayNotes = item.notes;
+
+                        if (!displaySpice && !displayDrink && !displayNotes) return null;
+
+                        return (
+                          <div className="mt-1.5 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                              {displaySpice && (
+                                <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                  🌶️ {displaySpice}
+                                </span>
+                              )}
+                              {displayDrink && (
+                                <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                  🥤 {displayDrink}
+                                </span>
+                              )}
+                            </div>
+                            {displayNotes && (
+                              <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                                📝 Note: {displayNotes}
+                              </p>
                             )}
                           </div>
-                          {item.notes && (
-                            <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
-                              📝 Note: {item.notes}
-                            </p>
-                          )}
-                        </div>
-                      )}
+                        );
+                      })()}
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {item.quantity} × {currency(item.unitPrice)}
                       </p>
@@ -1002,7 +1014,7 @@ export function KitchenDisplayPage() {
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{minutesWaiting} min waiting</p>
                   </div>
                 </div>
-                {order.notes && !order.notes.startsWith('QR Order from Table') && (
+                {order.notes && (
                   <div className="rounded-xl bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 p-2.5 text-xs font-black text-amber-950 dark:text-amber-200">
                     🚨 ORDER INSTRUCTION: {order.notes}
                   </div>
@@ -1010,8 +1022,12 @@ export function KitchenDisplayPage() {
                 <div className="space-y-2">
                   {order.items.map((item) => {
                     const itemStatus = item.status || 'pending';
-                    const displaySpice = item.spiceLevel;
-                    const displayDrink = item.selectedDrink;
+                    const nameLower = item.menuItemName.toLowerCase();
+                    const isBev = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('beer') || nameLower.includes('juice') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
+                    const isSet = nameLower.includes('set') || nameLower.includes('セット') || nameLower.includes('thali') || nameLower.includes('combo') || nameLower.includes('maharaja') || nameLower.includes('special');
+
+                    const displaySpice = item.spiceLevel || (!isBev ? '2 - Medium (中辛)' : undefined);
+                    const displayDrink = item.selectedDrink || (isSet ? 'Mango Lassi (マンゴーラッシー)' : undefined);
                     const displayNotes = item.notes;
 
                     return (
