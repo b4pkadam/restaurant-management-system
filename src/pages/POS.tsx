@@ -45,6 +45,30 @@ export const POSPage: React.FC = () => {
   const [cashReceived, setCashReceived] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
+
+  // POS Item Customization Modal State
+  const [posCustomizingItem, setPosCustomizingItem] = useState<{ menuItem: MenuItem; cartItemId?: string } | null>(null);
+  const [posSpiceLevel, setPosSpiceLevel] = useState<string>('2 - Medium (中辛)');
+  const [posDrinkOption, setPosDrinkOption] = useState<string>('Mango Lassi (マンゴーラッシー)');
+  const [posNotes, setPosNotes] = useState<string>('');
+
+  const SPICE_LEVELS = useMemo(() => [
+    { id: '1 - Mild (甘口)', label: 'Mild (甘口)', icon: '🥦' },
+    { id: '2 - Medium (中辛)', label: 'Medium (中辛)', icon: '🌶️' },
+    { id: '3 - Spicy (辛口)', label: 'Spicy (辛口)', icon: '🔥' },
+    { id: '4 - Very Spicy (激辛)', label: 'Very Spicy (激辛)', icon: '💥' },
+    { id: '5 - Crazy Hot (超激辛)', label: 'Crazy Hot (超激辛)', icon: '☠️' },
+  ], []);
+
+  const DRINK_OPTIONS = useMemo(() => [
+    'Mango Lassi (マンゴーラッシー)',
+    'Plain Lassi (プレーンラッシー)',
+    'Masala Chai (マサラチャイ)',
+    'Iced Coffee (アイスコーヒー)',
+    'Orange Juice (オレンジジュース)',
+    'Oolong Tea (ウーロン茶)',
+    'Pepsi (ペプシ)',
+  ], []);
   
   const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), []);
   const tables = useMemo(() => tableDB.getAll(), []);
@@ -120,22 +144,38 @@ export const POSPage: React.FC = () => {
     success(`Loaded Order #${ord.orderNumber} for Table ${ord.tableNumber || 'N/A'} (${formatCurrency(ord.total)})`);
   }, [success]);
 
-  // Add item to cart
-  const addToCart = useCallback((menuItem: MenuItem) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.menuItemId === menuItem.id);
-      if (existing) {
-        return prev.map(item => 
-          item.menuItemId === menuItem.id
-            ? { 
-                ...item, 
-                quantity: item.quantity + 1,
-                totalPrice: (item.quantity + 1) * item.unitPrice
+  // Open POS Item Customization Modal
+  const openPosItemModal = useCallback((menuItem: MenuItem, existingCartItem?: CartItem) => {
+    setPosCustomizingItem({ menuItem, cartItemId: existingCartItem?.id });
+    setPosSpiceLevel(existingCartItem?.spiceLevel || '2 - Medium (中辛)');
+    setPosDrinkOption(existingCartItem?.selectedDrink || 'Mango Lassi (マンゴーラッシー)');
+    setPosNotes(existingCartItem?.notes || '');
+  }, []);
+
+  const confirmPosItemOptions = useCallback(() => {
+    if (!posCustomizingItem) return;
+    const { menuItem, cartItemId } = posCustomizingItem;
+
+    const nameLower = menuItem.name.toLowerCase();
+    const isBeverage = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('juice') || nameLower.includes('beer') || nameLower.includes('soda') || nameLower.includes('water');
+    const spiceVal = !isBeverage ? posSpiceLevel : undefined;
+    const drinkVal = (nameLower.includes('set') || nameLower.includes('セット') || menuItem.includesDrink) ? posDrinkOption : undefined;
+    const notesVal = posNotes.trim() || undefined;
+
+    setCart((prev) => {
+      if (cartItemId) {
+        return prev.map((it) =>
+          it.id === cartItemId
+            ? {
+                ...it,
+                spiceLevel: spiceVal,
+                selectedDrink: drinkVal,
+                notes: notesVal,
               }
-            : item
+            : it
         );
       }
-      
+
       const newItem: CartItem = {
         id: uuidv4(),
         menuItemId: menuItem.id,
@@ -143,13 +183,23 @@ export const POSPage: React.FC = () => {
         quantity: 1,
         unitPrice: menuItem.price,
         totalPrice: menuItem.price,
+        spiceLevel: spiceVal,
+        selectedDrink: drinkVal,
+        notes: notesVal,
         status: 'pending',
-        menuItem
+        menuItem,
       };
-      
+
       return [...prev, newItem];
     });
-  }, []);
+
+    setPosCustomizingItem(null);
+  }, [posCustomizingItem, posDrinkOption, posNotes, posSpiceLevel]);
+
+  // Add item to cart (opens options modal for customization)
+  const addToCart = useCallback((menuItem: MenuItem) => {
+    openPosItemModal(menuItem);
+  }, [openPosItemModal]);
 
   // Update quantity
   const updateQuantity = useCallback((itemId: string, delta: number) => {
@@ -549,7 +599,15 @@ export const POSPage: React.FC = () => {
                       {settings.currencySymbol}{item.unitPrice.toFixed(2)} × {item.quantity}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => openPosItemModal(item.menuItem, item)}
+                      className="w-7 h-7 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                      title="Edit Spice / Drink / Notes"
+                    >
+                      ✏️
+                    </button>
                     <button
                       onClick={() => updateQuantity(item.id, -1)}
                       className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
@@ -785,6 +843,93 @@ export const POSPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* POS Item Options Modal */}
+      {posCustomizingItem && (
+        <Modal
+          isOpen={!!posCustomizingItem}
+          onClose={() => setPosCustomizingItem(null)}
+          title={`Customize Item: ${posCustomizingItem.menuItem.name}`}
+          size="md"
+        >
+          <div className="space-y-4">
+            {/* 5-Stage Spice Level */}
+            {!posCustomizingItem.menuItem.name.toLowerCase().includes('lassi') &&
+             !posCustomizingItem.menuItem.name.toLowerCase().includes('chai') &&
+             !posCustomizingItem.menuItem.name.toLowerCase().includes('beer') && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                  🌶️ Select Spice Level (5 Stages)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {SPICE_LEVELS.map((lvl, idx) => (
+                    <button
+                      key={lvl.id}
+                      type="button"
+                      onClick={() => setPosSpiceLevel(lvl.id)}
+                      className={cn(
+                        'flex flex-col items-center justify-center rounded-xl p-2 text-center text-xs font-bold border transition-all cursor-pointer',
+                        posSpiceLevel === lvl.id
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-md scale-105'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                      )}
+                    >
+                      <span>{lvl.icon}</span>
+                      <span className="text-[10px] mt-0.5">{idx + 1}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-rose-600 font-semibold">{posSpiceLevel}</p>
+              </div>
+            )}
+
+            {/* Drink Choice if set meal */}
+            {(posCustomizingItem.menuItem.name.toLowerCase().includes('set') ||
+              posCustomizingItem.menuItem.name.toLowerCase().includes('セット') ||
+              posCustomizingItem.menuItem.includesDrink) && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                  🥤 Select Included Drink
+                </label>
+                <select
+                  value={posDrinkOption}
+                  onChange={(e) => setPosDrinkOption(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-sm font-semibold dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                >
+                  {DRINK_OPTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Special Instructions / Chef Note */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                📝 Special Instructions / Note for Chef
+              </label>
+              <textarea
+                rows={2}
+                value={posNotes}
+                onChange={(e) => setPosNotes(e.target.value)}
+                placeholder="e.g. Extra spicy, no garlic, less oil, etc."
+                className="w-full rounded-xl border border-gray-300 p-2.5 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setPosCustomizingItem(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" className="flex-1" onClick={confirmPosItemOptions}>
+                Confirm & Add to Order
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
