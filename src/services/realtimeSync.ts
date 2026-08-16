@@ -13,6 +13,8 @@ const HIST_URL = `https://ps.pubnub.com/v2/history/sub-key/demo/channel/${CHANNE
 
 class RealtimeSyncService {
   private isInitialized = false;
+  private isFirstPoll = true;
+  private startupTime = Date.now();
   private pollInterval: any = null;
   private processedTimestamps = new Set<string>();
 
@@ -32,7 +34,7 @@ class RealtimeSyncService {
           if (e.data && e.data.type === 'SYNC_MSG' && e.data.msg) {
             const msg: SyncMessage = e.data.msg;
             if (msg.senderId !== SENDER_ID) {
-              await this.handleIncomingMessage(msg);
+              await this.handleIncomingMessage(msg, false);
             }
           }
         };
@@ -72,9 +74,10 @@ class RealtimeSyncService {
         this.processedTimestamps.add(msgKey);
 
         if (msg.senderId !== SENDER_ID) {
-          await this.handleIncomingMessage(msg);
+          await this.handleIncomingMessage(msg, this.isFirstPoll);
         }
       }
+      this.isFirstPoll = false;
     } catch {
       // Ignore network polling glitches
     }
@@ -96,7 +99,7 @@ class RealtimeSyncService {
     } catch {}
   }
 
-  private async handleIncomingMessage(message: SyncMessage) {
+  private async handleIncomingMessage(message: SyncMessage, isInitialSync = false) {
     // Dynamically import database module to break top-level circular dependency
     const { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners } = await import('../database/db');
 
@@ -137,7 +140,9 @@ class RealtimeSyncService {
           }
 
           notifyDbListeners();
-          this.playAlertSound();
+          if (!isInitialSync) {
+            this.playAlertSound();
+          }
         }
         break;
       }
@@ -152,7 +157,9 @@ class RealtimeSyncService {
           orders[idx] = { ...orders[idx], ...order };
           localStorage.setItem('restaurant_db_orders', JSON.stringify(orders));
           notifyDbListeners();
-          this.playAlertSound();
+          if (!isInitialSync) {
+            this.playAlertSound();
+          }
         }
         break;
       }
@@ -176,7 +183,11 @@ class RealtimeSyncService {
         }
 
         notifyDbListeners();
-        this.playWaiterCallSound();
+        // NEVER play sound on reload / initial history poll or for old messages (> 20s old)
+        const isFresh = timestamp ? (Date.now() - timestamp < 20000 && timestamp >= this.startupTime - 3000) : false;
+        if (!isInitialSync && isFresh) {
+          this.playWaiterCallSound();
+        }
         break;
       }
 

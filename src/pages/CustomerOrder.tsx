@@ -59,7 +59,7 @@ export const DRINK_OPTIONS = [
 
 export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProps) {
   // Subscribe to DB updates & real-time sync for customer view
-  useDbUpdate();
+  const dbTick = useDbUpdate();
 
   useEffect(() => {
     import('../services/realtimeSync').then(({ realtimeSync }) => {
@@ -81,11 +81,11 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       });
     }
     return t;
-  }, [tableNumber]);
+  }, [tableNumber, dbTick]);
 
   const categories = useMemo(
     () => categoryDB.getAll().filter((c) => c.isActive).sort((a, b) => a.sortOrder - b.sortOrder),
-    []
+    [dbTick]
   );
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -127,7 +127,6 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   const [showCart, setShowCart] = useState(false);
   const [showActiveOrdersModal, setShowActiveOrdersModal] = useState(false);
   const [waiterCalled, setWaiterCalled] = useState(false);
-  const [orderPlaced, setOrderPlaced] = useState(false);
   const [placedOrderNumber, setPlacedOrderNumber] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [orderNotes, setOrderNotes] = useState('');
@@ -154,7 +153,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       .getAll()
       .filter((o) => o.tableNumber === tableNumber && o.status !== 'completed' && o.status !== 'cancelled')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [tableNumber]);
+  }, [tableNumber, dbTick]);
 
   const [vegFilter, setVegFilter] = useState<'all' | 'veg' | 'nonveg'>('all');
 
@@ -170,7 +169,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       );
     }
     return items;
-  }, [selectedCategory, vegFilter, search]);
+  }, [selectedCategory, vegFilter, search, dbTick]);
 
   const groupedMenuItems = useMemo(() => {
     const map = new Map<string, { categoryName: string; icon?: string; items: MenuItem[] }>();
@@ -393,20 +392,27 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
         notes: orderNotes.trim() || undefined,
       });
 
-      notificationDB.create({
-        type: 'order',
-        title: '📱 New QR Order!',
-        message: `Table ${tableNumber} placed order ${order.orderNumber} via QR code (${formatCurrency(total)})`,
-      });
+      // Broadcast new order to Kitchen Display & POS
+      import('../services/realtimeSync').then(({ realtimeSync }) => {
+        realtimeSync.broadcastOrderCreated(order, {
+          id: `notif_${order.id}`,
+          type: 'order',
+          title: `📱 New QR Order (Table ${tableNumber})!`,
+          message: `Table ${tableNumber} placed order ${order.orderNumber} (${formatCurrency(total)})`,
+          createdAt: new Date().toISOString(),
+          isRead: false,
+        });
+      }).catch(() => {});
 
       setPlacedOrderNumber(order.orderNumber);
     }
 
     setOrderNotes('');
-    setOrderPlaced(true);
     setCart([]);
     localStorage.removeItem(`restaurant_cart_table_${tableNumber}`);
     setShowCart(false);
+    // Automatically open Track Order popup so customer sees placed order status immediately
+    setShowActiveOrdersModal(true);
   };
 
   const renderStatusBadge = (status: Order['status']) => {
@@ -443,40 +449,6 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
         );
     }
   };
-
-  // Order success screen
-  if (orderPlaced) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 p-6 dark:from-gray-900 dark:to-gray-800">
-        <div className="w-full max-w-md space-y-6 text-center">
-          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-green-500 shadow-lg shadow-green-200">
-            <Check className="h-12 w-12 text-white" strokeWidth={3} />
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Order Placed!</h1>
-          <p className="text-lg text-gray-600 dark:text-gray-300">
-            Your order <strong className="text-green-700 dark:text-green-400">{placedOrderNumber}</strong> has been sent directly to the kitchen.
-          </p>
-          <div className="rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-800 dark:text-white">
-            <div className="flex items-center justify-center gap-3 text-gray-500 dark:text-gray-400">
-              <UtensilsCrossed size={20} />
-              <span>Table {tableNumber}</span>
-            </div>
-            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-              Our chef and team are preparing your fresh order now. You can order more items anytime from the menu!
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setOrderPlaced(false)}
-              className="w-full rounded-xl bg-green-600 py-3.5 font-semibold text-white shadow-md hover:bg-green-700 active:scale-95 transition-all"
-            >
-              Order Additional Items
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 pb-24">
