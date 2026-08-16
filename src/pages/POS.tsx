@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote,
-  Smartphone, User, Table2, Package, Check, Percent, DollarSign
+  Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -37,6 +37,7 @@ export const POSPage: React.FC = () => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -114,6 +115,7 @@ export const POSPage: React.FC = () => {
     setOrderType((ord.type as any) || 'dine-in');
     setCustomerName(ord.customerName || '');
     setCustomerPhone(ord.customerPhone || '');
+    setOrderNotes(ord.notes || '');
     
     if (ord.tableNumber) {
       const tbl = tableDB.getAll().find((t) => t.number === ord.tableNumber);
@@ -157,7 +159,7 @@ export const POSPage: React.FC = () => {
     const { menuItem, cartItemId } = posCustomizingItem;
 
     const nameLower = menuItem.name.toLowerCase();
-    const isBeverage = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('juice') || nameLower.includes('beer') || nameLower.includes('soda') || nameLower.includes('water');
+    const isBeverage = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('juice') || nameLower.includes('beer') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
     const spiceVal = !isBeverage ? posSpiceLevel : undefined;
     const drinkVal = (nameLower.includes('set') || nameLower.includes('セット') || menuItem.includesDrink) ? posDrinkOption : undefined;
     const notesVal = posNotes.trim() || undefined;
@@ -229,6 +231,7 @@ export const POSPage: React.FC = () => {
     setLoadedOrderId(null);
     setCustomerName('');
     setCustomerPhone('');
+    setOrderNotes('');
     setDiscount(0);
   }, []);
 
@@ -241,6 +244,72 @@ export const POSPage: React.FC = () => {
       success(`Added ${item.name} to cart`);
     }
   }, [addToCart, success]);
+
+  // Send order to Kitchen Display
+  const handleSendToKitchen = () => {
+    if (cart.length === 0) {
+      error('Cart is empty');
+      return;
+    }
+
+    if (orderType === 'dine-in' && !selectedTable) {
+      error('Please select a table for dine-in orders');
+      return;
+    }
+
+    const orderItems: OrderItem[] = cart.map((item) => ({
+      id: item.id,
+      menuItemId: item.menuItemId,
+      menuItemName: item.menuItemName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      spiceLevel: item.spiceLevel,
+      selectedDrink: item.selectedDrink,
+      notes: item.notes,
+      status: 'pending',
+    }));
+
+    if (loadedOrderId) {
+      orderDB.update(loadedOrderId, {
+        items: orderItems,
+        subtotal,
+        tax: taxAmount,
+        discount: discountAmount,
+        total,
+        notes: orderNotes.trim() || undefined,
+      });
+      success(`Updated Table ${selectedTable?.number || 'Order'} on Kitchen Display!`);
+    } else {
+      const order = orderDB.create({
+        tableId: selectedTable?.id,
+        tableNumber: selectedTable?.number,
+        type: orderType,
+        items: orderItems,
+        subtotal,
+        tax: taxAmount,
+        discount: discountAmount,
+        discountType,
+        total,
+        status: 'active',
+        customerName: customerName || (selectedTable ? `Table ${selectedTable.number}` : undefined),
+        customerPhone: customerPhone || undefined,
+        waiterId: user?.id,
+        waiterName: user?.username,
+        notes: orderNotes.trim() || undefined,
+      });
+
+      notificationDB.create({
+        type: 'order',
+        title: '👨‍🍳 Order Sent to Kitchen',
+        message: `Order #${order.orderNumber} sent to kitchen display.`
+      });
+
+      success(`Order #${order.orderNumber} sent to Kitchen Board!`);
+    }
+
+    clearCart();
+  };
 
   // Process payment
   const processPayment = async () => {
@@ -271,6 +340,7 @@ export const POSPage: React.FC = () => {
           tax: taxAmount,
           discount: discountAmount,
           total,
+          notes: orderNotes.trim() || undefined,
           items: cart.map((item) => ({
             id: item.id,
             menuItemId: item.menuItemId,
@@ -332,6 +402,7 @@ export const POSPage: React.FC = () => {
           waiterId: user?.id,
           waiterName: user?.username,
           orderNumber: newOrderNum,
+          notes: orderNotes.trim() || undefined,
         } as any);
 
         paymentDB.create({
@@ -683,15 +754,39 @@ export const POSPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Pay Button */}
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={() => setShowPaymentModal(true)}
-              leftIcon={<CreditCard size={20} />}
-            >
-              Pay {formatCurrency(total)} (F3)
-            </Button>
+            {/* Entire Order Notes / Special Instructions */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                <span>📝 Entire Order Request (Optional):</span>
+              </label>
+              <input
+                type="text"
+                value={orderNotes}
+                onChange={(e) => setOrderNotes(e.target.value)}
+                placeholder="e.g. Serve appetizers first, extra napkins..."
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 px-2.5 py-1.5 text-xs focus:border-blue-500 focus:bg-white dark:focus:bg-gray-800 dark:text-white"
+              />
+            </div>
+
+            {/* Actions: Send to Kitchen or Pay */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button
+                variant="outline"
+                className="border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
+                onClick={handleSendToKitchen}
+                leftIcon={<ChefHat size={18} className="text-amber-600" />}
+              >
+                To Kitchen
+              </Button>
+              <Button
+                variant="primary"
+                className="font-bold shadow-md"
+                onClick={() => setShowPaymentModal(true)}
+                leftIcon={<CreditCard size={18} />}
+              >
+                Pay (F3)
+              </Button>
+            </div>
           </div>
         )}
       </div>

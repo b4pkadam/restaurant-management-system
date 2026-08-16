@@ -197,6 +197,9 @@ class RealtimeSyncService {
         quantity: i.quantity,
         unitPrice: i.unitPrice,
         totalPrice: i.totalPrice,
+        spiceLevel: i.spiceLevel,
+        selectedDrink: i.selectedDrink,
+        notes: i.notes,
         status: i.status || 'pending',
       })),
     };
@@ -219,6 +222,9 @@ class RealtimeSyncService {
         quantity: i.quantity,
         unitPrice: i.unitPrice,
         totalPrice: i.totalPrice,
+        spiceLevel: i.spiceLevel,
+        selectedDrink: i.selectedDrink,
+        notes: i.notes,
         status: i.status || 'pending',
       })),
     };

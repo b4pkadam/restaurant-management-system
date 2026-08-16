@@ -831,6 +831,13 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                           {renderStatusBadge(ord.status)}
                         </div>
 
+                        {ord.notes && (
+                          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 p-2 text-[11px] text-amber-900 dark:text-amber-200">
+                            <span className="font-bold">🚨 Order Request: </span>
+                            <span>{ord.notes}</span>
+                          </div>
+                        )}
+
                         <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
                           {ord.items.map((it) => (
                             <div key={it.id} className="flex justify-between flex-wrap gap-1">
@@ -842,7 +849,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                                     {it.spiceLevel && <span className="text-rose-600 dark:text-rose-400 font-bold">🌶️ {it.spiceLevel}</span>}
                                     {it.selectedDrink && <span className="text-blue-600 dark:text-blue-400 font-bold">🥤 {it.selectedDrink}</span>}
-                                    {it.notes && <span className="italic">({it.notes})</span>}
+                                    {it.notes && <span className="text-amber-700 dark:text-amber-300 font-semibold bg-amber-50 dark:bg-amber-950/40 px-1 rounded">📝 {it.notes}</span>}
                                   </div>
                                 )}
                               </div>

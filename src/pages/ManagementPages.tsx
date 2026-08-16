@@ -770,53 +770,61 @@ export function OrdersManagementPage() {
               </div>
             </div>
 
+            {order.notes && (
+              <div className="rounded-xl bg-amber-500/20 dark:bg-amber-950/80 border-2 border-amber-500 p-2.5 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2 shadow-xs">
+                <span className="text-base leading-none shrink-0">🚨</span>
+                <div className="min-w-0 flex-1">
+                  <span className="uppercase tracking-wider text-[10px] font-black text-amber-800 dark:text-amber-400 block">
+                    Entire Order Instruction:
+                  </span>
+                  <span className="text-xs font-black break-words">{order.notes}</span>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {order.items.map((item) => (
-                <div key={item.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
-                      {(() => {
-                        const nameLower = item.menuItemName.toLowerCase();
-                        const isBev = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('beer') || nameLower.includes('juice') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
-                        const isSet = nameLower.includes('set') || nameLower.includes('セット') || nameLower.includes('thali') || nameLower.includes('combo') || nameLower.includes('maharaja') || nameLower.includes('special');
+              {order.items.map((item) => {
+                const displaySpice = item.spiceLevel;
+                const displayDrink = item.selectedDrink;
+                const displayNotes = item.notes;
 
-                        const displaySpice = item.spiceLevel || (!isBev ? '2 - Medium (中辛)' : undefined);
-                        const displayDrink = item.selectedDrink || (isSet ? 'Mango Lassi (マンゴーラッシー)' : undefined);
-                        const displayNotes = item.notes;
-
-                        if (!displaySpice && !displayDrink && !displayNotes) return null;
-
-                        return (
-                          <div className="mt-1.5 space-y-1">
-                            <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-                              {displaySpice && (
-                                <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                  🌶️ {displaySpice}
-                                </span>
-                              )}
-                              {displayDrink && (
-                                <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                  🥤 {displayDrink}
-                                </span>
-                              )}
-                            </div>
-                            {displayNotes && (
-                              <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
-                                📝 Note: {displayNotes}
-                              </p>
+                return (
+                  <div key={item.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
+                        
+                        {(displaySpice || displayDrink) && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                            {displaySpice && (
+                              <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                🌶️ {displaySpice}
+                              </span>
+                            )}
+                            {displayDrink && (
+                              <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                🥤 {displayDrink}
+                              </span>
                             )}
                           </div>
-                        );
-                      })()}
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {item.quantity} × {currency(item.unitPrice)}
-                      </p>
+                        )}
+
+                        {displayNotes && (
+                          <div className="mt-1.5 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-400 px-2 py-1 text-[11px] text-amber-950 dark:text-amber-200">
+                            <span className="font-bold">📝 Item Instruction: </span>
+                            <span className="font-semibold">{displayNotes}</span>
+                          </div>
+                        )}
+
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          {item.quantity} × {currency(item.unitPrice)}
+                        </p>
+                      </div>
+                      <StatusBadge status={item.status} showDot={false} />
                     </div>
-                    <StatusBadge status={item.status} showDot={false} />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -1015,47 +1023,59 @@ export function KitchenDisplayPage() {
                   </div>
                 </div>
                 {order.notes && (
-                  <div className="rounded-xl bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 p-2.5 text-xs font-black text-amber-950 dark:text-amber-200">
-                    🚨 ORDER INSTRUCTION: {order.notes}
+                  <div className="rounded-xl bg-amber-500/20 dark:bg-amber-950/80 border-2 border-amber-500 p-2.5 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2 shadow-xs">
+                    <span className="text-base leading-none shrink-0">🚨</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="uppercase tracking-wider text-[10px] font-black text-amber-800 dark:text-amber-400 block">
+                        Entire Order Instruction:
+                      </span>
+                      <span className="text-xs font-black break-words">{order.notes}</span>
+                    </div>
                   </div>
                 )}
                 <div className="space-y-2">
                   {order.items.map((item) => {
                     const itemStatus = item.status || 'pending';
-                    const nameLower = item.menuItemName.toLowerCase();
-                    const isBev = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('beer') || nameLower.includes('juice') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
-                    const isSet = nameLower.includes('set') || nameLower.includes('セット') || nameLower.includes('thali') || nameLower.includes('combo') || nameLower.includes('maharaja') || nameLower.includes('special');
 
-                    const displaySpice = item.spiceLevel || (!isBev ? '2 - Medium (中辛)' : undefined);
-                    const displayDrink = item.selectedDrink || (isSet ? 'Mango Lassi (マンゴーラッシー)' : undefined);
+                    // Exact user/waiter selections - NO FAKE / RANDOM DEFAULTS
+                    const displaySpice = item.spiceLevel;
+                    const displayDrink = item.selectedDrink;
                     const displayNotes = item.notes;
 
                     return (
-                      <div key={item.id} className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60 sm:flex-row sm:items-center sm:justify-between">
+                      <div key={item.id} className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60 border border-gray-200/70 dark:border-gray-700/60 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <p className="font-bold text-gray-900 dark:text-white text-sm">{item.menuItemName}</p>
-                            <span className="rounded-md bg-blue-600 px-2 py-0.5 text-xs font-black text-white">
+                            <span className="rounded-md bg-blue-600 px-2 py-0.5 text-xs font-black text-white shrink-0">
                               x{item.quantity}
                             </span>
                           </div>
                           {(displaySpice || displayDrink || displayNotes) && (
                             <div className="mt-2 space-y-1.5">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {displaySpice && (
-                                  <span className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-black text-white shadow-sm">
-                                    🌶️ SPICE: {displaySpice}
-                                  </span>
-                                )}
-                                {displayDrink && (
-                                  <span className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-black text-white shadow-sm">
-                                    🥤 DRINK: {displayDrink}
-                                  </span>
-                                )}
-                              </div>
+                              {(displaySpice || displayDrink) && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {displaySpice && (
+                                    <span className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-black text-white shadow-xs">
+                                      🌶️ SPICE: {displaySpice}
+                                    </span>
+                                  )}
+                                  {displayDrink && (
+                                    <span className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-black text-white shadow-xs">
+                                      🥤 DRINK: {displayDrink}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                               {displayNotes && (
-                                <div className="rounded-lg bg-amber-100 p-2 text-xs font-extrabold text-amber-950 border border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-800">
-                                  📝 Item Note: {displayNotes}
+                                <div className="rounded-lg bg-amber-500/15 dark:bg-amber-950/80 border-2 border-amber-400 dark:border-amber-600 p-2 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-1.5 shadow-xs">
+                                  <span className="text-sm leading-none shrink-0">📝</span>
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-[10px] uppercase tracking-wider font-black text-amber-800 dark:text-amber-400 block">
+                                      Menu Item Instruction:
+                                    </span>
+                                    <span className="text-xs font-black break-words">{displayNotes}</span>
+                                  </div>
                                 </div>
                               )}
                             </div>
