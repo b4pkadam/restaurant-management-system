@@ -1002,20 +1002,17 @@ export function KitchenDisplayPage() {
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{minutesWaiting} min waiting</p>
                   </div>
                 </div>
-                {order.notes && (
+                {order.notes && !order.notes.startsWith('QR Order from Table') && (
                   <div className="rounded-xl bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 p-2.5 text-xs font-black text-amber-950 dark:text-amber-200">
-                    🚨 ORDER NOTE: {order.notes}
+                    🚨 ORDER INSTRUCTION: {order.notes}
                   </div>
                 )}
                 <div className="space-y-2">
                   {order.items.map((item) => {
                     const itemStatus = item.status || 'pending';
-                    const nameLower = item.menuItemName.toLowerCase();
-                    const isBev = nameLower.includes('lassi') || nameLower.includes('chai') || nameLower.includes('beer') || nameLower.includes('juice') || nameLower.includes('soda') || nameLower.includes('tea') || nameLower.includes('water');
-                    const isSet = nameLower.includes('set') || nameLower.includes('セット') || nameLower.includes('thali') || nameLower.includes('combo') || nameLower.includes('maharaja') || nameLower.includes('special');
-
-                    const displaySpice = item.spiceLevel || (!isBev ? '2 - Medium (中辛)' : undefined);
-                    const displayDrink = item.selectedDrink || (isSet ? 'Standard Drink (Lassi/Chai)' : undefined);
+                    const displaySpice = item.spiceLevel;
+                    const displayDrink = item.selectedDrink;
+                    const displayNotes = item.notes;
 
                     return (
                       <div key={item.id} className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60 sm:flex-row sm:items-center sm:justify-between">
@@ -1026,7 +1023,7 @@ export function KitchenDisplayPage() {
                               x{item.quantity}
                             </span>
                           </div>
-                          {(displaySpice || displayDrink || item.notes) && (
+                          {(displaySpice || displayDrink || displayNotes) && (
                             <div className="mt-2 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {displaySpice && (
@@ -1040,9 +1037,9 @@ export function KitchenDisplayPage() {
                                   </span>
                                 )}
                               </div>
-                              {item.notes && (
+                              {displayNotes && (
                                 <div className="rounded-lg bg-amber-100 p-2 text-xs font-extrabold text-amber-950 border border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-800">
-                                  📝 Instruction: {item.notes}
+                                  📝 Item Note: {displayNotes}
                                 </div>
                               )}
                             </div>

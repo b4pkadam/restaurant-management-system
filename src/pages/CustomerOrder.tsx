@@ -127,6 +127,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [placedOrderNumber, setPlacedOrderNumber] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
+  const [orderNotes, setOrderNotes] = useState('');
 
   // Active orders for this table
   const activeOrders = useMemo(() => {
@@ -335,8 +336,10 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       status: 'active',
       customerName: finalCustomerName,
       customerPhone: customerPhone.trim() || undefined,
-      notes: `QR Order from Table ${tableNumber}`,
+      notes: orderNotes.trim() || undefined,
     });
+
+    setOrderNotes('');
 
     notificationDB.create({
       type: 'order',
@@ -948,9 +951,23 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
                   <span className="text-blue-600 dark:text-blue-400">{formatCurrency(total)}</span>
                 </div>
 
+                {/* Overall Order Special Instructions */}
+                <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                    <span>📝 Order Request / Note for Kitchen (Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Please bring extra cutlery, serve food hot..."
+                    value={orderNotes}
+                    onChange={(e) => setOrderNotes(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-xs focus:border-blue-500 focus:bg-white focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                </div>
+
                 <button
                   onClick={placeOrder}
-                  className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 font-bold text-white shadow-lg hover:bg-blue-700 active:scale-98 transition-all cursor-pointer"
+                  className="mt-2 w-full rounded-xl bg-blue-600 py-3.5 font-bold text-white shadow-lg hover:bg-blue-700 active:scale-98 transition-all cursor-pointer"
                 >
                   Place New Order • {formatCurrency(total)}
                 </button>
