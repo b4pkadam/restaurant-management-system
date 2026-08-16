@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Check,
+  CheckCircle2,
   Clock,
   Minus,
   Plus,
@@ -111,9 +112,13 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [tableNumber]);
 
+  const [vegFilter, setVegFilter] = useState<'all' | 'veg' | 'nonveg'>('all');
+
   const menuItems = useMemo(() => {
-    let items = menuItemDB.getAll().filter((m) => m.isAvailable);
+    let items = menuItemDB.getAll().filter((m) => m.isAvailable !== false);
     if (selectedCategory) items = items.filter((m) => m.categoryId === selectedCategory);
+    if (vegFilter === 'veg') items = items.filter((m) => m.isVeg);
+    if (vegFilter === 'nonveg') items = items.filter((m) => !m.isVeg);
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(
@@ -121,7 +126,29 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       );
     }
     return items;
-  }, [selectedCategory, search]);
+  }, [selectedCategory, vegFilter, search]);
+
+  const groupedMenuItems = useMemo(() => {
+    const map = new Map<string, { categoryName: string; icon?: string; items: MenuItem[] }>();
+    const sortedCats = categoryDB.getAll().sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+    sortedCats.forEach((cat) => {
+      map.set(cat.id, { categoryName: cat.name, icon: cat.icon, items: [] });
+    });
+
+    menuItems.forEach((item) => {
+      if (map.has(item.categoryId)) {
+        map.get(item.categoryId)!.items.push(item);
+      } else {
+        if (!map.has('other')) {
+          map.set('other', { categoryName: 'Specialties', icon: '🍽️', items: [] });
+        }
+        map.get('other')!.items.push(item);
+      }
+    });
+
+    return Array.from(map.values()).filter((group) => group.items.length > 0);
+  }, [menuItems]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -353,39 +380,81 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
           </div>
         </div>
 
-        {/* Categories Bar */}
-        <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
-          <button
-            onClick={() => setSelectedCategory(null)}
-            className={cn(
-              'shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-all',
-              selectedCategory === null
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
-            )}
-          >
-            All Items
-          </button>
-          {categories.map((cat) => (
+        {/* Categories & Dietary Filter Bar */}
+        <div className="no-scrollbar flex flex-col gap-2.5 px-4 pb-3">
+          {/* Veg / Non-Veg Quick Pill Filter */}
+          <div className="flex items-center gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800/80 w-fit text-xs font-semibold">
             <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
+              onClick={() => setVegFilter('all')}
               className={cn(
-                'shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-all flex items-center gap-1.5',
-                selectedCategory === cat.id
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                'rounded-lg px-3 py-1 transition-all',
+                vegFilter === 'all'
+                  ? 'bg-white text-gray-900 shadow-xs dark:bg-gray-700 dark:text-white'
+                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400'
               )}
             >
-              <span>{cat.icon || '🍽️'}</span>
-              <span>{cat.name}</span>
+              All Dishes
             </button>
-          ))}
+            <button
+              onClick={() => setVegFilter('veg')}
+              className={cn(
+                'flex items-center gap-1 rounded-lg px-3 py-1 transition-all',
+                vegFilter === 'veg'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30'
+              )}
+            >
+              <span className="inline-block h-2.5 w-2.5 rounded-xs border border-emerald-300 bg-emerald-500" />
+              Veg Only
+            </button>
+            <button
+              onClick={() => setVegFilter('nonveg')}
+              className={cn(
+                'flex items-center gap-1 rounded-lg px-3 py-1 transition-all',
+                vegFilter === 'nonveg'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/30'
+              )}
+            >
+              <span className="inline-block h-2.5 w-2.5 rounded-xs border border-rose-300 bg-rose-500" />
+              Non-Veg
+            </button>
+          </div>
+
+          {/* Category Pills */}
+          <div className="no-scrollbar flex gap-2 overflow-x-auto">
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className={cn(
+                'shrink-0 rounded-full px-4 py-1.5 text-xs font-bold transition-all',
+                selectedCategory === null
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+              )}
+            >
+              All Categories
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={cn(
+                  'shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5',
+                  selectedCategory === cat.id
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                )}
+              >
+                <span>{cat.icon || '🍽️'}</span>
+                <span>{cat.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg p-4 space-y-6">
+      <main className="mx-auto max-w-lg px-4 pt-4 pb-36 space-y-6">
         {/* Active Orders Status Banner */}
         {activeOrders.length > 0 && (
           <section className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
@@ -438,77 +507,134 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
           </section>
         )}
 
-        {/* Menu Items List */}
+        {/* Menu Items List - Category Section Grouped */}
         {menuItems.length === 0 ? (
-          <div className="py-12 text-center text-gray-500">
-            <UtensilsCrossed size={48} className="mx-auto mb-3 text-gray-300" />
-            <p className="font-medium">No dishes found</p>
-            <p className="text-xs text-gray-400">Try searching for something else or change category</p>
+          <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+            <UtensilsCrossed size={48} className="mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+            <p className="font-semibold text-base">No matching dishes found</p>
+            <p className="text-xs text-gray-400 mt-1">Try resetting search or selecting another category</p>
           </div>
         ) : (
-          <div className="grid gap-3">
-            {menuItems.map((item) => {
-              const inCart = cart.find((c) => c.menuItemId === item.id);
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between rounded-2xl bg-white p-3.5 shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700/60"
-                >
-                  <div className="flex-1 pr-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'inline-block h-2 w-2 rounded-full',
-                          item.isVeg ? 'bg-green-500' : 'bg-red-500'
-                        )}
-                        title={item.isVeg ? 'Vegetarian' : 'Non-Vegetarian'}
-                      />
-                      <h3 className="font-semibold text-gray-900 dark:text-white leading-tight">
-                        {item.name}
-                      </h3>
-                    </div>
-                    {item.description && (
-                      <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
-                        {item.description}
-                      </p>
-                    )}
-                    <p className="mt-2 text-sm font-bold text-blue-600 dark:text-blue-400">
-                      {formatCurrency(item.price)}
-                    </p>
-                  </div>
-
-                  <div>
-                    {inCart ? (
-                      <div className="flex items-center gap-2 rounded-xl bg-blue-50 p-1 dark:bg-blue-900/30">
-                        <button
-                          onClick={() => updateQty(inCart.id, -1)}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-blue-600 shadow-xs dark:bg-gray-800 dark:text-blue-400"
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <span className="w-5 text-center font-bold text-sm text-blue-700 dark:text-blue-300">
-                          {inCart.quantity}
-                        </span>
-                        <button
-                          onClick={() => updateQty(inCart.id, 1)}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="flex items-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 active:scale-95 transition-all"
-                      >
-                        <Plus size={14} />
-                        <span>Add</span>
-                      </button>
-                    )}
-                  </div>
+          <div className="space-y-6">
+            {groupedMenuItems.map((group) => (
+              <section key={group.categoryName} className="space-y-3">
+                <div className="flex items-center gap-2 border-b border-gray-100 pb-2 dark:border-gray-800">
+                  <span className="text-lg">{group.icon || '🍽️'}</span>
+                  <h2 className="font-bold text-base text-gray-900 dark:text-white">
+                    {group.categoryName}
+                  </h2>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    {group.items.length}
+                  </span>
                 </div>
-              );
-            })}
+
+                <div className="grid gap-3">
+                  {group.items.map((item) => {
+                    const inCart = cart.find((c) => c.menuItemId === item.id);
+                    const imageSrc = item.imageUrl || (item as any).image;
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3.5 shadow-sm border border-gray-100 dark:bg-gray-800 dark:border-gray-700/60"
+                      >
+                        {/* Food Image Thumbnail */}
+                        {imageSrc ? (
+                          <img
+                            src={imageSrc}
+                            alt={item.name}
+                            className="h-18 w-18 shrink-0 rounded-xl object-cover border border-gray-100 dark:border-gray-700"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-18 w-18 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600 font-bold text-xl dark:from-gray-700 dark:to-gray-800 dark:text-blue-400">
+                            {item.name.charAt(0)}
+                          </div>
+                        )}
+
+                        {/* Dish Information */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {/* Veg / Non-Veg Icon */}
+                            <span
+                              className={cn(
+                                'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-xs border p-0.5',
+                                item.isVeg
+                                  ? 'border-emerald-600 dark:border-emerald-400'
+                                  : 'border-rose-600 dark:border-rose-400'
+                              )}
+                              title={item.isVeg ? 'Vegetarian' : 'Non-Vegetarian'}
+                            >
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 rounded-full',
+                                  item.isVeg ? 'bg-emerald-600 dark:bg-emerald-400' : 'bg-rose-600 dark:bg-rose-400'
+                                )}
+                              />
+                            </span>
+                            <h3 className="font-bold text-sm text-gray-900 dark:text-white leading-tight truncate">
+                              {item.name}
+                            </h3>
+                          </div>
+
+                          {item.description && (
+                            <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+                              {item.description}
+                            </p>
+                          )}
+
+                          <div className="mt-2 flex items-center gap-3">
+                            <span className="text-sm font-black text-blue-600 dark:text-blue-400">
+                              {formatCurrency(item.price)}
+                            </span>
+                            {item.preparationTime && (
+                              <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                                <Clock size={12} />
+                                {item.preparationTime}m
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Add / Stepper Button */}
+                        <div className="shrink-0">
+                          {inCart ? (
+                            <div className="flex items-center gap-1.5 rounded-xl bg-blue-50 p-1 dark:bg-blue-900/30">
+                              <button
+                                onClick={() => updateQty(inCart.id, -1)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-blue-600 shadow-xs active:scale-90 transition-all dark:bg-gray-800 dark:text-blue-400"
+                                aria-label="Decrease quantity"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span className="w-5 text-center font-bold text-sm text-blue-700 dark:text-blue-300">
+                                {inCart.quantity}
+                              </span>
+                              <button
+                                onClick={() => updateQty(inCart.id, 1)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs active:scale-90 transition-all"
+                                aria-label="Increase quantity"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => addToCart(item)}
+                              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:from-blue-700 hover:to-indigo-700 active:scale-95 transition-all"
+                            >
+                              <Plus size={14} />
+                              <span>ADD</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </main>
