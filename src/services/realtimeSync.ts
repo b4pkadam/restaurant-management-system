@@ -1,7 +1,7 @@
 import type { Order, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED';
   payload: any;
   senderId: string;
 }
@@ -55,8 +55,6 @@ class RealtimeSyncService {
       if (!Array.isArray(data) || !Array.isArray(data[0])) return;
 
       const messages = data[0];
-      const startTimetoken = data[1] ? String(data[1]) : '';
-      const endTimetoken = data[2] ? String(data[2]) : '';
 
       for (let i = 0; i < messages.length; i++) {
         const msg: SyncMessage = messages[i];
@@ -67,6 +65,7 @@ class RealtimeSyncService {
         if (msg.payload) {
           if (msg.payload.order?.id) msgKey += `_${msg.payload.order.id}_${msg.payload.order.status}`;
           if (msg.payload.settings?.updatedAt) msgKey += `_${msg.payload.settings.updatedAt}`;
+          if (msg.payload.tableNumber) msgKey += `_${msg.payload.tableNumber}_${msg.payload.timestamp || ''}`;
         }
 
         if (this.processedTimestamps.has(msgKey)) continue;
@@ -153,7 +152,31 @@ class RealtimeSyncService {
           orders[idx] = { ...orders[idx], ...order };
           localStorage.setItem('restaurant_db_orders', JSON.stringify(orders));
           notifyDbListeners();
+          this.playAlertSound();
         }
+        break;
+      }
+
+      case 'WAITER_CALLED': {
+        const { tableNumber, message: waiterMsg, timestamp } = message.payload || {};
+        if (!tableNumber) return;
+
+        const notifications = notificationDB.getAll();
+        const notifTitle = `🔔 Table ${tableNumber} Calling Waiter!`;
+        const existsNotif = notifications.find(
+          (n) => !n.isRead && n.type === 'table' && n.title === notifTitle
+        );
+
+        if (!existsNotif) {
+          notificationDB.create({
+            type: 'table',
+            title: notifTitle,
+            message: waiterMsg || `Table ${tableNumber} has requested immediate waiter service / assistance.`,
+          });
+        }
+
+        notifyDbListeners();
+        this.playWaiterCallSound();
         break;
       }
 
@@ -165,6 +188,31 @@ class RealtimeSyncService {
         }
         break;
       }
+    }
+  }
+
+  public playWaiterCallSound() {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playTone = (freq: number, startOffset: number, duration: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + startOffset);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime + startOffset);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + startOffset + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + startOffset);
+        osc.stop(audioCtx.currentTime + startOffset + duration);
+      };
+
+      // 3-tone chime for waiter call
+      playTone(784, 0, 0.2);       // G5
+      playTone(987.77, 0.18, 0.2);  // B5
+      playTone(1318.5, 0.36, 0.45); // E6
+    } catch {
+      // Autoplay policy
     }
   }
 
@@ -185,6 +233,19 @@ class RealtimeSyncService {
     } catch {
       // Audio autoplay blocked
     }
+  }
+
+  public broadcastWaiterCall(tableNumber: number, message?: string) {
+    const msg: SyncMessage = {
+      type: 'WAITER_CALLED',
+      payload: {
+        tableNumber,
+        message: message || `Table ${tableNumber} requested waiter service.`,
+        timestamp: Date.now(),
+      },
+      senderId: SENDER_ID,
+    };
+    this.sendToCloud(msg);
   }
 
   public broadcastOrderCreated(order: Order, notification?: Notification) {

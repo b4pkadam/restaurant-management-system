@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote,
-  Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat
+  Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat,
+  BellRing
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -17,6 +18,7 @@ import {
 } from '../database/db';
 import type { MenuItem, OrderItem, Table, Order } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
 
@@ -27,6 +29,7 @@ interface CartItem extends OrderItem {
 export const POSPage: React.FC = () => {
   useDbUpdate();
   const { user } = useAuth();
+  const { notifications, markAsRead } = useNotifications();
   const { success, error } = useToast();
   const settings = settingsDB.get();
   
@@ -845,11 +848,26 @@ export const POSPage: React.FC = () => {
                 <div className="pt-0.5">
                   <StatusBadge status={table.status} showDot={false} />
                 </div>
-                {activeOrd ? (
-                  <span className="inline-block mt-1 rounded-lg bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
-                    Pay {formatCurrency(activeOrd.total)} 💳
-                  </span>
-                ) : null}
+                {(() => {
+                  const tableWaiterCall = notifications.find(
+                    (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)
+                  );
+                  if (tableWaiterCall) {
+                    return (
+                      <span className="inline-flex items-center gap-1 mt-1 rounded-lg bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs animate-bounce">
+                        <BellRing size={10} /> Waiter Call!
+                      </span>
+                    );
+                  }
+                  if (activeOrd) {
+                    return (
+                      <span className="inline-block mt-1 rounded-lg bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                        Pay {formatCurrency(activeOrd.total)} 💳
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
               </button>
             );
           })}

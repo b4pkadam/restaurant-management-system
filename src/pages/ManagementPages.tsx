@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   Banknote,
+  BellRing,
   CheckCircle2,
   ChefHat,
   CreditCard,
@@ -1301,6 +1302,7 @@ export function KitchenDisplayPage() {
 export function TableManagementPage() {
   useDbUpdate();
   const { success, error } = useToast();
+  const { notifications, markAsRead } = useNotifications();
   const { user } = useAuth();
   const [tables, setTables] = useState<Table[]>([]);
   const [showTableModal, setShowTableModal] = useState(false);
@@ -1472,6 +1474,27 @@ export function TableManagementPage() {
                 Active order: {orderDB.getById(table.currentOrderId)?.orderNumber || table.currentOrderId}
               </div>
             )}
+
+            {(() => {
+              const tableWaiterCall = notifications.find(
+                (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)
+              );
+              if (!tableWaiterCall) return null;
+              return (
+                <div className="rounded-xl bg-amber-500 text-white p-2.5 text-xs font-bold flex items-center justify-between shadow-md animate-pulse border border-amber-300">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <BellRing size={14} className="animate-bounce shrink-0 text-yellow-200" />
+                    <span className="truncate">Customer Calling Waiter!</span>
+                  </div>
+                  <button
+                    onClick={() => markAsRead(tableWaiterCall.id)}
+                    className="ml-1 shrink-0 rounded-md bg-white/25 hover:bg-white/40 px-2 py-0.5 text-[11px] cursor-pointer"
+                  >
+                    ✓ Dismiss
+                  </button>
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-2 gap-2">
               {canManageTableStructure(user?.role) ? (

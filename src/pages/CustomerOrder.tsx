@@ -138,9 +138,13 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
     setWaiterCalled(true);
     notificationDB.create({
       type: 'table',
-      title: '🔔 Waiter Assistance Request!',
-      message: `Table ${tableNumber} has called for waiter service.`,
+      title: `🔔 Table ${tableNumber} Calling Waiter!`,
+      message: `Table ${tableNumber} has called for waiter service / table assistance.`,
     });
+    // Broadcast waiter call in real-time to desktop
+    import('../services/realtimeSync').then(({ realtimeSync }) => {
+      realtimeSync.broadcastWaiterCall(tableNumber, `Table ${tableNumber} has called for waiter service.`);
+    }).catch(() => {});
     setTimeout(() => setWaiterCalled(false), 8000);
   }, [tableNumber, waiterCalled]);
 
@@ -338,31 +342,67 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
       status: 'pending',
     }));
 
-    const order = orderDB.create({
-      tableId: table?.id,
-      tableNumber,
-      type: 'dine-in',
-      items: orderItems,
-      subtotal,
-      tax,
-      discount: 0,
-      discountType: 'fixed',
-      total,
-      status: 'active',
-      customerName: finalCustomerName,
-      customerPhone: customerPhone.trim() || undefined,
-      notes: orderNotes.trim() || undefined,
-    });
+    // If this table already has an active order, ADD the new items into the existing active order!
+    const existingActiveOrder = activeOrders[0];
+
+    if (existingActiveOrder) {
+      const updatedItems = [...existingActiveOrder.items, ...orderItems];
+      const newSubtotal = updatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const newTax = (newSubtotal * settings.taxPercentage) / 100;
+      const newTotal = newSubtotal + newTax;
+
+      const combinedNotes = [
+        existingActiveOrder.notes,
+        orderNotes.trim() ? `[Add-on Request]: ${orderNotes.trim()}` : null,
+      ].filter(Boolean).join(' | ');
+
+      const updated = orderDB.update(existingActiveOrder.id, {
+        items: updatedItems,
+        subtotal: newSubtotal,
+        tax: newTax,
+        total: newTotal,
+        notes: combinedNotes || undefined,
+      });
+
+      notificationDB.create({
+        type: 'order',
+        title: `➕ Table ${tableNumber} Added Items!`,
+        message: `Table ${tableNumber} added ${orderItems.length} item(s) to order ${existingActiveOrder.orderNumber} (+${formatCurrency(total)})`,
+      });
+
+      // Broadcast updated order to Kitchen Display & POS
+      import('../services/realtimeSync').then(({ realtimeSync }) => {
+        if (updated) realtimeSync.broadcastOrderUpdated(updated);
+      }).catch(() => {});
+
+      setPlacedOrderNumber(existingActiveOrder.orderNumber);
+    } else {
+      const order = orderDB.create({
+        tableId: table?.id,
+        tableNumber,
+        type: 'dine-in',
+        items: orderItems,
+        subtotal,
+        tax,
+        discount: 0,
+        discountType: 'fixed',
+        total,
+        status: 'active',
+        customerName: finalCustomerName,
+        customerPhone: customerPhone.trim() || undefined,
+        notes: orderNotes.trim() || undefined,
+      });
+
+      notificationDB.create({
+        type: 'order',
+        title: '📱 New QR Order!',
+        message: `Table ${tableNumber} placed order ${order.orderNumber} via QR code (${formatCurrency(total)})`,
+      });
+
+      setPlacedOrderNumber(order.orderNumber);
+    }
 
     setOrderNotes('');
-
-    notificationDB.create({
-      type: 'order',
-      title: '📱 New QR Order!',
-      message: `Table ${tableNumber} placed order ${order.orderNumber} via QR code (${formatCurrency(total)})`,
-    });
-
-    setPlacedOrderNumber(order.orderNumber);
     setOrderPlaced(true);
     setCart([]);
     localStorage.removeItem(`restaurant_cart_table_${tableNumber}`);
