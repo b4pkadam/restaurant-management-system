@@ -4,8 +4,10 @@ import { formatCurrency, SUPPORTED_CURRENCIES } from '../utils/formatCurrency';
 import {
   AlertTriangle,
   ArrowRightLeft,
+  Banknote,
   CheckCircle2,
   ChefHat,
+  CreditCard,
   Download,
   Edit,
   Eye,
@@ -19,6 +21,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Smartphone,
   Trash2,
   Truck,
   Upload,
@@ -672,13 +675,17 @@ export function MenuManagementPage() {
 }
 
 export function OrdersManagementPage() {
-  useDbUpdate();
-  const { success } = useToast();
+  const { success, error } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  // Payment Settlement state
+  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
+  const [cashReceived, setCashReceived] = useState<string>('');
 
   const loadOrders = () => {
     setOrders(orderDB.getAll().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -724,11 +731,42 @@ export function OrdersManagementPage() {
         items: order.items.map((item) => ({ ...item, status: 'served' })),
       });
       success(`${order.orderNumber} marked as served.`);
-    } else if (order.status === 'served' && ['admin', 'manager', 'waiter'].includes(user?.role || '')) {
-      orderDB.complete(order.id);
-      addNotification('order', 'Order Completed', `${order.orderNumber} has been completed.`);
-      success(`${order.orderNumber} completed successfully.`);
+    } else if (order.status === 'served' && ['admin', 'manager', 'waiter', 'cashier'].includes(user?.role || '')) {
+      // Prompt for payment settlement upon completing order
+      setPayingOrder(order);
+      setPaymentMethod('cash');
+      setCashReceived(String(order.total));
+      return;
     }
+    loadOrders();
+  };
+
+  const handleCompletePayment = () => {
+    if (!payingOrder) return;
+    if (paymentMethod === 'cash' && Number(cashReceived) < payingOrder.total) {
+      error('Cash received is less than total order amount');
+      return;
+    }
+
+    orderDB.complete(payingOrder.id);
+
+    paymentDB.create({
+      orderId: payingOrder.id,
+      orderNumber: payingOrder.orderNumber,
+      amount: payingOrder.total,
+      method: paymentMethod,
+      status: 'completed',
+      receivedBy: user?.username || 'Staff',
+    });
+
+    if (payingOrder.tableId) {
+      tableDB.update(payingOrder.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+    }
+
+    addNotification('order', 'Payment Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
+    success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed!`);
+
+    setPayingOrder(null);
     loadOrders();
   };
 
@@ -829,8 +867,26 @@ export function OrdersManagementPage() {
 
             <div className="flex flex-wrap gap-2">
               {canAdvanceOrder(user?.role, order.status) && (
-                <Button onClick={() => advanceOrder(order)} leftIcon={<CheckCircle2 size={16} />}>
+                <Button
+                  onClick={() => advanceOrder(order)}
+                  className={order.status === 'served' ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold' : ''}
+                  leftIcon={order.status === 'served' ? <CreditCard size={16} /> : <CheckCircle2 size={16} />}
+                >
                   {getOrderAdvanceLabel(user?.role, order.status)}
+                </Button>
+              )}
+              {['admin', 'manager', 'cashier'].includes(user?.role || '') && !['completed', 'cancelled'].includes(order.status) && order.status !== 'served' && (
+                <Button
+                  variant="primary"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  onClick={() => {
+                    setPayingOrder(order);
+                    setPaymentMethod('cash');
+                    setCashReceived(String(order.total));
+                  }}
+                  leftIcon={<CreditCard size={16} />}
+                >
+                  Settle Payment
                 </Button>
               )}
               {canPrintInvoice(user?.role) && (
@@ -897,6 +953,107 @@ export function OrdersManagementPage() {
           { id: 'history', label: 'Order History', badge: completedOrders.length, content: renderOrders(filteredOrders.filter((order) => ['completed', 'cancelled'].includes(order.status))) },
         ]}
       />
+
+      {/* Payment Settlement Modal */}
+      {payingOrder && (
+        <Modal
+          isOpen={!!payingOrder}
+          onClose={() => setPayingOrder(null)}
+          title={`Process Payment: ${payingOrder.orderNumber}`}
+          size="md"
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-800/80 p-4 border border-gray-200 dark:border-gray-700 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Order:</span>
+                <span className="font-bold text-gray-900 dark:text-white">{payingOrder.orderNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Table / Type:</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {payingOrder.tableNumber ? `Table ${payingOrder.tableNumber}` : 'Takeaway'} ({payingOrder.type})
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Customer:</span>
+                <span className="font-medium text-gray-900 dark:text-white">{payingOrder.customerName || 'Walk-in Customer'}</span>
+              </div>
+              <div className="flex justify-between text-base font-black border-t border-gray-200 dark:border-gray-700 pt-2 text-gray-900 dark:text-white">
+                <span>Total Amount Due:</span>
+                <span className="text-blue-600 dark:text-blue-400 text-lg">{currency(payingOrder.total)}</span>
+              </div>
+            </div>
+
+            {/* Payment Method Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                Select Payment Method
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'cash', label: 'Cash', icon: <Banknote size={16} /> },
+                  { id: 'card', label: 'Card', icon: <CreditCard size={16} /> },
+                  { id: 'upi', label: 'UPI / QR', icon: <Smartphone size={16} /> },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setPaymentMethod(m.id as any)}
+                    className={cn(
+                      'flex items-center justify-center gap-1.5 rounded-xl py-2.5 px-2 text-xs font-bold border transition-all cursor-pointer',
+                      paymentMethod === m.id
+                        ? 'bg-blue-600 text-white border-blue-700 shadow-md'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300'
+                    )}
+                  >
+                    {m.icon}
+                    <span>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cash Tendered Input & Change */}
+            {paymentMethod === 'cash' && (
+              <div className="space-y-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 p-3 border border-amber-200 dark:border-amber-900/40">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    Cash Received
+                  </label>
+                  <Input
+                    type="number"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    placeholder="Enter cash received amount"
+                    autoFocus
+                  />
+                </div>
+                {Number(cashReceived) >= payingOrder.total && (
+                  <div className="flex justify-between text-xs font-black text-green-700 dark:text-green-300 pt-1">
+                    <span>Change Due:</span>
+                    <span>{currency(Number(cashReceived) - payingOrder.total)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setPayingOrder(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                onClick={handleCompletePayment}
+                leftIcon={<CheckCircle2 size={16} />}
+              >
+                Complete Payment
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

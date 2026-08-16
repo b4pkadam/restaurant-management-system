@@ -253,7 +253,7 @@ export const POSPage: React.FC = () => {
     }
 
     if (orderType === 'dine-in' && !selectedTable) {
-      error('Please select a table for dine-in orders');
+      setShowTableModal(true);
       return;
     }
 
@@ -319,7 +319,8 @@ export const POSPage: React.FC = () => {
     }
 
     if (orderType === 'dine-in' && !selectedTable) {
-      error('Please select a table for dine-in orders');
+      setShowPaymentModal(false);
+      setShowTableModal(true);
       return;
     }
 
@@ -442,7 +443,13 @@ export const POSPage: React.FC = () => {
       if (e.key === 'F2') {
         setShowTableModal(true);
       } else if (e.key === 'F3') {
-        if (cart.length > 0) setShowPaymentModal(true);
+        if (cart.length > 0) {
+          if (orderType === 'dine-in' && !selectedTable) {
+            setShowTableModal(true);
+          } else {
+            setShowPaymentModal(true);
+          }
+        }
       } else if (e.key === 'Escape') {
         setShowPaymentModal(false);
         setShowTableModal(false);
@@ -451,7 +458,7 @@ export const POSPage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart.length]);
+  }, [cart.length, orderType, selectedTable]);
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-4">
@@ -507,10 +514,15 @@ export const POSPage: React.FC = () => {
             <div className="flex gap-2">
               <Button
                 variant={orderType === 'dine-in' ? 'primary' : 'outline'}
-                onClick={() => setOrderType('dine-in')}
+                onClick={() => {
+                  setOrderType('dine-in');
+                  if (!selectedTable) {
+                    setShowTableModal(true);
+                  }
+                }}
                 leftIcon={<Table2 size={18} />}
               >
-                Dine-in
+                {selectedTable ? `Table ${selectedTable.number}` : 'Dine-in'}
               </Button>
               <Button
                 variant={orderType === 'takeaway' ? 'primary' : 'outline'}
@@ -781,7 +793,13 @@ export const POSPage: React.FC = () => {
               <Button
                 variant="primary"
                 className="font-bold shadow-md"
-                onClick={() => setShowPaymentModal(true)}
+                onClick={() => {
+                  if (orderType === 'dine-in' && !selectedTable) {
+                    setShowTableModal(true);
+                    return;
+                  }
+                  setShowPaymentModal(true);
+                }}
                 leftIcon={<CreditCard size={18} />}
               >
                 Pay (F3)

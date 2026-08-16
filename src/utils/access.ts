@@ -53,13 +53,13 @@ export function canAdvanceOrder(role: UserRole | undefined, status: Order['statu
 export function getOrderAdvanceLabel(role: UserRole | undefined, status: Order['status']): string {
   if (role === 'waiter') {
     if (status === 'ready') return 'Mark Served';
-    if (status === 'served') return 'Complete Order';
+    if (status === 'served') return 'Pay & Complete';
   }
 
   if (status === 'active') return 'Start Preparing';
   if (status === 'preparing') return 'Mark Ready';
   if (status === 'ready') return 'Mark Served';
-  if (status === 'served') return 'Complete Order';
+  if (status === 'served') return 'Pay & Complete';
   return 'Update';
 }
 
