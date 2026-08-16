@@ -775,20 +775,26 @@ export function OrdersManagementPage() {
                 <div key={item.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{item.menuItemName}</p>
+                      <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
                       {(item.spiceLevel || item.selectedDrink || item.notes) && (
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium">
-                          {item.spiceLevel && (
-                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
-                              🌶️ {item.spiceLevel}
-                            </span>
+                        <div className="mt-1.5 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                            {item.spiceLevel && (
+                              <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                🌶️ {item.spiceLevel}
+                              </span>
+                            )}
+                            {item.selectedDrink && (
+                              <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                🥤 {item.selectedDrink}
+                              </span>
+                            )}
+                          </div>
+                          {item.notes && (
+                            <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                              📝 Note: {item.notes}
+                            </p>
                           )}
-                          {item.selectedDrink && (
-                            <span className="rounded-md bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-                              🥤 {item.selectedDrink}
-                            </span>
-                          )}
-                          {item.notes && <span className="italic text-amber-600 dark:text-amber-400">({item.notes})</span>}
                         </div>
                       )}
                       <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -1009,19 +1015,23 @@ export function KitchenDisplayPage() {
                             </span>
                           </div>
                           {(item.spiceLevel || item.selectedDrink || item.notes) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium">
-                              {item.spiceLevel && (
-                                <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                  🌶️ {item.spiceLevel}
-                                </span>
-                              )}
-                              {item.selectedDrink && (
-                                <span className="rounded-md bg-blue-100 px-1.5 py-0.5 font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                  🥤 {item.selectedDrink}
-                                </span>
-                              )}
+                            <div className="mt-2 space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {item.spiceLevel && (
+                                  <span className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-black text-white shadow-xs">
+                                    🌶️ SPICE: {item.spiceLevel}
+                                  </span>
+                                )}
+                                {item.selectedDrink && (
+                                  <span className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-black text-white shadow-xs">
+                                    🥤 DRINK: {item.selectedDrink}
+                                  </span>
+                                )}
+                              </div>
                               {item.notes && (
-                                <span className="italic text-amber-600 dark:text-amber-400">Note: {item.notes}</span>
+                                <div className="rounded-lg bg-amber-100 p-1.5 text-xs font-extrabold text-amber-950 border border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-800">
+                                  📝 Instruction: {item.notes}
+                                </div>
                               )}
                             </div>
                           )}

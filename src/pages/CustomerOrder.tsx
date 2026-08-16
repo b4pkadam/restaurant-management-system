@@ -181,25 +181,46 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
   const shouldShowSpiceOption = useCallback((item: MenuItem) => {
     if (item.allowsSpiceLevel === false) return false;
-    return (
-      item.categoryId === 'cat-curry' ||
-      item.categoryId === 'cat-sets' ||
-      item.categoryId === 'cat-biryani' ||
-      item.allowsSpiceLevel === true ||
-      item.name.toLowerCase().includes('curry') ||
-      item.name.toLowerCase().includes('biryani') ||
-      item.name.toLowerCase().includes('セット') ||
-      item.name.toLowerCase().includes('カレー')
-    );
+    const cat = categoryDB.getById(item.categoryId);
+    const catName = (cat?.name || '').toLowerCase();
+    const nameLower = item.name.toLowerCase();
+
+    // Exclude non-spicy items like drinks, beverages, desserts
+    if (
+      catName.includes('beverage') ||
+      catName.includes('drink') ||
+      catName.includes('dessert') ||
+      nameLower.includes('lassi') ||
+      nameLower.includes('chai') ||
+      nameLower.includes('beer') ||
+      nameLower.includes('juice') ||
+      nameLower.includes('soda') ||
+      nameLower.includes('tea') ||
+      nameLower.includes('water')
+    ) {
+      return false;
+    }
+
+    return true;
   }, []);
 
   const shouldShowDrinkOption = useCallback((item: MenuItem) => {
     if (item.includesDrink === true) return true;
+    const cat = categoryDB.getById(item.categoryId);
+    const catName = (cat?.name || '').toLowerCase();
+    const nameLower = item.name.toLowerCase();
+
     return (
-      item.categoryId === 'cat-sets' ||
-      item.name.toLowerCase().includes('set') ||
-      item.name.toLowerCase().includes('セット') ||
-      item.name.toLowerCase().includes('drink')
+      catName.includes('set') ||
+      catName.includes('combo') ||
+      nameLower.includes('set') ||
+      nameLower.includes('セット') ||
+      nameLower.includes('thali') ||
+      nameLower.includes('combo') ||
+      nameLower.includes('maharaja') ||
+      nameLower.includes('ladies') ||
+      nameLower.includes('lunch') ||
+      nameLower.includes('special')
     );
   }, []);
 
