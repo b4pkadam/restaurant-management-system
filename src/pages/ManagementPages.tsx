@@ -864,6 +864,49 @@ export function KitchenDisplayPage() {
     return () => window.clearInterval(interval);
   }, []);
 
+  const updateItemStatus = (order: Order, itemId: string, nextStatus: OrderItem['status']) => {
+    const updatedItems = order.items.map((item) => {
+      if (item.id === itemId) {
+        return { ...item, status: nextStatus };
+      }
+      return item;
+    });
+
+    const nonCancelled = updatedItems.filter((i) => i.status !== 'cancelled');
+    let computedOrderStatus: Order['status'] = order.status;
+
+    const allServed = nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'served');
+    const allReadyOrServed = nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'ready' || i.status === 'served');
+    const anyPreparingOrReady = nonCancelled.some((i) => i.status === 'preparing' || i.status === 'ready' || i.status === 'served');
+
+    if (allServed) {
+      computedOrderStatus = 'served';
+    } else if (allReadyOrServed) {
+      computedOrderStatus = 'ready';
+    } else if (anyPreparingOrReady) {
+      computedOrderStatus = 'preparing';
+    } else {
+      computedOrderStatus = 'active';
+    }
+
+    orderDB.update(order.id, { items: updatedItems, status: computedOrderStatus });
+
+    const targetItem = order.items.find((i) => i.id === itemId);
+    const itemName = targetItem?.menuItemName || 'Item';
+
+    if (nextStatus === 'preparing') {
+      addNotification('order', 'Item Prep Started', `${itemName} (${order.orderNumber}) is now being prepared.`);
+      success(`${itemName} marked as preparing.`);
+    } else if (nextStatus === 'ready') {
+      addNotification('order', 'Item Ready', `${itemName} (${order.orderNumber}) is ready!`);
+      success(`${itemName} is ready!`);
+    } else if (nextStatus === 'served') {
+      success(`${itemName} marked as served.`);
+    }
+
+    refresh();
+  };
+
   const updateStatus = (order: Order) => {
     if (order.status === 'active') {
       orderDB.update(order.id, { status: 'preparing', items: order.items.map((item) => ({ ...item, status: 'preparing' })) });
@@ -887,7 +930,7 @@ export function KitchenDisplayPage() {
     <div className="space-y-6">
       <SectionHeader
         title="Kitchen Display System"
-        description="Real-time kitchen board for chefs to prepare and dispatch orders."
+        description="Real-time kitchen board for chefs to prepare items and dispatch orders."
         action={
           <Button variant="outline" onClick={refresh} leftIcon={<RefreshCw size={16} />}>
             Refresh Board
@@ -922,15 +965,66 @@ export function KitchenDisplayPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {order.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800/60">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{item.menuItemName}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Qty: {item.quantity}</p>
+                  {order.items.map((item) => {
+                    const itemStatus = item.status || 'pending';
+                    return (
+                      <div key={item.id} className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-900 dark:text-white">{item.menuItemName}</p>
+                            <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                              x{item.quantity}
+                            </span>
+                          </div>
+                          {item.notes && (
+                            <p className="mt-1 text-xs italic text-amber-600 dark:text-amber-400">Note: {item.notes}</p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={itemStatus}
+                            onChange={(e) => updateItemStatus(order, item.id, e.target.value as OrderItem['status'])}
+                            className={cn(
+                              'rounded-lg border px-2 py-1 text-xs font-semibold shadow-sm focus:outline-none focus:ring-2',
+                              (itemStatus === 'pending' || itemStatus === 'active') && 'border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+                              itemStatus === 'preparing' && 'border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+                              itemStatus === 'ready' && 'border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/30 dark:text-green-300',
+                              itemStatus === 'served' && 'border-gray-300 bg-gray-100 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400',
+                              itemStatus === 'cancelled' && 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300'
+                            )}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="preparing">Preparing</option>
+                            <option value="ready">Ready</option>
+                            <option value="served">Served</option>
+                          </select>
+
+                          {itemStatus === 'preparing' ? (
+                            <button
+                              type="button"
+                              onClick={() => updateItemStatus(order, item.id, 'ready')}
+                              className="flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 active:scale-95 transition-all"
+                              title="Mark item ready"
+                            >
+                              <CheckCircle2 size={13} />
+                              Ready
+                            </button>
+                          ) : (itemStatus === 'pending' || itemStatus === 'active') ? (
+                            <button
+                              type="button"
+                              onClick={() => updateItemStatus(order, item.id, 'preparing')}
+                              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 active:scale-95 transition-all"
+                              title="Start preparing item"
+                            >
+                              <ChefHat size={13} />
+                              Prep
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
-                      <Badge variant="primary">{item.status}</Badge>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {canAdvanceOrder(user?.role, order.status) && (
                   <Button className="w-full" onClick={() => updateStatus(order)} leftIcon={<ChefHat size={16} />}>

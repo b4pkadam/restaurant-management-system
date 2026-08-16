@@ -24,7 +24,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { initializeSampleData, inventoryDB, notificationDB, settingsDB } from './database/db';
 import { Button } from './components/ui/Button';
 import { Card } from './components/ui/Card';
-import { AlertTriangle, Bell, Laptop2, UtensilsCrossed } from 'lucide-react';
+import { Laptop2, UtensilsCrossed } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
 import { canViewPage, getDefaultPageForRole, type AppPage } from './utils/access';
 import { VersionBadge } from './components/VersionBadge';
@@ -269,52 +269,8 @@ function AppShell() {
       <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         <Header title={pageTitle} onMenuClick={() => setShowMobileSidebar(true)} />
 
-        <main className="space-y-6 p-4 md:p-6">
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr,320px]">
-            <div className="min-w-0">{renderPage()}</div>
-
-            <div className="space-y-4 xl:sticky xl:top-24 xl:h-fit">
-              <Card className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                    <Bell size={22} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Quick Tips</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Shortcuts and role-aware guidance</p>
-                  </div>
-                </div>
-                <ul className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
-                  <li>• F2 opens table selection in POS.</li>
-                  <li>• F3 opens the payment dialog in POS.</li>
-                  <li>• Use QR codes on tables for customer self-ordering.</li>
-                  <li>• Dashboard and reports update from offline local data.</li>
-                  {canViewPage(user?.role, 'settings') && <li>• Use Settings to export or restore backups.</li>}
-                </ul>
-                <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-800/60">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Logged in as</p>
-                  <p className="font-semibold text-gray-900 capitalize dark:text-white">{user?.username} • {user?.role}</p>
-                </div>
-              </Card>
-
-              <Card className="space-y-3 border-yellow-200 bg-yellow-50 dark:border-yellow-900/50 dark:bg-yellow-900/10">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 text-yellow-600 dark:text-yellow-400" size={18} />
-                  <div>
-                    <h3 className="font-semibold text-yellow-900 dark:text-yellow-100">Offline-first mode</h3>
-                    <p className="mt-1 text-sm text-yellow-800 dark:text-yellow-200">
-                      All restaurant records are stored locally in your browser for fast offline use.
-                    </p>
-                  </div>
-                </div>
-                {canViewPage(user?.role, 'settings') && (
-                  <Button className="w-full" variant="outline" onClick={() => setCurrentPage('settings')}>
-                    Open Data Settings
-                  </Button>
-                )}
-              </Card>
-            </div>
-          </div>
+        <main className="p-4 md:p-6">
+          <div className="w-full min-w-0">{renderPage()}</div>
         </main>
       </div>
       <VersionBadge />

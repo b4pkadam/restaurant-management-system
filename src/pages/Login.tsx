@@ -100,47 +100,6 @@ export const LoginPage: React.FC = () => {
               Sign In
             </Button>
           </form>
-
-          {/* Demo Credentials */}
-          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700/50">
-            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
-              Quick Demo Login (Click to fill):
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => { setUsername('admin'); setPassword('admin123'); }}
-                className="p-2 text-left rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:scale-95 transition-all cursor-pointer"
-              >
-                <span className="font-bold text-blue-600 dark:text-blue-400 block">Admin</span>
-                <span className="text-gray-500 dark:text-gray-400 text-[11px]">admin / admin123</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setUsername('manager'); setPassword('manager123'); }}
-                className="p-2 text-left rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:scale-95 transition-all cursor-pointer"
-              >
-                <span className="font-bold text-blue-600 dark:text-blue-400 block">Manager</span>
-                <span className="text-gray-500 dark:text-gray-400 text-[11px]">manager / manager123</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setUsername('waiter'); setPassword('waiter123'); }}
-                className="p-2 text-left rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:scale-95 transition-all cursor-pointer"
-              >
-                <span className="font-bold text-blue-600 dark:text-blue-400 block">Waiter</span>
-                <span className="text-gray-500 dark:text-gray-400 text-[11px]">waiter / waiter123</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setUsername('chef'); setPassword('chef123'); }}
-                className="p-2 text-left rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:scale-95 transition-all cursor-pointer"
-              >
-                <span className="font-bold text-blue-600 dark:text-blue-400 block">Chef</span>
-                <span className="text-gray-500 dark:text-gray-400 text-[11px]">chef / chef123</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
