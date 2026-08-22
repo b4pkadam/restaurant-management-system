@@ -50,6 +50,7 @@ export const POSPage: React.FC = () => {
   const [cashReceived, setCashReceived] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
+  const [paymentSuccessData, setPaymentSuccessData] = useState<{ order: Order; payment: Payment } | null>(null);
 
   // POS Item Customization Modal State
   const [posCustomizingItem, setPosCustomizingItem] = useState<{ menuItem: MenuItem; cartItemId?: string } | null>(null);
@@ -429,7 +430,7 @@ export const POSPage: React.FC = () => {
           success(`Payment of ${formatCurrency(total)} received! Order remaining in Kitchen Display until fully served.`);
         }
 
-        printInvoice(updated || latestOrder, payRecord);
+        setPaymentSuccessData({ order: updated || latestOrder, payment: payRecord });
       } else {
         // Create new POS order with distinct order number (Upfront Payment)
         const newOrderNum = orderDB.generateOrderNumber('pos', selectedTable?.number);
@@ -484,7 +485,7 @@ export const POSPage: React.FC = () => {
         });
 
         success(`POS Order ${order.orderNumber} paid! Sent to Kitchen Display & Orders Dashboard.`);
-        printInvoice(order, payment);
+        setPaymentSuccessData({ order, payment });
       }
 
       setShowPaymentModal(false);
@@ -1187,6 +1188,50 @@ export const POSPage: React.FC = () => {
               </Button>
               <Button variant="primary" className="flex-1" onClick={confirmPosItemOptions}>
                 Confirm & Add to Order
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Payment Completed Modal with optional Print Receipt button */}
+      {paymentSuccessData && (
+        <Modal
+          isOpen={true}
+          onClose={() => setPaymentSuccessData(null)}
+          title="Payment Successful ✅"
+          size="sm"
+        >
+          <div className="space-y-4 text-center py-2">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+              <Check size={30} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                {formatCurrency(paymentSuccessData.payment.amount)}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Order #{paymentSuccessData.order.orderNumber} • Paid via {paymentSuccessData.payment.method.toUpperCase()}
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  printInvoice(paymentSuccessData.order, paymentSuccessData.payment);
+                }}
+                leftIcon={<Printer size={16} />}
+              >
+                Print Receipt
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                onClick={() => setPaymentSuccessData(null)}
+              >
+                Done
               </Button>
             </div>
           </div>

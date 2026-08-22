@@ -705,7 +705,6 @@ export function OrdersManagementPage() {
       success(`Payment of ${currency(payingOrder.total)} received! Order remains active in Kitchen Display until fully served.`);
     }
 
-    printInvoice(updated || payingOrder, payRecord);
     setPayingOrder(null);
     loadOrders();
   };
@@ -819,16 +818,15 @@ export function OrdersManagementPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {canAdvanceOrder(user?.role, order.status) && (
+                {order.status !== 'served' && canAdvanceOrder(user?.role, order.status) && (
                   <Button
                     onClick={() => advanceOrder(order)}
-                    className={order.status === 'served' ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold' : ''}
-                    leftIcon={order.status === 'served' ? <CreditCard size={16} /> : <CheckCircle2 size={16} />}
+                    leftIcon={<CheckCircle2 size={16} />}
                   >
                     {getOrderAdvanceLabel(user?.role, order.status)}
                   </Button>
                 )}
-                {!isPaid && ['admin', 'manager', 'cashier'].includes(user?.role || '') && !['completed', 'cancelled'].includes(order.status) && (
+                {!isPaid && ['admin', 'manager', 'waiter', 'cashier'].includes(user?.role || '') && !['completed', 'cancelled'].includes(order.status) && (
                   <Button
                     variant="primary"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
@@ -839,7 +837,7 @@ export function OrdersManagementPage() {
                     }}
                     leftIcon={<CreditCard size={16} />}
                   >
-                    Settle Payment
+                    {order.status === 'served' ? `Pay & Settle (${currency(order.total)})` : 'Settle Payment'}
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => printInvoice(order, payment)} leftIcon={<Printer size={16} />}>
