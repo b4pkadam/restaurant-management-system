@@ -344,12 +344,6 @@ export const userDB = {
     }
 
     let user = userDB.getByUsername(cleanUsername);
-    
-    // Auto-repair: If user not found in local storage, ensure sample data is seeded
-    if (!user) {
-      initializeSampleData();
-      user = userDB.getByUsername(cleanUsername);
-    }
 
     if (!user || !user.isActive) {
       const failure = authRateLimiter.recordFailedAttempt(cleanUsername);
@@ -1109,30 +1103,18 @@ export const initializeSampleData = (): void => {
     if (migrated) {
       setCollection('users', upgraded);
     }
-    return;
   }
 
-  userDB.create({
-    username: 'admin',
-    password: 'admin123',
-    role: 'admin',
-    isActive: true
-  });
-  
-  // Create sample employees
-  const employees = [
-    { name: 'John Manager', email: 'john@restaurant.com', phone: '1234567890', role: 'manager' as const, salary: 5000, shift: 'morning' as const, joiningDate: '2023-01-15', isActive: true },
-    { name: 'Sarah Waiter', email: 'sarah@restaurant.com', phone: '1234567891', role: 'waiter' as const, salary: 2500, shift: 'evening' as const, joiningDate: '2023-03-20', isActive: true },
-    { name: 'Mike Chef', email: 'mike@restaurant.com', phone: '1234567892', role: 'chef' as const, salary: 4000, shift: 'morning' as const, joiningDate: '2022-11-10', isActive: true },
-    { name: 'Lisa Cashier', email: 'lisa@restaurant.com', phone: '1234567893', role: 'cashier' as const, salary: 3000, shift: 'flexible' as const, joiningDate: '2023-06-01', isActive: true }
-  ];
-  employees.forEach(e => employeeDB.create(e));
-  
-  // Create staff users
-  userDB.create({ username: 'manager', password: 'manager123', role: 'manager', isActive: true });
-  userDB.create({ username: 'waiter', password: 'waiter123', role: 'waiter', isActive: true });
-  userDB.create({ username: 'chef', password: 'chef123', role: 'chef', isActive: true });
-  userDB.create({ username: 'cashier', password: 'cashier123', role: 'cashier', isActive: true });
+  // Create sample employees if needed
+  if (employeeDB.getAll().length === 0) {
+    const employees = [
+      { name: 'John Manager', email: 'john@restaurant.com', phone: '1234567890', role: 'manager' as const, salary: 5000, shift: 'morning' as const, joiningDate: '2023-01-15', isActive: true },
+      { name: 'Sarah Waiter', email: 'sarah@restaurant.com', phone: '1234567891', role: 'waiter' as const, salary: 2500, shift: 'evening' as const, joiningDate: '2023-03-20', isActive: true },
+      { name: 'Mike Chef', email: 'mike@restaurant.com', phone: '1234567892', role: 'chef' as const, salary: 4000, shift: 'morning' as const, joiningDate: '2022-11-10', isActive: true },
+      { name: 'Lisa Cashier', email: 'lisa@restaurant.com', phone: '1234567893', role: 'cashier' as const, salary: 3000, shift: 'flexible' as const, joiningDate: '2023-06-01', isActive: true }
+    ];
+    employees.forEach(e => employeeDB.create(e));
+  }
   
   // Create categories from initialDbData
   initialDbData.categories.forEach((c) => categoryDB.create(c as Category));

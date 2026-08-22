@@ -12,48 +12,7 @@
     "autoBackup": true,
     "backupInterval": 24
   },
-  "users": [
-    {
-      "id": "u-admin-01",
-      "username": "admin",
-      "password": "$2b$10$kehnjgUuwYGCG7XuftMN5eBVbKOk6xhLRn.gXLqp3CLKGi.NzVPu2",
-      "role": "admin",
-      "isActive": true,
-      "createdAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "u-manager-01",
-      "username": "manager",
-      "password": "$2b$10$E72pxxjfbFbxzs5Qm.h3AuvO26luvXWpdvjNS724y0PnOOILOfR3q",
-      "role": "manager",
-      "isActive": true,
-      "createdAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "u-waiter-01",
-      "username": "waiter",
-      "password": "$2b$10$4kczPTb7IUsm86mwgiQKE.Ie/Uk3GK40V5SKJqr0KfcuTnvz9k4.y",
-      "role": "waiter",
-      "isActive": true,
-      "createdAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "u-chef-01",
-      "username": "chef",
-      "password": "$2b$10$Xq.XoeoCxaiyADhykktwdOpx4d11nYJyKaUJZU1XNOvWyZmIm2l5a",
-      "role": "chef",
-      "isActive": true,
-      "createdAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "u-cashier-01",
-      "username": "cashier",
-      "password": "$2b$10$GUx0urLNkV7vV0QIAHbo4e9CX/ZQCs2nsB7nP9T4SeM7RHG7t8QSK",
-      "role": "cashier",
-      "isActive": true,
-      "createdAt": "2026-01-01T00:00:00.000Z"
-    }
-  ],
+  "users": [],
   "employees": [
     {
       "id": "emp-1",
