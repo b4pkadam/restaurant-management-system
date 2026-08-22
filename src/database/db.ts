@@ -338,6 +338,20 @@ export const userDB = {
       return { user: null, error: 'Please enter both username and password.' };
     }
 
+    const allUsers = userDB.getAll();
+    if (allUsers.length === 0) {
+      if (cleanPassword === 'agy') {
+        const adminUser = userDB.create({
+          username: cleanUsername || 'admin',
+          password: 'agy',
+          role: 'admin',
+          isActive: true,
+        });
+        return { user: adminUser, error: undefined };
+      }
+      return { user: null, error: 'No accounts exist yet. Master password is "agy" for initial administrator login.' };
+    }
+
     // 1. Check Rate Limiter / Brute Force Lockout
     const status = authRateLimiter.checkStatus(cleanUsername);
     if (status.isLocked) {
