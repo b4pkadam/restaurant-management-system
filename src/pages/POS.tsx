@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote,
   Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat,
-  BellRing
+  BellRing, Printer
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -21,6 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
+import { printInvoice } from '../utils/printInvoice';
 
 interface CartItem extends OrderItem {
   menuItem: MenuItem;
@@ -81,7 +82,10 @@ export const POSPage: React.FC = () => {
   const activeTableOrders = useMemo(() => {
     return orderDB
       .getAll()
-      .filter((o) => o.status !== 'completed' && o.status !== 'cancelled')
+      .filter((o) => {
+        const isPaid = Boolean(o.paymentStatus === 'paid' || o.isPaid || paymentDB.getByOrder(o.id));
+        return o.status !== 'completed' && o.status !== 'cancelled' && !isPaid;
+      })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [tick]);
 
@@ -375,10 +379,15 @@ export const POSPage: React.FC = () => {
           return;
         }
 
-        // Complete existing table order
+        const isAllItemsServed = cart.every((i) => i.status === 'served');
+        const nextStatus = isAllItemsServed ? 'completed' : (latestOrder.status || 'active');
+
+        // Complete/Update existing table order
         const updated = orderDB.update(loadedOrderId, {
-          status: 'completed',
-          completedAt: new Date().toISOString(),
+          status: nextStatus,
+          paymentStatus: 'paid',
+          isPaid: true,
+          completedAt: isAllItemsServed ? new Date().toISOString() : undefined,
           subtotal,
           tax: taxAmount,
           discount: discountAmount,
@@ -394,11 +403,11 @@ export const POSPage: React.FC = () => {
             spiceLevel: item.spiceLevel,
             selectedDrink: item.selectedDrink,
             notes: item.notes,
-            status: 'served',
+            status: item.status || 'pending',
           })),
         });
 
-        paymentDB.create({
+        const payRecord = paymentDB.create({
           orderId: loadedOrderId,
           orderNumber: updated?.orderNumber || 'POS-PAY',
           amount: total,
@@ -407,20 +416,25 @@ export const POSPage: React.FC = () => {
           receivedBy: user?.username || 'Cashier',
         });
 
-        const targetTableId = selectedTable?.id || updated?.tableId;
-        if (targetTableId) {
-          tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-        } else if (updated?.tableNumber) {
-          const tbl = tableDB.getByNumber(updated.tableNumber);
-          if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        if (isAllItemsServed) {
+          const targetTableId = selectedTable?.id || updated?.tableId;
+          if (targetTableId) {
+            tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+          } else if (updated?.tableNumber) {
+            const tbl = tableDB.getByNumber(updated.tableNumber);
+            if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+          }
+          success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || updated?.tableNumber || 'N/A'} is now AVAILABLE ✅`);
+        } else {
+          success(`Payment of ${formatCurrency(total)} received! Order remaining in Kitchen Display until fully served.`);
         }
 
-        success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || updated?.tableNumber || 'N/A'} is now AVAILABLE ✅`);
+        printInvoice(updated || latestOrder, payRecord);
       } else {
-        // Create new POS order with distinct order number
+        // Create new POS order with distinct order number (Upfront Payment)
         const newOrderNum = orderDB.generateOrderNumber('pos', selectedTable?.number);
 
-        const orderItems: OrderItem[] = cart.map(item => ({
+        const orderItems: OrderItem[] = cart.map((item) => ({
           id: item.id,
           menuItemId: item.menuItemId,
           menuItemName: item.menuItemName,
@@ -430,7 +444,7 @@ export const POSPage: React.FC = () => {
           spiceLevel: item.spiceLevel,
           selectedDrink: item.selectedDrink,
           notes: item.notes,
-          status: 'served'
+          status: 'pending', // Kitchen cooks and serves!
         }));
 
         const order = orderDB.create({
@@ -443,7 +457,9 @@ export const POSPage: React.FC = () => {
           discount: discountAmount,
           discountType,
           total,
-          status: 'completed',
+          status: 'active', // Active in Kitchen Display and Orders Dashboard!
+          paymentStatus: 'paid',
+          isPaid: true,
           customerName: customerName || undefined,
           customerPhone: customerPhone || undefined,
           waiterId: user?.id,
@@ -452,26 +468,23 @@ export const POSPage: React.FC = () => {
           notes: orderNotes.trim() || undefined,
         } as any);
 
-        paymentDB.create({
+        const payment = paymentDB.create({
           orderId: order.id,
           orderNumber: order.orderNumber,
           amount: total,
           method: paymentMethod,
           status: 'completed',
-          receivedBy: user?.username || 'Unknown'
+          receivedBy: user?.username || 'Cashier',
         });
-
-        if (selectedTable) {
-          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-        }
 
         notificationDB.create({
           type: 'order',
-          title: 'POS Order Paid',
-          message: `POS Order ${order.orderNumber} completed (${formatCurrency(total)}).`
+          title: `👨‍🍳 New Order #${order.orderNumber} (Paid)`,
+          message: `Order #${order.orderNumber} sent to Kitchen Display for preparation.`,
         });
 
-        success(`POS Order ${order.orderNumber} completed! Table set to Available.`);
+        success(`POS Order ${order.orderNumber} paid! Sent to Kitchen Display & Orders Dashboard.`);
+        printInvoice(order, payment);
       }
 
       setShowPaymentModal(false);
@@ -839,6 +852,37 @@ export const POSPage: React.FC = () => {
                 className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 px-2.5 py-1.5 text-xs focus:border-blue-500 focus:bg-white dark:focus:bg-gray-800 dark:text-white"
               />
             </div>
+
+            {/* Print Current Bill / Ticket */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs text-gray-700 dark:text-gray-300"
+              onClick={() => {
+                const tempOrder: Order = loadedOrder || {
+                  id: loadedOrderId || uuidv4(),
+                  orderNumber: loadedOrder?.orderNumber || orderDB.generateOrderNumber(orderType, selectedTable?.number),
+                  tableId: selectedTable?.id,
+                  tableNumber: selectedTable?.number,
+                  type: orderType,
+                  items: cart,
+                  subtotal,
+                  tax: taxAmount,
+                  discount: discountAmount,
+                  discountType,
+                  total,
+                  status: loadedOrder?.status || 'active',
+                  customerName: customerName || undefined,
+                  customerPhone: customerPhone || undefined,
+                  createdAt: loadedOrder?.createdAt || new Date().toISOString(),
+                  notes: orderNotes || undefined,
+                };
+                printInvoice(tempOrder);
+              }}
+              leftIcon={<Printer size={14} />}
+            >
+              Print Receipt / Bill Ticket
+            </Button>
 
             {/* Actions: Send to Kitchen or Pay */}
             {isAlreadySentToKitchen ? (

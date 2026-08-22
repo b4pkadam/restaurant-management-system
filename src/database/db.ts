@@ -385,7 +385,7 @@ export const orderDB = {
   
   getActive: (): Order[] => {
     return orderDB.getAll().filter(o => 
-      o.status !== 'completed' && o.status !== 'cancelled'
+      o.status !== 'cancelled' && (o.status !== 'completed' || o.items.some(i => i.status !== 'served' && i.status !== 'cancelled'))
     );
   },
   

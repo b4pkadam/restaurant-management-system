@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   DollarSign, ShoppingBag, Users, TrendingUp,
-  Clock
+  Clock, Printer
 } from 'lucide-react';
 import { Card, StatCard } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -10,10 +10,11 @@ import {
   PieChart, Pie, Cell
 } from 'recharts';
 import { format } from 'date-fns';
-import { orderDB, tableDB, analyticsDB, settingsDB } from '../database/db';
+import { orderDB, tableDB, analyticsDB, settingsDB, paymentDB } from '../database/db';
 import { cn } from '../utils/cn';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
+import { printInvoice } from '../utils/printInvoice';
 
 export const Dashboard: React.FC = () => {
   const tick = useDbUpdate();
@@ -229,15 +230,25 @@ export const Dashboard: React.FC = () => {
                     <p className="font-semibold text-gray-900 dark:text-white">
                       {formatCurrency(order.total)}
                     </p>
-                    <Badge
-                      variant={
-                        order.status === 'completed' ? 'success' :
-                        order.status === 'preparing' ? 'warning' :
-                        order.status === 'ready' ? 'info' : 'default'
-                      }
-                    >
-                      {order.status}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 mt-1 justify-end">
+                      <Badge
+                        variant={
+                          order.status === 'completed' ? 'success' :
+                          order.status === 'preparing' ? 'warning' :
+                          order.status === 'ready' ? 'info' : 'default'
+                        }
+                      >
+                        {order.status}
+                      </Badge>
+                      <button
+                        type="button"
+                        onClick={() => printInvoice(order)}
+                        className="p-1 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                        title="Print Invoice / Receipt"
+                      >
+                        <Printer size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))

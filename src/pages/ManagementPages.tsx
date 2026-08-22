@@ -143,6 +143,8 @@ function SectionHeader({
   );
 }
 
+import { printInvoice } from '../utils/printInvoice';
+
 function currency(value: number, symbol?: string) {
   return formatCurrency(value, symbol);
 }
@@ -157,99 +159,6 @@ function downloadFile(filename: string, content: string, type: string) {
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
-}
-
-function printInvoice(order: Order) {
-  const settings = settingsDB.get();
-  const payment = paymentDB.getByOrder(order.id);
-  const invoiceWindow = window.open('', '_blank', 'width=900,height=700');
-  if (!invoiceWindow) return;
-
-  const rows = order.items
-    .map(
-      (item) => `
-        <tr>
-          <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${item.menuItemName}</td>
-          <td style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:center;">${item.quantity}</td>
-          <td style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">${currency(item.unitPrice, settings.currencySymbol)}</td>
-          <td style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">${currency(item.totalPrice, settings.currencySymbol)}</td>
-        </tr>
-      `,
-    )
-    .join('');
-
-  invoiceWindow.document.write(`
-    <html>
-      <head>
-        <title>Invoice ${order.orderNumber}</title>
-      </head>
-      <body style="font-family:Arial, sans-serif;padding:24px;color:#111827;">
-        <div style="max-width:800px;margin:0 auto;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">
-            <div>
-              <h1 style="margin:0;font-size:28px;">${settings.restaurantName}</h1>
-              <p style="margin:8px 0 0;color:#6b7280;">${settings.restaurantAddress}</p>
-              <p style="margin:4px 0 0;color:#6b7280;">Phone: ${settings.restaurantPhone}</p>
-              <p style="margin:4px 0 0;color:#6b7280;">GST: ${settings.gstNumber}</p>
-            </div>
-            <div style="text-align:right;">
-              <h2 style="margin:0;">Invoice</h2>
-              <p style="margin:8px 0 0;color:#6b7280;">Order: ${order.orderNumber}</p>
-              <p style="margin:4px 0 0;color:#6b7280;">Date: ${format(new Date(order.createdAt), 'PPP p')}</p>
-              <p style="margin:4px 0 0;color:#6b7280;">Payment: ${payment?.method?.toUpperCase() || 'N/A'}</p>
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="background:#f9fafb;padding:12px;border-radius:12px;">
-              <strong>Customer</strong>
-              <p style="margin:6px 0 0;">${order.customerName || 'Walk-in Customer'}</p>
-              <p style="margin:4px 0 0;color:#6b7280;">${order.customerPhone || '—'}</p>
-            </div>
-            <div style="background:#f9fafb;padding:12px;border-radius:12px;">
-              <strong>Order Details</strong>
-              <p style="margin:6px 0 0;">Type: ${order.type}</p>
-              <p style="margin:4px 0 0;">Table: ${order.tableNumber || 'Takeaway'}</p>
-              <p style="margin:4px 0 0;">Status: ${order.status}</p>
-            </div>
-          </div>
-
-          <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-            <thead>
-              <tr style="background:#eff6ff;">
-                <th style="padding:10px;text-align:left;">Item</th>
-                <th style="padding:10px;text-align:center;">Qty</th>
-                <th style="padding:10px;text-align:right;">Rate</th>
-                <th style="padding:10px;text-align:right;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-
-          <div style="margin-left:auto;max-width:320px;">
-            <div style="display:flex;justify-content:space-between;padding:6px 0;">
-              <span>Subtotal</span>
-              <strong>${currency(order.subtotal, settings.currencySymbol)}</strong>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;">
-              <span>Discount</span>
-              <strong>${currency(order.discount, settings.currencySymbol)}</strong>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;">
-              <span>Tax</span>
-              <strong>${currency(order.tax, settings.currencySymbol)}</strong>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:10px 0;border-top:2px solid #111827;font-size:20px;">
-              <span>Total</span>
-              <strong>${currency(order.total, settings.currencySymbol)}</strong>
-            </div>
-          </div>
-        </div>
-        <script>window.onload = () => window.print();</script>
-      </body>
-    </html>
-  `);
-  invoiceWindow.document.close();
 }
 
 export function MenuManagementPage() {
@@ -712,6 +621,8 @@ export function OrdersManagementPage() {
   const advanceOrder = (order: Order) => {
     if (!canAdvanceOrder(user?.role, order.status)) return;
 
+    const isPaid = Boolean(order.paymentStatus === 'paid' || order.isPaid || paymentDB.getByOrder(order.id));
+
     if (order.status === 'active') {
       orderDB.update(order.id, {
         status: 'preparing',
@@ -727,11 +638,24 @@ export function OrdersManagementPage() {
       addNotification('order', 'Order Ready', `${order.orderNumber} is ready to serve.`);
       success(`${order.orderNumber} is ready.`);
     } else if (order.status === 'ready' && ['admin', 'manager', 'waiter', 'chef'].includes(user?.role || '')) {
-      orderDB.update(order.id, {
-        status: 'served',
-        items: order.items.map((item) => ({ ...item, status: 'served' })),
-      });
-      success(`${order.orderNumber} marked as served.`);
+      if (isPaid) {
+        orderDB.update(order.id, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          items: order.items.map((item) => ({ ...item, status: 'served' })),
+        });
+        if (order.tableId) {
+          tableDB.update(order.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        }
+        addNotification('order', 'Order Served & Completed', `${order.orderNumber} is fully served and completed.`);
+        success(`${order.orderNumber} marked as served & completed!`);
+      } else {
+        orderDB.update(order.id, {
+          status: 'served',
+          items: order.items.map((item) => ({ ...item, status: 'served' })),
+        });
+        success(`${order.orderNumber} marked as served.`);
+      }
     } else if (order.status === 'served' && ['admin', 'manager', 'waiter', 'cashier'].includes(user?.role || '')) {
       // Prompt for payment settlement upon completing order
       setPayingOrder(order);
@@ -751,7 +675,7 @@ export function OrdersManagementPage() {
 
     orderDB.complete(payingOrder.id);
 
-    paymentDB.create({
+    const payRecord = paymentDB.create({
       orderId: payingOrder.id,
       orderNumber: payingOrder.orderNumber,
       amount: payingOrder.total,
@@ -767,6 +691,7 @@ export function OrdersManagementPage() {
     addNotification('order', 'Payment Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
     success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed!`);
 
+    printInvoice(payingOrder, payRecord);
     setPayingOrder(null);
     loadOrders();
   };
@@ -787,122 +712,134 @@ export function OrdersManagementPage() {
       {list.length === 0 ? (
         <Card className="py-10 text-center text-gray-500 dark:text-gray-400">No orders found.</Card>
       ) : (
-        list.map((order) => (
-          <Card key={order.id} className="space-y-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</h3>
-                  <StatusBadge status={order.status} />
-                  <Badge variant={order.type === 'dine-in' ? 'primary' : 'success'}>{order.type}</Badge>
-                </div>
-                <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm text-gray-500 dark:text-gray-400 md:grid-cols-2">
-                  <p>Customer: {order.customerName || 'Walk-in customer'}</p>
-                  <p>Table: {order.tableNumber || 'Takeaway'}</p>
-                  <p>Created: {format(new Date(order.createdAt), 'PPP p')}</p>
-                  <p>Waiter: {order.waiterName || '—'}</p>
-                </div>
-              </div>
-              <div className="text-left lg:text-right">
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{currency(order.total)}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{order.items.length} item(s)</p>
-              </div>
-            </div>
+        list.map((order) => {
+          const payment = paymentDB.getByOrder(order.id);
+          const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
 
-            {order.notes && (
-              <div className="rounded-xl bg-amber-500/20 dark:bg-amber-950/80 border-2 border-amber-500 p-2.5 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2 shadow-xs">
-                <span className="text-base leading-none shrink-0">🚨</span>
-                <div className="min-w-0 flex-1">
-                  <span className="uppercase tracking-wider text-[10px] font-black text-amber-800 dark:text-amber-400 block">
-                    Entire Order Instruction:
-                  </span>
-                  <span className="text-xs font-black break-words">{order.notes}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {order.items.map((item) => {
-                const displaySpice = item.spiceLevel;
-                const displayDrink = item.selectedDrink;
-                const displayNotes = item.notes;
-
-                return (
-                  <div key={item.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
-                        
-                        {(displaySpice || displayDrink) && (
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-                            {displaySpice && (
-                              <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                🌶️ {displaySpice}
-                              </span>
-                            )}
-                            {displayDrink && (
-                              <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
-                                🥤 {displayDrink}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {displayNotes && (
-                          <div className="mt-1.5 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-400 px-2 py-1 text-[11px] text-amber-950 dark:text-amber-200">
-                            <span className="font-bold">📝 Item Instruction: </span>
-                            <span className="font-semibold">{displayNotes}</span>
-                          </div>
-                        )}
-
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                          {item.quantity} × {currency(item.unitPrice)}
-                        </p>
-                      </div>
-                      <StatusBadge status={item.status} showDot={false} />
-                    </div>
+          return (
+            <Card key={order.id} className="space-y-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</h3>
+                    <StatusBadge status={order.status} />
+                    <Badge variant={order.type === 'dine-in' ? 'primary' : 'success'}>{order.type}</Badge>
+                    {isPaid ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 px-2.5 py-0.5 text-xs font-bold">
+                        💳 Paid ({payment?.method?.toUpperCase() || 'PAID'})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 px-2.5 py-0.5 text-xs font-bold">
+                        ⏳ Unpaid
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm text-gray-500 dark:text-gray-400 md:grid-cols-2">
+                    <p>Customer: {order.customerName || 'Walk-in customer'}</p>
+                    <p>Table: {order.tableNumber || 'Takeaway'}</p>
+                    <p>Created: {format(new Date(order.createdAt), 'PPP p')}</p>
+                    <p>Waiter: {order.waiterName || '—'}</p>
+                  </div>
+                </div>
+                <div className="text-left lg:text-right">
+                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{currency(order.total)}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{order.items.length} item(s)</p>
+                </div>
+              </div>
 
-            <div className="flex flex-wrap gap-2">
-              {canAdvanceOrder(user?.role, order.status) && (
-                <Button
-                  onClick={() => advanceOrder(order)}
-                  className={order.status === 'served' ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold' : ''}
-                  leftIcon={order.status === 'served' ? <CreditCard size={16} /> : <CheckCircle2 size={16} />}
-                >
-                  {getOrderAdvanceLabel(user?.role, order.status)}
-                </Button>
+              {order.notes && (
+                <div className="rounded-xl bg-amber-500/20 dark:bg-amber-950/80 border-2 border-amber-500 p-2.5 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2 shadow-xs">
+                  <span className="text-base leading-none shrink-0">🚨</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="uppercase tracking-wider text-[10px] font-black text-amber-800 dark:text-amber-400 block">
+                      Entire Order Instruction:
+                    </span>
+                    <span className="text-xs font-black break-words">{order.notes}</span>
+                  </div>
+                </div>
               )}
-              {['admin', 'manager', 'cashier'].includes(user?.role || '') && !['completed', 'cancelled'].includes(order.status) && order.status !== 'served' && (
-                <Button
-                  variant="primary"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                  onClick={() => {
-                    setPayingOrder(order);
-                    setPaymentMethod('cash');
-                    setCashReceived(String(order.total));
-                  }}
-                  leftIcon={<CreditCard size={16} />}
-                >
-                  Settle Payment
-                </Button>
-              )}
-              {canPrintInvoice(user?.role) && (
-                <Button variant="outline" onClick={() => printInvoice(order)} leftIcon={<Printer size={16} />}>
+
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {order.items.map((item) => {
+                  const displaySpice = item.spiceLevel;
+                  const displayDrink = item.selectedDrink;
+                  const displayNotes = item.notes;
+
+                  return (
+                    <div key={item.id} className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-gray-900 dark:text-white">{item.menuItemName}</p>
+                          
+                          {(displaySpice || displayDrink) && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                              {displaySpice && (
+                                <span className="rounded-md bg-rose-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                  🌶️ {displaySpice}
+                                </span>
+                              )}
+                              {displayDrink && (
+                                <span className="rounded-md bg-blue-600 px-2 py-0.5 font-bold text-white shadow-xs">
+                                  🥤 {displayDrink}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {displayNotes && (
+                            <div className="mt-1.5 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-400 px-2 py-1 text-[11px] text-amber-950 dark:text-amber-200">
+                              <span className="font-bold">📝 Item Instruction: </span>
+                              <span className="font-semibold">{displayNotes}</span>
+                            </div>
+                          )}
+
+                          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            {item.quantity} × {currency(item.unitPrice)}
+                          </p>
+                        </div>
+                        <StatusBadge status={item.status} showDot={false} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {canAdvanceOrder(user?.role, order.status) && (
+                  <Button
+                    onClick={() => advanceOrder(order)}
+                    className={order.status === 'served' ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold' : ''}
+                    leftIcon={order.status === 'served' ? <CreditCard size={16} /> : <CheckCircle2 size={16} />}
+                  >
+                    {getOrderAdvanceLabel(user?.role, order.status)}
+                  </Button>
+                )}
+                {!isPaid && ['admin', 'manager', 'cashier'].includes(user?.role || '') && !['completed', 'cancelled'].includes(order.status) && (
+                  <Button
+                    variant="primary"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                    onClick={() => {
+                      setPayingOrder(order);
+                      setPaymentMethod('cash');
+                      setCashReceived(String(order.total));
+                    }}
+                    leftIcon={<CreditCard size={16} />}
+                  >
+                    Settle Payment
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => printInvoice(order, payment)} leftIcon={<Printer size={16} />}>
                   Print Invoice
                 </Button>
-              )}
-              {canCancelOrder(user?.role) && !['completed', 'cancelled'].includes(order.status) && (
-                <Button variant="danger" onClick={() => cancelOrder(order)} leftIcon={<Trash2 size={16} />}>
-                  Cancel Order
-                </Button>
-              )}
-            </div>
-          </Card>
-        ))
+                {canCancelOrder(user?.role) && !['completed', 'cancelled'].includes(order.status) && (
+                  <Button variant="danger" onClick={() => cancelOrder(order)} leftIcon={<Trash2 size={16} />}>
+                    Cancel Order
+                  </Button>
+                )}
+              </div>
+            </Card>
+          );
+        })
       )}
     </div>
   );
@@ -1068,8 +1005,8 @@ export function KitchenDisplayPage() {
 
   const refresh = () => {
     const activeKitchenOrders = orderDB
-      .getActive()
-      .filter((order) => ['active', 'preparing', 'ready'].includes(order.status))
+      .getAll()
+      .filter((order) => order.status !== 'cancelled' && order.status !== 'completed' && ['active', 'preparing', 'ready'].includes(order.status))
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     setOrders(activeKitchenOrders);
   };
@@ -1089,41 +1026,52 @@ export function KitchenDisplayPage() {
     });
 
     const nonCancelled = updatedItems.filter((i) => i.status !== 'cancelled');
-    let computedOrderStatus: Order['status'] = order.status;
-
     const allServed = nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'served');
     const allReadyOrServed = nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'ready' || i.status === 'served');
     const anyPreparingOrReady = nonCancelled.some((i) => i.status === 'preparing' || i.status === 'ready' || i.status === 'served');
 
+    const isPaid = Boolean(order.paymentStatus === 'paid' || order.isPaid || paymentDB.getByOrder(order.id));
+
     if (allServed) {
-      computedOrderStatus = 'served';
-    } else if (allReadyOrServed) {
-      computedOrderStatus = 'ready';
-    } else if (anyPreparingOrReady) {
-      computedOrderStatus = 'preparing';
+      if (isPaid) {
+        orderDB.update(order.id, { items: updatedItems, status: 'completed', completedAt: new Date().toISOString() });
+        if (order.tableId) {
+          tableDB.update(order.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        }
+        addNotification('order', 'Order Completed', `${order.orderNumber} is fully served & completed.`);
+        success(`${order.orderNumber} fully served & completed!`);
+      } else {
+        orderDB.update(order.id, { items: updatedItems, status: 'served' });
+        addNotification('order', 'Order Served', `${order.orderNumber} is served (Awaiting payment).`);
+        success(`${order.orderNumber} marked as served.`);
+      }
     } else {
-      computedOrderStatus = 'active';
-    }
+      let computedOrderStatus: Order['status'] = 'active';
+      if (allReadyOrServed) {
+        computedOrderStatus = 'ready';
+      } else if (anyPreparingOrReady) {
+        computedOrderStatus = 'preparing';
+      }
+      orderDB.update(order.id, { items: updatedItems, status: computedOrderStatus });
 
-    orderDB.update(order.id, { items: updatedItems, status: computedOrderStatus });
+      const targetItem = order.items.find((i) => i.id === itemId);
+      const itemName = targetItem?.menuItemName || 'Item';
 
-    const targetItem = order.items.find((i) => i.id === itemId);
-    const itemName = targetItem?.menuItemName || 'Item';
-
-    if (nextStatus === 'preparing') {
-      addNotification('order', 'Item Prep Started', `${itemName} (${order.orderNumber}) is now being prepared.`);
-      success(`${itemName} marked as preparing.`);
-    } else if (nextStatus === 'ready') {
-      addNotification('order', 'Item Ready', `${itemName} (${order.orderNumber}) is ready!`);
-      success(`${itemName} is ready!`);
-    } else if (nextStatus === 'served') {
-      success(`${itemName} marked as served.`);
+      if (nextStatus === 'preparing') {
+        addNotification('order', 'Item Prep Started', `${itemName} (${order.orderNumber}) is now being prepared.`);
+        success(`${itemName} marked as preparing.`);
+      } else if (nextStatus === 'ready') {
+        addNotification('order', 'Item Ready', `${itemName} (${order.orderNumber}) is ready!`);
+        success(`${itemName} is ready!`);
+      }
     }
 
     refresh();
   };
 
   const updateStatus = (order: Order) => {
+    const isPaid = Boolean(order.paymentStatus === 'paid' || order.isPaid || paymentDB.getByOrder(order.id));
+
     if (order.status === 'active') {
       orderDB.update(order.id, { status: 'preparing', items: order.items.map((item) => ({ ...item, status: 'preparing' })) });
       addNotification('order', 'Cooking Started', `${order.orderNumber} has started in kitchen.`);
@@ -1133,11 +1081,22 @@ export function KitchenDisplayPage() {
       addNotification('order', 'Food Ready', `${order.orderNumber} is ready for pickup/serving.`);
       success(`${order.orderNumber} is ready.`);
     } else if (order.status === 'ready') {
-      orderDB.update(order.id, { status: 'served', items: order.items.map((item) => ({ ...item, status: 'served' })) });
-      addNotification('order', 'Order Served', `${order.orderNumber} has been marked served from the kitchen board.`);
-      success(`${order.orderNumber} marked as served.`);
-    } else {
-      return;
+      if (isPaid) {
+        orderDB.update(order.id, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          items: order.items.map((item) => ({ ...item, status: 'served' })),
+        });
+        if (order.tableId) {
+          tableDB.update(order.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        }
+        addNotification('order', 'Order Served & Completed', `${order.orderNumber} is fully served & completed.`);
+        success(`${order.orderNumber} fully served & completed!`);
+      } else {
+        orderDB.update(order.id, { status: 'served', items: order.items.map((item) => ({ ...item, status: 'served' })) });
+        addNotification('order', 'Order Served', `${order.orderNumber} has been marked served from the kitchen board.`);
+        success(`${order.orderNumber} marked as served.`);
+      }
     }
     refresh();
   };
@@ -1167,19 +1126,34 @@ export function KitchenDisplayPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {orders.map((order) => {
+            const payment = paymentDB.getByOrder(order.id);
+            const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
             const minutesWaiting = Math.max(1, Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000));
+
             return (
               <Card key={order.id} className={cn('space-y-4 border-l-4', order.status === 'active' && 'border-l-yellow-500', order.status === 'preparing' && 'border-l-blue-500', order.status === 'ready' && 'border-l-green-500')}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</p>
+                      {isPaid ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 px-2 py-0.5 text-[11px] font-bold">
+                          💳 PAID ({payment?.method?.toUpperCase() || 'PAID'})
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 px-2 py-0.5 text-[11px] font-bold">
+                          ⏳ UNPAID
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Table {order.tableNumber || 'Takeaway'} • {order.type}</p>
                   </div>
                   <div className="text-right">
                     <StatusBadge status={order.status} />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{minutesWaiting} min waiting</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{minutesWaiting} min waiting</p>
                   </div>
                 </div>
+
                 {order.notes && (
                   <div className="rounded-xl bg-amber-500/20 dark:bg-amber-950/80 border-2 border-amber-500 p-2.5 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2 shadow-xs">
                     <span className="text-base leading-none shrink-0">🚨</span>
@@ -1191,11 +1165,10 @@ export function KitchenDisplayPage() {
                     </div>
                   </div>
                 )}
+
                 <div className="space-y-2">
                   {order.items.map((item) => {
                     const itemStatus = item.status || 'pending';
-
-                    // Exact user/waiter selections - NO FAKE / RANDOM DEFAULTS
                     const displaySpice = item.spiceLevel;
                     const displayDrink = item.selectedDrink;
                     const displayNotes = item.notes;
@@ -1263,7 +1236,7 @@ export function KitchenDisplayPage() {
                             <button
                               type="button"
                               onClick={() => updateItemStatus(order, item.id, 'ready')}
-                              className="flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 active:scale-95 transition-all"
+                              className="flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 active:scale-95 transition-all cursor-pointer"
                               title="Mark item ready"
                             >
                               <CheckCircle2 size={13} />
@@ -1273,7 +1246,7 @@ export function KitchenDisplayPage() {
                             <button
                               type="button"
                               onClick={() => updateItemStatus(order, item.id, 'preparing')}
-                              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 active:scale-95 transition-all"
+                              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 active:scale-95 transition-all cursor-pointer"
                               title="Start preparing item"
                             >
                               <ChefHat size={13} />
@@ -1285,11 +1258,17 @@ export function KitchenDisplayPage() {
                     );
                   })}
                 </div>
-                {canAdvanceOrder(user?.role, order.status) && (
-                  <Button className="w-full" onClick={() => updateStatus(order)} leftIcon={<ChefHat size={16} />}>
-                    {getOrderAdvanceLabel(user?.role, order.status)}
+
+                <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                  <Button variant="outline" size="sm" onClick={() => printInvoice(order, payment)} leftIcon={<Printer size={14} />} title="Print Receipt / Invoice">
+                    Print Ticket
                   </Button>
-                )}
+                  {canAdvanceOrder(user?.role, order.status) && (
+                    <Button className="flex-1" size="sm" onClick={() => updateStatus(order)} leftIcon={<ChefHat size={15} />}>
+                      {getOrderAdvanceLabel(user?.role, order.status)}
+                    </Button>
+                  )}
+                </div>
               </Card>
             );
           })}

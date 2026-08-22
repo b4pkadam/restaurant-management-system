@@ -97,6 +97,8 @@ export interface Order {
   discountType: 'percentage' | 'fixed';
   total: number;
   status: 'active' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
+  paymentStatus?: 'pending' | 'paid';
+  isPaid?: boolean;
   customerName?: string;
   customerPhone?: string;
   waiterId?: string;
