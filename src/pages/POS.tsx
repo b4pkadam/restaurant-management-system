@@ -27,7 +27,7 @@ interface CartItem extends OrderItem {
 }
 
 export const POSPage: React.FC = () => {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { user } = useAuth();
   const { notifications, markAsRead } = useNotifications();
   const { success, error } = useToast();
@@ -74,16 +74,16 @@ export const POSPage: React.FC = () => {
     'Pepsi (ペプシ)',
   ], []);
   
-  const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), []);
-  const tables = useMemo(() => tableDB.getAll(), []);
+  const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), [tick]);
+  const tables = useMemo(() => tableDB.getAll(), [tick]);
   
-  // Active table orders pending payment
+  // Active table orders pending payment — automatically reactive to DB updates
   const activeTableOrders = useMemo(() => {
     return orderDB
       .getAll()
       .filter((o) => o.status !== 'completed' && o.status !== 'cancelled')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, []);
+  }, [tick]);
 
   const menuItems = useMemo(() => {
     let items = menuItemDB.getAll().filter(m => m.isAvailable);
@@ -101,7 +101,7 @@ export const POSPage: React.FC = () => {
     }
     
     return items;
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory, searchQuery, tick]);
 
   // Calculate totals
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -112,20 +112,52 @@ export const POSPage: React.FC = () => {
   const total = subtotal - discountAmount + taxAmount;
   const change = paymentMethod === 'cash' ? Number(cashReceived) - total : 0;
 
+  const loadedOrder = useMemo(() => (loadedOrderId ? orderDB.getById(loadedOrderId) : null), [loadedOrderId, tick]);
+  const hasPendingItems = useMemo(() => cart.some((it) => it.status === 'pending' || !it.status), [cart]);
+  const isAlreadySentToKitchen = Boolean(loadedOrderId && !hasPendingItems);
+
+  // Clear cart
+  const clearCart = useCallback(() => {
+    setCart([]);
+    setSelectedTable(null);
+    setLoadedOrderId(null);
+    setCustomerName('');
+    setCustomerPhone('');
+    setOrderNotes('');
+    setDiscount(0);
+    setCashReceived('');
+  }, []);
+
+  // Auto-clear cart if the loaded order was completed/cancelled on another terminal
+  useEffect(() => {
+    if (loadedOrderId) {
+      const curr = orderDB.getById(loadedOrderId);
+      if (!curr || curr.status === 'completed' || curr.status === 'cancelled') {
+        clearCart();
+      }
+    }
+  }, [loadedOrderId, tick, clearCart]);
+
   // Load active table order into POS cart
   const loadActiveOrder = useCallback((ord: Order) => {
-    setLoadedOrderId(ord.id);
-    setOrderType((ord.type as any) || 'dine-in');
-    setCustomerName(ord.customerName || '');
-    setCustomerPhone(ord.customerPhone || '');
-    setOrderNotes(ord.notes || '');
+    const latest = orderDB.getById(ord.id);
+    if (!latest || latest.status === 'completed' || latest.status === 'cancelled') {
+      error(`Order #${ord.orderNumber} is already completed / paid.`);
+      return;
+    }
+
+    setLoadedOrderId(latest.id);
+    setOrderType((latest.type as any) || 'dine-in');
+    setCustomerName(latest.customerName || '');
+    setCustomerPhone(latest.customerPhone || '');
+    setOrderNotes(latest.notes || '');
     
-    if (ord.tableNumber) {
-      const tbl = tableDB.getAll().find((t) => t.number === ord.tableNumber);
+    if (latest.tableNumber) {
+      const tbl = tableDB.getAll().find((t) => t.number === latest.tableNumber);
       if (tbl) setSelectedTable(tbl);
     }
 
-    const items: CartItem[] = ord.items.map((it) => {
+    const items: CartItem[] = latest.items.map((it) => {
       const foundMenu = menuItemDB.getById(it.menuItemId) || {
         id: it.menuItemId,
         name: it.menuItemName,
@@ -146,8 +178,8 @@ export const POSPage: React.FC = () => {
 
     setCart(items);
     setShowTableModal(false);
-    success(`Loaded Order #${ord.orderNumber} for Table ${ord.tableNumber || 'N/A'} (${formatCurrency(ord.total)})`);
-  }, [success]);
+    success(`Loaded Order #${latest.orderNumber} for Table ${latest.tableNumber || 'N/A'} (${formatCurrency(latest.total)})`);
+  }, [error, success]);
 
   // Open POS Item Customization Modal
   const openPosItemModal = useCallback((menuItem: MenuItem, existingCartItem?: CartItem) => {
@@ -227,17 +259,6 @@ export const POSPage: React.FC = () => {
     setCart(prev => prev.filter(item => item.id !== itemId));
   }, []);
 
-  // Clear cart
-  const clearCart = useCallback(() => {
-    setCart([]);
-    setSelectedTable(null);
-    setLoadedOrderId(null);
-    setCustomerName('');
-    setCustomerPhone('');
-    setOrderNotes('');
-    setDiscount(0);
-  }, []);
-
   // Handle barcode scan
   const handleBarcodeInput = useCallback((barcode: string) => {
     const item = menuItemDB.getByBarcode(barcode);
@@ -270,10 +291,17 @@ export const POSPage: React.FC = () => {
       spiceLevel: item.spiceLevel,
       selectedDrink: item.selectedDrink,
       notes: item.notes,
-      status: 'pending',
+      status: item.status || 'pending',
     }));
 
     if (loadedOrderId) {
+      const existing = orderDB.getById(loadedOrderId);
+      if (!existing || existing.status === 'completed' || existing.status === 'cancelled') {
+        error('Cannot update an already completed or cancelled order.');
+        clearCart();
+        return;
+      }
+
       orderDB.update(loadedOrderId, {
         items: orderItems,
         subtotal,
@@ -316,6 +344,8 @@ export const POSPage: React.FC = () => {
 
   // Process payment
   const processPayment = async () => {
+    if (isProcessing) return;
+
     if (cart.length === 0) {
       error('Cart is empty');
       return;
@@ -336,6 +366,15 @@ export const POSPage: React.FC = () => {
 
     try {
       if (loadedOrderId) {
+        // Prevent double payment if order was already completed
+        const latestOrder = orderDB.getById(loadedOrderId);
+        if (!latestOrder || latestOrder.status === 'completed') {
+          error(`Order #${latestOrder?.orderNumber || loadedOrderId} has already been paid and settled!`);
+          setShowPaymentModal(false);
+          clearCart();
+          return;
+        }
+
         // Complete existing table order
         const updated = orderDB.update(loadedOrderId, {
           status: 'completed',
@@ -368,11 +407,15 @@ export const POSPage: React.FC = () => {
           receivedBy: user?.username || 'Cashier',
         });
 
-        if (selectedTable) {
-          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined });
+        const targetTableId = selectedTable?.id || updated?.tableId;
+        if (targetTableId) {
+          tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        } else if (updated?.tableNumber) {
+          const tbl = tableDB.getByNumber(updated.tableNumber);
+          if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
         }
 
-        success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || 'N/A'} is now AVAILABLE ✅`);
+        success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || updated?.tableNumber || 'N/A'} is now AVAILABLE ✅`);
       } else {
         // Create new POS order with distinct order number
         const newOrderNum = orderDB.generateOrderNumber('pos', selectedTable?.number);
@@ -419,7 +462,7 @@ export const POSPage: React.FC = () => {
         });
 
         if (selectedTable) {
-          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined });
+          tableDB.update(selectedTable.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
         }
 
         notificationDB.create({
@@ -671,11 +714,25 @@ export const POSPage: React.FC = () => {
                   className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white truncate">
-                      {item.menuItemName}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900 dark:text-white truncate">
+                        {item.menuItemName}
+                      </p>
+                      {item.status && item.status !== 'pending' && (
+                        <span
+                          className={cn(
+                            'px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0',
+                            item.status === 'served' && 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300',
+                            item.status === 'ready' && 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300',
+                            item.status === 'preparing' && 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                          )}
+                        >
+                          {item.status === 'served' ? '🍽️ Served' : item.status === 'ready' ? '✅ Ready' : '🍳 Preparing'}
+                        </span>
+                      )}
+                    </div>
                     {(item.spiceLevel || item.selectedDrink || item.notes) && (
-                      <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                         {item.spiceLevel && <span className="font-bold text-rose-600 dark:text-rose-400">🌶️ {item.spiceLevel}</span>}
                         {item.selectedDrink && <span className="font-bold text-blue-600 dark:text-blue-400">🥤 {item.selectedDrink}</span>}
                         {item.notes && <span className="italic">({item.notes})</span>}
@@ -784,30 +841,60 @@ export const POSPage: React.FC = () => {
             </div>
 
             {/* Actions: Send to Kitchen or Pay */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button
-                variant="outline"
-                className="border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
-                onClick={handleSendToKitchen}
-                leftIcon={<ChefHat size={18} className="text-amber-600" />}
-              >
-                To Kitchen
-              </Button>
-              <Button
-                variant="primary"
-                className="font-bold shadow-md"
-                onClick={() => {
-                  if (orderType === 'dine-in' && !selectedTable) {
-                    setShowTableModal(true);
-                    return;
-                  }
-                  setShowPaymentModal(true);
-                }}
-                leftIcon={<CreditCard size={18} />}
-              >
-                Pay (F3)
-              </Button>
-            </div>
+            {isAlreadySentToKitchen ? (
+              <div className="space-y-2 pt-1">
+                {loadedOrder && (
+                  <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 p-2 text-center text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center justify-center gap-1.5">
+                    {loadedOrder.status === 'served' ? (
+                      <span>🍽️ All Items Served • Ready for Payment Settlement</span>
+                    ) : loadedOrder.status === 'ready' ? (
+                      <span>✅ All Items Ready • Ready for Payment Settlement</span>
+                    ) : (
+                      <span>🍳 In Kitchen ({loadedOrder.status}) • Ready for Payment</span>
+                    )}
+                  </div>
+                )}
+                <Button
+                  variant="primary"
+                  className="w-full font-bold shadow-md py-3 text-base"
+                  onClick={() => {
+                    if (orderType === 'dine-in' && !selectedTable) {
+                      setShowTableModal(true);
+                      return;
+                    }
+                    setShowPaymentModal(true);
+                  }}
+                  leftIcon={<CreditCard size={20} />}
+                >
+                  Pay {formatCurrency(total)} (F3)
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  className="border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
+                  onClick={handleSendToKitchen}
+                  leftIcon={<ChefHat size={18} className="text-amber-600" />}
+                >
+                  {loadedOrderId ? 'To Kitchen (New)' : 'To Kitchen'}
+                </Button>
+                <Button
+                  variant="primary"
+                  className="font-bold shadow-md"
+                  onClick={() => {
+                    if (orderType === 'dine-in' && !selectedTable) {
+                      setShowTableModal(true);
+                      return;
+                    }
+                    setShowPaymentModal(true);
+                  }}
+                  leftIcon={<CreditCard size={18} />}
+                >
+                  Pay (F3)
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

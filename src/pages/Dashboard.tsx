@@ -16,15 +16,15 @@ import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
 
 export const Dashboard: React.FC = () => {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const settings = settingsDB.get();
   const today = new Date().toISOString().split('T')[0];
   
-  const todaySales = useMemo(() => analyticsDB.getDailySales(today), [today]);
-  const weeklySales = useMemo(() => analyticsDB.getWeeklySales(), []);
-  const bestSelling = useMemo(() => analyticsDB.getBestSellingItems(5), []);
-  const activeOrders = useMemo(() => orderDB.getActive(), []);
-  const tables = useMemo(() => tableDB.getAll(), []);
+  const todaySales = useMemo(() => analyticsDB.getDailySales(today), [today, tick]);
+  const weeklySales = useMemo(() => analyticsDB.getWeeklySales(), [tick]);
+  const bestSelling = useMemo(() => analyticsDB.getBestSellingItems(5), [tick]);
+  const activeOrders = useMemo(() => orderDB.getActive(), [tick]);
+  const tables = useMemo(() => tableDB.getAll(), [tick]);
   
   const occupiedTables = tables.filter(t => t.status === 'occupied').length;
   const availableTables = tables.filter(t => t.status === 'available').length;

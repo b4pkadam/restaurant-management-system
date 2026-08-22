@@ -30,8 +30,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Default duration set to 0.75 seconds (750ms) as requested
-  const addToast = useCallback((type: ToastType, message: string, duration = 750) => {
+  // Default duration set to 1.5 seconds (1500ms) with smooth auto-dismiss
+  const addToast = useCallback((type: ToastType, message: string, duration = 1500) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
     setToasts((prev) => [...prev, { id, type, message, duration }]);
 
@@ -66,7 +66,7 @@ const ToastContainer: React.FC<{ toasts: Toast[]; removeToast: (id: string) => v
   removeToast,
 }) => {
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2.5 max-w-lg w-full px-4 pointer-events-none">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 max-w-md w-full px-4 pointer-events-none">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
       ))}
@@ -79,13 +79,15 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onC
   const [isEntered, setIsEntered] = useState(false);
 
   useEffect(() => {
-    // Drop and pop-up entrance animation trigger
-    const enterTimer = requestAnimationFrame(() => setIsEntered(true));
+    // Smooth drop down and pop-in animation trigger
+    const enterTimer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setIsEntered(true));
+    });
 
     let leaveTimer: any;
     if (toast.duration && toast.duration > 0) {
-      const exitBuffer = Math.min(180, Math.floor(toast.duration * 0.25));
-      leaveTimer = setTimeout(() => setIsLeaving(true), toast.duration - exitBuffer);
+      const exitBuffer = 250; // Smooth 250ms fade & slide exit
+      leaveTimer = setTimeout(() => setIsLeaving(true), Math.max(100, toast.duration - exitBuffer));
     }
 
     return () => {
@@ -102,32 +104,37 @@ const ToastItem: React.FC<{ toast: Toast; onClose: () => void }> = ({ toast, onC
   };
 
   const backgrounds = {
-    success: 'bg-white/95 dark:bg-gray-900/95 border-emerald-400/60 dark:border-emerald-700 shadow-emerald-500/10 text-emerald-950 dark:text-emerald-100',
-    error: 'bg-white/95 dark:bg-gray-900/95 border-rose-400/60 dark:border-rose-700 shadow-rose-500/10 text-rose-950 dark:text-rose-100',
-    warning: 'bg-white/95 dark:bg-gray-900/95 border-amber-400/60 dark:border-amber-700 shadow-amber-500/10 text-amber-950 dark:text-amber-100',
-    info: 'bg-white/95 dark:bg-gray-900/95 border-blue-400/60 dark:border-blue-700 shadow-blue-500/10 text-blue-950 dark:text-blue-100',
+    success: 'bg-white/95 dark:bg-gray-900/95 border-emerald-400/70 dark:border-emerald-700 shadow-emerald-500/15 text-emerald-950 dark:text-emerald-100',
+    error: 'bg-white/95 dark:bg-gray-900/95 border-rose-400/70 dark:border-rose-700 shadow-rose-500/15 text-rose-950 dark:text-rose-100',
+    warning: 'bg-white/95 dark:bg-gray-900/95 border-amber-400/70 dark:border-amber-700 shadow-amber-500/15 text-amber-950 dark:text-amber-100',
+    info: 'bg-white/95 dark:bg-gray-900/95 border-blue-400/70 dark:border-blue-700 shadow-blue-500/15 text-blue-950 dark:text-blue-100',
   };
 
   return (
     <div
       className={cn(
-        'pointer-events-auto flex w-full max-w-md items-center gap-3.5 p-3.5 sm:p-4 rounded-2xl border-2 shadow-2xl backdrop-blur-md transition-all duration-200 ease-out transform',
+        'pointer-events-none select-none flex w-full max-w-sm sm:max-w-md items-center gap-3 px-4 py-3 rounded-2xl border shadow-xl backdrop-blur-md transition-all duration-300 transform',
         backgrounds[toast.type],
         !isEntered
-          ? '-translate-y-8 opacity-0 scale-90'
+          ? '-translate-y-10 opacity-0 scale-90'
           : isLeaving
-          ? '-translate-y-6 opacity-0 scale-95'
-          : 'translate-y-0 opacity-100 scale-100'
+          ? '-translate-y-8 opacity-0 scale-95'
+          : 'translate-y-0 opacity-100 scale-100 shadow-2xl'
       )}
+      style={{
+        transitionTimingFunction: isLeaving
+          ? 'cubic-bezier(0.4, 0, 1, 1)'
+          : 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+      }}
     >
       {icons[toast.type]}
       <p className="flex-1 text-xs sm:text-sm font-semibold leading-snug">{toast.message}</p>
       <button
         onClick={() => {
           setIsLeaving(true);
-          setTimeout(onClose, 200);
+          setTimeout(onClose, 250);
         }}
-        className="rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+        className="pointer-events-auto rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
         title="Dismiss Notification"
       >
         <X className="w-4 h-4" />
