@@ -36,18 +36,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const settings = React.useMemo(() => settingsDB.get(), [tick]);
 
   const menuItems: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier'] },
+    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
     { id: 'pos', label: 'POS / Billing', icon: <CreditCard size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
     { id: 'orders', label: 'Orders', icon: <ShoppingCart size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter', 'chef'] },
-    { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'chef'] },
-    { id: 'tables', label: 'Tables', icon: <Table2 size={20} />, roles: ['admin', 'manager', 'waiter'] },
+    { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'chef', 'waiter'] },
+    { id: 'tables', label: 'Tables', icon: <Table2 size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
     { id: 'menu', label: 'Menu', icon: <UtensilsCrossed size={20} />, roles: ['admin', 'manager'] },
-    { id: 'inventory', label: 'Inventory', icon: <Package size={20} />, roles: ['admin', 'manager'] },
+    { id: 'inventory', label: 'Inventory', icon: <Package size={20} />, roles: ['admin', 'manager', 'chef'] },
     { id: 'suppliers', label: 'Suppliers', icon: <Truck size={20} />, roles: ['admin', 'manager'] },
     { id: 'employees', label: 'Employees', icon: <Users size={20} />, roles: ['admin', 'manager'] },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} />, roles: ['admin', 'manager'] },
     { id: 'users', label: 'Users', icon: <Users size={20} />, roles: ['admin'] },
-    { id: 'settings', label: 'Settings', icon: <Settings size={20} />, roles: ['admin'] }
+    { id: 'settings', label: 'Settings', icon: <Settings size={20} />, roles: ['admin', 'manager'] }
   ];
 
   const filteredMenuItems = menuItems.filter((item) =>

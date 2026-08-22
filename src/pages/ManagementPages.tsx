@@ -2931,11 +2931,12 @@ export function SettingsPage() {
 }
 
 export function UserManagementPage() {
+  useDbUpdate();
   const { success, error } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [form, setForm] = useState({ username: '', password: '', role: 'waiter' as UserRole, isActive: true });
+  const [form, setForm] = useState({ username: '', password: '', role: 'manager' as UserRole, isActive: true });
 
   const loadUsers = () => setUsers(userDB.getAll());
 
@@ -2949,7 +2950,7 @@ export function UserManagementPage() {
       setForm({ username: user.username, password: '', role: user.role, isActive: user.isActive });
     } else {
       setEditingUser(null);
-      setForm({ username: '', password: '', role: 'waiter', isActive: true });
+      setForm({ username: '', password: '', role: 'manager', isActive: true });
     }
     setShowModal(true);
   };
@@ -2993,19 +2994,27 @@ export function UserManagementPage() {
     loadUsers();
   };
 
+  const roleDescriptions: Record<UserRole, { label: string; desc: string; color: string }> = {
+    admin: { label: 'Admin', desc: 'Full access to all 12 modules & settings', color: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300' },
+    manager: { label: 'Manager', desc: 'POS, Orders, Kitchen, Menu, Inventory, Staff & Reports', color: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300' },
+    cashier: { label: 'Cashier', desc: 'POS billing, live orders, tables & dashboard', color: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300' },
+    waiter: { label: 'Waiter', desc: 'Table management, customer orders, POS & kitchen view', color: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300' },
+    chef: { label: 'Chef', desc: 'Kitchen Display System, order preparation & stock', color: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/60 dark:text-red-300' },
+  };
+
   return (
     <div className="space-y-6">
       <SectionHeader
         title="User Management"
-        description="Create staff login accounts, roles, active states, and password updates."
+        description="Create staff login accounts, assign roles, and manage credentials with cloud sync."
         action={<Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add User</Button>}
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <StatCard title="Users" value={users.length} icon={<Users size={20} />} color="blue" />
+        <StatCard title="Total Users" value={users.length} icon={<Users size={20} />} color="blue" />
         <StatCard title="Active Users" value={users.filter((user) => user.isActive).length} icon={<CheckCircle2 size={20} />} color="green" />
-        <StatCard title="Admins" value={users.filter((user) => user.role === 'admin').length} icon={<UserCog size={20} />} color="purple" />
-        <StatCard title="Recently Active" value={users.filter((user) => user.lastLogin).length} icon={<Receipt size={20} />} color="yellow" />
+        <StatCard title="Admins & Managers" value={users.filter((user) => user.role === 'admin' || user.role === 'manager').length} icon={<UserCog size={20} />} color="purple" />
+        <StatCard title="Active Staff" value={users.filter((user) => user.role === 'waiter' || user.role === 'chef' || user.role === 'cashier').length} icon={<Receipt size={20} />} color="yellow" />
       </div>
 
       <DataTable
@@ -3015,12 +3024,20 @@ export function UserManagementPage() {
             header: 'Username',
             render: (user) => (
               <div>
-                <p className="font-medium">{user.username}</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{user.username}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Created {format(new Date(user.createdAt), 'PPP')}</p>
               </div>
             ),
           },
-          { key: 'role', header: 'Role', render: (user) => <Badge variant="primary">{user.role}</Badge> },
+          {
+            key: 'role',
+            header: 'Role & Permissions',
+            render: (user) => (
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider border ${roleDescriptions[user.role]?.color || 'bg-gray-100 text-gray-800'}`}>
+                {roleDescriptions[user.role]?.label || user.role}
+              </span>
+            ),
+          },
           { key: 'isActive', header: 'Status', render: (user) => <Badge variant={user.isActive ? 'success' : 'warning'}>{user.isActive ? 'Active' : 'Disabled'}</Badge> },
           { key: 'lastLogin', header: 'Last Login', render: (user) => user.lastLogin ? format(new Date(user.lastLogin), 'PP p') : 'Never' },
           {
@@ -3043,18 +3060,50 @@ export function UserManagementPage() {
         emptyMessage="No users found"
       />
 
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUser ? 'Edit User' : 'Add User'}>
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUser ? 'Edit User Account' : 'Add New Staff User'}>
         <div className="space-y-4">
-          <Input label="Username" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} />
-          <Input label={editingUser ? 'New Password (optional)' : 'Password'} type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} />
-          <Select label="Role" value={form.role} onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as UserRole }))} options={roleOptions} />
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-            <span className="text-sm text-gray-700 dark:text-gray-300">User account is active</span>
+          <Input label="Username" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} placeholder="e.g. manager1 or john" />
+          <Input label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="At least 6 characters" />
+          
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Select Role & Access Level
+            </label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {(Object.keys(roleDescriptions) as UserRole[]).map((r) => {
+                const info = roleDescriptions[r];
+                const isSelected = form.role === r;
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, role: r }))}
+                    className={`flex flex-col text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 dark:border-blue-500 ring-2 ring-blue-500/20'
+                        : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    <span className="font-bold text-sm text-gray-900 dark:text-white capitalize flex items-center justify-between">
+                      {info.label}
+                      {isSelected && <span className="h-2 w-2 rounded-full bg-blue-600"></span>}
+                    </span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {info.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700 cursor-pointer">
+            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))} className="rounded text-blue-600" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">User account is active & permitted to log in</span>
           </label>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
-            <Button onClick={saveUser}>Save User</Button>
+            <Button onClick={saveUser} className="bg-blue-600 hover:bg-blue-700 font-bold">Save User</Button>
           </div>
         </div>
       </Modal>

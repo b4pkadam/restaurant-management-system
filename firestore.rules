@@ -65,7 +65,12 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
-    // 8. Notifications
+    // 8. User Accounts (Admin & Staff)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // 9. Notifications
     match /notifications/{notifId} {
       allow read, create: if true;
       allow update, delete: if isAuthenticated();

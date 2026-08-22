@@ -16,10 +16,10 @@ export type AppPage =
 
 export const PAGE_ACCESS: Record<UserRole, AppPage[]> = {
   admin: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports', 'users', 'settings'],
-  manager: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports'],
-  cashier: ['dashboard', 'pos', 'orders'],
-  waiter: ['pos', 'orders', 'tables'],
-  chef: ['kitchen', 'orders'],
+  manager: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports', 'settings'],
+  cashier: ['dashboard', 'pos', 'orders', 'tables'],
+  waiter: ['dashboard', 'pos', 'orders', 'tables', 'kitchen'],
+  chef: ['kitchen', 'orders', 'inventory'],
 };
 
 export function canViewPage(role: UserRole | undefined, page: AppPage): boolean {

@@ -13,6 +13,7 @@ import { getFirebaseDb, isFirebaseActive } from './firebase';
 
 const DB_PREFIX = 'restaurant_db_';
 const SYNC_COLLECTIONS = [
+  'users',
   'orders',
   'tables',
   'categories',
