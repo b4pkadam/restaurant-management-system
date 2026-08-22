@@ -126,6 +126,7 @@ export const firebaseSync = {
       const cleanDocId = collName === 'tables' && data?.number ? `table_${data.number}` : docId;
       const docRef = doc(db, collName, cleanDocId);
       await setDoc(docRef, { ...data, id: cleanDocId }, { merge: true });
+      console.log(`[Cloud Sync] Pushed ${collName}/${cleanDocId} to Firestore`);
     } catch (error) {
       console.warn(`Cloud sync failed for ${collName}/${docId}:`, error);
     }
@@ -143,6 +144,7 @@ export const firebaseSync = {
       const cleanDocId = collName === 'tables' && !docId.startsWith('table_') && !isNaN(Number(docId)) ? `table_${docId}` : docId;
       const docRef = doc(db, collName, cleanDocId);
       await deleteDoc(docRef);
+      console.log(`[Cloud Sync] Deleted ${collName}/${cleanDocId} from Firestore`);
     } catch (error) {
       console.warn(`Cloud delete failed for ${collName}/${docId}:`, error);
     }

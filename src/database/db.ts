@@ -309,11 +309,19 @@ export const userDB = {
   
   delete: (id: string): boolean => {
     const users = userDB.getAll();
-    const filtered = users.filter(u => u.id !== id);
+    const target = users.find(u => u.id === id || u.username === id);
+    const filtered = users.filter(u => u.id !== id && u.username !== id);
     if (filtered.length === users.length) return false;
     setCollection('users', filtered);
     if (isFirebaseActive()) {
-      firebaseSync.deleteDoc('users', id).catch(() => {});
+      if (target) {
+        firebaseSync.deleteDoc('users', target.id).catch(() => {});
+        if (target.username) {
+          firebaseSync.deleteDoc('users', target.username).catch(() => {});
+        }
+      } else {
+        firebaseSync.deleteDoc('users', id).catch(() => {});
+      }
     }
     return true;
   },
@@ -554,11 +562,18 @@ export const tableDB = {
   
   delete: (id: string): boolean => {
     const tables = tableDB.getAll();
+    const target = tables.find(t => t.id === id || String(t.number) === id || `table_${t.number}` === id);
     const filtered = tables.filter(t => t.id !== id && String(t.number) !== id && `table_${t.number}` !== id);
     if (filtered.length === tables.length) return false;
     setCollection('tables', filtered);
     if (isFirebaseActive()) {
-      firebaseSync.deleteDoc('tables', id).catch(() => {});
+      if (target) {
+        firebaseSync.deleteDoc('tables', target.id).catch(() => {});
+        firebaseSync.deleteDoc('tables', `table_${target.number}`).catch(() => {});
+        firebaseSync.deleteDoc('tables', String(target.number)).catch(() => {});
+      } else {
+        firebaseSync.deleteDoc('tables', id).catch(() => {});
+      }
     }
     return true;
   }
