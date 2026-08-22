@@ -82,6 +82,9 @@ export function notifyDbListeners(): void {
   }
 }
 
+import { firebaseSync } from '../services/firebaseSync';
+import { isFirebaseActive } from '../services/firebase';
+
 // Generic storage functions
 function getCollection<T>(key: string): T[] {
   const data = localStorage.getItem(DB_PREFIX + key);
@@ -91,6 +94,14 @@ function getCollection<T>(key: string): T[] {
 function setCollection<T>(key: string, data: T[]): void {
   localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
   notifyDbListeners();
+  if (isFirebaseActive() && Array.isArray(data)) {
+    data.forEach((item: any) => {
+      const docId = item.id || (item.number !== undefined ? String(item.number) : undefined);
+      if (docId) {
+        firebaseSync.pushDoc(key, docId, item).catch(() => {});
+      }
+    });
+  }
 }
 
 function getItem<T>(key: string): T | null {
@@ -101,6 +112,28 @@ function getItem<T>(key: string): T | null {
 function setItem<T>(key: string, data: T): void {
   localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
   notifyDbListeners();
+  if (isFirebaseActive()) {
+    firebaseSync.pushDoc(key, 'global_' + key, data).catch(() => {});
+  }
+}
+
+// Auto-start real-time cloud synchronization on application launch
+if (typeof window !== 'undefined') {
+  if (isFirebaseActive()) {
+    try {
+      firebaseSync.start();
+    } catch {
+      // ignore
+    }
+  }
+
+  window.addEventListener('firebase-config-changed', () => {
+    if (isFirebaseActive()) {
+      firebaseSync.start();
+    } else {
+      firebaseSync.stop();
+    }
+  });
 }
 
 function safeHashPassword(password: string): string {

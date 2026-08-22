@@ -31,7 +31,13 @@ import {
   UtensilsCrossed,
   Image as ImageIcon,
   X,
+  Cloud,
+  Database,
+  Check,
 } from 'lucide-react';
+import { getStoredFirebaseConfig, saveStoredFirebaseConfig, type FirebaseConfig } from '../services/firebaseConfig';
+import { isFirebaseActive, initFirebase } from '../services/firebase';
+import { firebaseSync } from '../services/firebaseSync';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -2432,6 +2438,109 @@ export function SettingsPage() {
   const [form, setForm] = useState<AppSettings>(settingsDB.get());
   const [isImporting, setIsImporting] = useState(false);
 
+  // Firebase Configuration State
+  const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig>(() => {
+    return (
+      getStoredFirebaseConfig() || {
+        apiKey: '',
+        authDomain: '',
+        projectId: '',
+        appId: '',
+        storageBucket: '',
+        messagingSenderId: '',
+        databaseURL: '',
+      }
+    );
+  });
+  const [rawFirebaseJson, setRawFirebaseJson] = useState('');
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState(() => isFirebaseActive());
+  const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
+
+  const handleSaveFirebaseConfig = () => {
+    if (!firebaseConfig.apiKey.trim() || !firebaseConfig.projectId.trim()) {
+      error('Please provide at least a valid Firebase API Key and Project ID.');
+      return;
+    }
+
+    saveStoredFirebaseConfig({
+      apiKey: firebaseConfig.apiKey.trim(),
+      authDomain: firebaseConfig.authDomain.trim() || `${firebaseConfig.projectId.trim()}.firebaseapp.com`,
+      projectId: firebaseConfig.projectId.trim(),
+      appId: firebaseConfig.appId.trim(),
+      storageBucket: firebaseConfig.storageBucket?.trim() || `${firebaseConfig.projectId.trim()}.appspot.com`,
+      messagingSenderId: firebaseConfig.messagingSenderId?.trim() || '',
+      databaseURL: firebaseConfig.databaseURL?.trim() || '',
+    });
+
+    const initResult = initFirebase();
+    if (initResult.isConnected) {
+      firebaseSync.start();
+      setIsFirebaseConnected(true);
+      success('🎉 Firebase Connected successfully! Real-time cloud sync is now active.');
+    } else {
+      setIsFirebaseConnected(false);
+      error('Unable to connect with provided Firebase credentials. Please verify your Project ID and API Key.');
+    }
+  };
+
+  const handlePasteFirebaseJson = (jsonString: string) => {
+    setRawFirebaseJson(jsonString);
+    if (!jsonString.trim()) return;
+
+    try {
+      let cleaned = jsonString.trim();
+      if (cleaned.includes('=')) {
+        cleaned = cleaned.substring(cleaned.indexOf('=') + 1).replace(/;$/, '').trim();
+      }
+      const parsed = JSON.parse(cleaned.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":').replace(/'/g, '"'));
+      if (parsed.apiKey && parsed.projectId) {
+        setFirebaseConfig({
+          apiKey: parsed.apiKey || '',
+          authDomain: parsed.authDomain || '',
+          projectId: parsed.projectId || '',
+          appId: parsed.appId || '',
+          storageBucket: parsed.storageBucket || '',
+          messagingSenderId: parsed.messagingSenderId || '',
+          databaseURL: parsed.databaseURL || '',
+        });
+        success('Parsed Firebase credentials from JSON!');
+      }
+    } catch {
+      // ignore parse error while typing
+    }
+  };
+
+  const handleDisconnectFirebase = () => {
+    saveStoredFirebaseConfig(null);
+    firebaseSync.stop();
+    setIsFirebaseConnected(false);
+    setFirebaseConfig({
+      apiKey: '',
+      authDomain: '',
+      projectId: '',
+      appId: '',
+      storageBucket: '',
+      messagingSenderId: '',
+      databaseURL: '',
+    });
+    setRawFirebaseJson('');
+    info('Firebase disconnected. Operating in offline LocalStorage mode.');
+  };
+
+  const handleUploadAllToCloud = async () => {
+    setIsUploadingToCloud(true);
+    try {
+      const res = await firebaseSync.uploadLocalDataToCloud();
+      if (res.success) {
+        success(`☁️ Successfully uploaded ${res.count} items (Menu, Tables, Orders, Settings) to Cloud Firestore!`);
+      } else {
+        error(res.error || 'Failed to upload data to cloud.');
+      }
+    } finally {
+      setIsUploadingToCloud(false);
+    }
+  };
+
   const saveSettings = () => {
     settingsDB.update(form);
     setTheme(form.theme);
@@ -2663,6 +2772,122 @@ export function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {/* Google Firebase Cloud Synchronization Card */}
+      <Card className="space-y-5 border-2 border-blue-500/30">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <Cloud size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Google Firebase Cloud Synchronization
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Connect your free Google Firebase backend to enable live real-time order syncing across kitchen tablets, waiter phones, and customer QR orders.
+              </p>
+            </div>
+          </div>
+          <div>
+            {isFirebaseConnected ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Cloud Connected (Live Sync Active)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                Offline Local Mode (Browser Storage)
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Paste JSON Box */}
+        <div className="space-y-2 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+            Paste Firebase Web SDK Config (JSON / Code Snippet)
+          </label>
+          <textarea
+            rows={2}
+            value={rawFirebaseJson}
+            onChange={(e) => handlePasteFirebaseJson(e.target.value)}
+            placeholder={`Paste your firebaseConfig object here, e.g.:\n{\n  "apiKey": "AIzaSy...",\n  "projectId": "your-restaurant-app",\n  "appId": "1:..."\n}`}
+            className="w-full rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+          />
+        </div>
+
+        {/* Individual Credentials Inputs */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Input
+            label="API Key (apiKey)"
+            value={firebaseConfig.apiKey}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+            placeholder="AIzaSy..."
+          />
+          <Input
+            label="Project ID (projectId)"
+            value={firebaseConfig.projectId}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, projectId: e.target.value }))}
+            placeholder="your-restaurant-app-id"
+          />
+          <Input
+            label="Auth Domain (authDomain)"
+            value={firebaseConfig.authDomain}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, authDomain: e.target.value }))}
+            placeholder="your-app.firebaseapp.com"
+          />
+          <Input
+            label="App ID (appId)"
+            value={firebaseConfig.appId}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, appId: e.target.value }))}
+            placeholder="1:123456789:web:abcdef"
+          />
+          <Input
+            label="Storage Bucket (storageBucket)"
+            value={firebaseConfig.storageBucket || ''}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, storageBucket: e.target.value }))}
+            placeholder="your-app.appspot.com"
+          />
+          <Input
+            label="Database URL (Optional for RTDB)"
+            value={firebaseConfig.databaseURL || ''}
+            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, databaseURL: e.target.value }))}
+            placeholder="https://your-app-default-rtdb.firebaseio.com"
+          />
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-wrap gap-2.5">
+            <Button
+              variant="primary"
+              className="bg-blue-600 hover:bg-blue-700 font-bold"
+              onClick={handleSaveFirebaseConfig}
+              leftIcon={<Save size={16} />}
+            >
+              Save & Connect Cloud
+            </Button>
+            {isFirebaseConnected && (
+              <Button
+                variant="outline"
+                className="font-semibold text-emerald-700 border-emerald-300 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                onClick={handleUploadAllToCloud}
+                isLoading={isUploadingToCloud}
+                leftIcon={<Upload size={16} />}
+              >
+                Upload Local Menu & Orders to Cloud
+              </Button>
+            )}
+          </div>
+          {isFirebaseConnected && (
+            <Button variant="danger" size="sm" onClick={handleDisconnectFirebase} leftIcon={<Trash2 size={14} />}>
+              Disconnect Cloud
+            </Button>
+          )}
+        </div>
+      </Card>
 
       <Card className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Data Management</h3>

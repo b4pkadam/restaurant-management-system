@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for role-based authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isStaff() {
+      return isAuthenticated();
+    }
+
+    // 1. Restaurant Settings & Branding
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 2. Menu Categories & Menu Items
+    match /categories/{catId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 3. Tables & Floor Structure
+    match /tables/{tableId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 4. Orders & Kitchen Tickets
+    // Customers can create new orders via digital QR menu; staff can update/manage
+    match /orders/{orderId} {
+      allow read, create: if true;
+      allow update, delete: if isAuthenticated();
+    }
+
+    // 5. Payments & Invoices
+    match /payments/{paymentId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 6. Inventory, Suppliers & Purchase Orders (Staff & Admin Only)
+    match /inventory/{itemId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /suppliers/{supplierId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /purchases/{purchaseId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // 7. Staff & Employee Records
+    match /employees/{empId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // 8. Notifications
+    match /notifications/{notifId} {
+      allow read, create: if true;
+      allow update, delete: if isAuthenticated();
+    }
+  }
+}
