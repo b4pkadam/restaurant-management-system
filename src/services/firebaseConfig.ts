@@ -51,3 +51,30 @@ export const saveStoredFirebaseConfig = (config: FirebaseConfig | null): void =>
   }
   window.dispatchEvent(new CustomEvent('firebase-config-changed'));
 };
+
+export const parseFirebaseConfigSnippet = (text: string): Partial<FirebaseConfig> => {
+  if (!text || !text.trim()) return {};
+  const extract = (key: string): string => {
+    const regex = new RegExp(`(?:['"]?${key}['"]?\\s*:\\s*['"]([^'"]+)['"])`, 'i');
+    const match = text.match(regex);
+    return match ? match[1].trim() : '';
+  };
+
+  const apiKey = extract('apiKey');
+  const projectId = extract('projectId');
+  const authDomain = extract('authDomain');
+  const appId = extract('appId');
+  const storageBucket = extract('storageBucket');
+  const messagingSenderId = extract('messagingSenderId');
+  const databaseURL = extract('databaseURL');
+
+  return {
+    apiKey: apiKey || undefined,
+    projectId: projectId || undefined,
+    authDomain: authDomain || undefined,
+    appId: appId || undefined,
+    storageBucket: storageBucket || undefined,
+    messagingSenderId: messagingSenderId || undefined,
+    databaseURL: databaseURL || undefined,
+  };
+};

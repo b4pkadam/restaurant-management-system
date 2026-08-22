@@ -35,7 +35,7 @@ import {
   Database,
   Check,
 } from 'lucide-react';
-import { getStoredFirebaseConfig, saveStoredFirebaseConfig, type FirebaseConfig } from '../services/firebaseConfig';
+import { getStoredFirebaseConfig, saveStoredFirebaseConfig, parseFirebaseConfigSnippet, type FirebaseConfig } from '../services/firebaseConfig';
 import { isFirebaseActive, initFirebase, testFirebaseConnection } from '../services/firebase';
 import { firebaseSync } from '../services/firebaseSync';
 import { format } from 'date-fns';
@@ -2458,21 +2458,36 @@ export function SettingsPage() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const handleSaveFirebaseConfig = async () => {
-    if (!firebaseConfig.apiKey.trim() || !firebaseConfig.projectId.trim()) {
-      error('Please provide at least a valid Firebase API Key and Project ID.');
+    let current = { ...firebaseConfig };
+    if (rawFirebaseJson.trim()) {
+      const extracted = parseFirebaseConfigSnippet(rawFirebaseJson);
+      current = {
+        apiKey: (extracted.apiKey || current.apiKey || '').trim(),
+        authDomain: (extracted.authDomain || current.authDomain || '').trim(),
+        projectId: (extracted.projectId || current.projectId || '').trim(),
+        appId: (extracted.appId || current.appId || '').trim(),
+        storageBucket: (extracted.storageBucket || current.storageBucket || '').trim(),
+        messagingSenderId: (extracted.messagingSenderId || current.messagingSenderId || '').trim(),
+        databaseURL: (extracted.databaseURL || current.databaseURL || '').trim(),
+      };
+      setFirebaseConfig(current);
+    }
+
+    if (!current.apiKey.trim() || !current.projectId.trim()) {
+      error('Please enter at least your Firebase API Key and Project ID.');
       return;
     }
 
     setIsTestingConnection(true);
     try {
       const configToSave: FirebaseConfig = {
-        apiKey: firebaseConfig.apiKey.trim(),
-        authDomain: firebaseConfig.authDomain.trim() || `${firebaseConfig.projectId.trim()}.firebaseapp.com`,
-        projectId: firebaseConfig.projectId.trim(),
-        appId: firebaseConfig.appId.trim(),
-        storageBucket: firebaseConfig.storageBucket?.trim() || `${firebaseConfig.projectId.trim()}.appspot.com`,
-        messagingSenderId: firebaseConfig.messagingSenderId?.trim() || '',
-        databaseURL: firebaseConfig.databaseURL?.trim() || '',
+        apiKey: current.apiKey.trim(),
+        authDomain: current.authDomain.trim() || `${current.projectId.trim()}.firebaseapp.com`,
+        projectId: current.projectId.trim(),
+        appId: current.appId.trim(),
+        storageBucket: current.storageBucket?.trim() || `${current.projectId.trim()}.appspot.com`,
+        messagingSenderId: current.messagingSenderId?.trim() || '',
+        databaseURL: current.databaseURL?.trim() || '',
       };
 
       const testResult = await testFirebaseConnection(configToSave);
@@ -2497,26 +2512,18 @@ export function SettingsPage() {
     setRawFirebaseJson(jsonString);
     if (!jsonString.trim()) return;
 
-    try {
-      let cleaned = jsonString.trim();
-      if (cleaned.includes('=')) {
-        cleaned = cleaned.substring(cleaned.indexOf('=') + 1).replace(/;$/, '').trim();
-      }
-      const parsed = JSON.parse(cleaned.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":').replace(/'/g, '"'));
-      if (parsed.apiKey && parsed.projectId) {
-        setFirebaseConfig({
-          apiKey: parsed.apiKey || '',
-          authDomain: parsed.authDomain || '',
-          projectId: parsed.projectId || '',
-          appId: parsed.appId || '',
-          storageBucket: parsed.storageBucket || '',
-          messagingSenderId: parsed.messagingSenderId || '',
-          databaseURL: parsed.databaseURL || '',
-        });
-        success('Parsed Firebase credentials from JSON!');
-      }
-    } catch {
-      // ignore parse error while typing
+    const extracted = parseFirebaseConfigSnippet(jsonString);
+    if (extracted.apiKey || extracted.projectId) {
+      setFirebaseConfig((prev) => ({
+        apiKey: extracted.apiKey || prev.apiKey,
+        authDomain: extracted.authDomain || prev.authDomain,
+        projectId: extracted.projectId || prev.projectId,
+        appId: extracted.appId || prev.appId,
+        storageBucket: extracted.storageBucket || prev.storageBucket,
+        messagingSenderId: extracted.messagingSenderId || prev.messagingSenderId,
+        databaseURL: extracted.databaseURL || prev.databaseURL,
+      }));
+      success('✓ Extracted Firebase keys successfully from pasted snippet!');
     }
   };
 
