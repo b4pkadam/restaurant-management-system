@@ -30,10 +30,10 @@ export const LoginPage: React.FC = () => {
     
     const result = login(username, password);
     
-    if (result) {
+    if (result.success) {
       success('Login successful! Welcome back.');
     } else {
-      error('Invalid username or password');
+      error(result.error || 'Invalid username or password');
     }
     
     setIsLoading(false);

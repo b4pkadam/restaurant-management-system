@@ -2,9 +2,14 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import type { User, UserRole } from '../types';
 import { userDB } from '../database/db';
 
+export interface LoginResult {
+  success: boolean;
+  error?: string;
+}
+
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => LoginResult;
   logout: () => void;
   isAuthenticated: boolean;
   hasPermission: (roles: UserRole[]) => boolean;
@@ -32,14 +37,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    const authenticatedUser = userDB.authenticate(username, password);
-    if (authenticatedUser) {
-      setUser(authenticatedUser);
-      localStorage.setItem('current_user', JSON.stringify(authenticatedUser));
-      return true;
+  const login = (username: string, password: string): LoginResult => {
+    const auth = userDB.authenticate(username, password);
+    if (auth.user) {
+      // Sanitize session storage: Do not store password in browser session
+      const sessionUser: User = {
+        id: auth.user.id,
+        username: auth.user.username,
+        role: auth.user.role,
+        isActive: auth.user.isActive,
+        lastLogin: auth.user.lastLogin,
+        createdAt: auth.user.createdAt,
+        password: '', // stripped for session security
+      };
+      setUser(sessionUser);
+      localStorage.setItem('current_user', JSON.stringify(sessionUser));
+      return { success: true };
     }
-    return false;
+    return { success: false, error: auth.error || 'Invalid username or password' };
   };
 
   const logout = () => {

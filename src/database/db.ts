@@ -104,12 +104,17 @@ function setItem<T>(key: string, data: T): void {
 }
 
 function safeHashPassword(password: string): string {
+  if (!password) return '';
+  // If already a bcrypt hash, return as is
+  if (password.startsWith('$2a$') || password.startsWith('$2b$') || password.startsWith('$2y$')) {
+    return password;
+  }
   try {
     if (bcrypt && typeof bcrypt.hashSync === 'function') {
       return bcrypt.hashSync(password, 10);
     }
   } catch {
-    // Fallback for restricted browser crypto
+    // Fallback
   }
   return btoa(password);
 }
@@ -118,10 +123,6 @@ function safeComparePassword(password: string, hash: string): boolean {
   if (!password || !hash) return false;
   const p = password.trim();
   const h = hash.trim();
-
-  // Direct comparison (fastest & handles unhashed seed data)
-  if (p === h) return true;
-  if (btoa(p) === h) return true;
 
   // Bcrypt comparison
   if (h.startsWith('$2')) {
@@ -134,8 +135,113 @@ function safeComparePassword(password: string, hash: string): boolean {
     }
   }
 
+  // Direct / base64 comparison (for backward compatibility during auto-migration)
+  if (p === h) return true;
+  if (btoa(p) === h) return true;
+
   return false;
 }
+
+// Rate limiting & Brute Force Lockout Tracker
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 5;
+
+interface AttemptRecord {
+  count: number;
+  lastAttemptTime: number;
+  lockedUntil?: number;
+}
+
+export const authRateLimiter = {
+  getAttemptsKey: () => DB_PREFIX + 'login_attempts',
+
+  getRecords: (): Record<string, AttemptRecord> => {
+    try {
+      const data = localStorage.getItem(authRateLimiter.getAttemptsKey());
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  setRecords: (records: Record<string, AttemptRecord>) => {
+    try {
+      localStorage.setItem(authRateLimiter.getAttemptsKey(), JSON.stringify(records));
+    } catch {
+      // ignore
+    }
+  },
+
+  checkStatus: (username: string): { isLocked: boolean; remainingSeconds?: number; attemptsRemaining: number } => {
+    const key = (username || '').trim().toLowerCase();
+    if (!key) return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+
+    const records = authRateLimiter.getRecords();
+    const record = records[key];
+
+    if (!record) {
+      return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+    }
+
+    const now = Date.now();
+
+    // Check if lockout is still active
+    if (record.lockedUntil) {
+      if (now < record.lockedUntil) {
+        const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+        return { isLocked: true, remainingSeconds, attemptsRemaining: 0 };
+      } else {
+        // Lockout expired, reset record
+        delete records[key];
+        authRateLimiter.setRecords(records);
+        return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+      }
+    }
+
+    // Reset attempt counter if last attempt was over 15 minutes ago
+    if (now - record.lastAttemptTime > 15 * 60 * 1000) {
+      delete records[key];
+      authRateLimiter.setRecords(records);
+      return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+    }
+
+    const attemptsRemaining = Math.max(0, MAX_LOGIN_ATTEMPTS - record.count);
+    return { isLocked: false, attemptsRemaining };
+  },
+
+  recordFailedAttempt: (username: string): { isLocked: boolean; remainingSeconds?: number; attemptsRemaining: number } => {
+    const key = (username || '').trim().toLowerCase();
+    if (!key) return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS };
+
+    const records = authRateLimiter.getRecords();
+    const now = Date.now();
+    const current = records[key] || { count: 0, lastAttemptTime: now };
+
+    current.count += 1;
+    current.lastAttemptTime = now;
+
+    if (current.count >= MAX_LOGIN_ATTEMPTS) {
+      current.lockedUntil = now + LOCKOUT_MINUTES * 60 * 1000;
+      records[key] = current;
+      authRateLimiter.setRecords(records);
+      return { isLocked: true, remainingSeconds: LOCKOUT_MINUTES * 60, attemptsRemaining: 0 };
+    }
+
+    records[key] = current;
+    authRateLimiter.setRecords(records);
+    return { isLocked: false, attemptsRemaining: MAX_LOGIN_ATTEMPTS - current.count };
+  },
+
+  resetAttempts: (username: string) => {
+    const key = (username || '').trim().toLowerCase();
+    if (!key) return;
+    const records = authRateLimiter.getRecords();
+    if (records[key]) {
+      delete records[key];
+      authRateLimiter.setRecords(records);
+    }
+  }
+};
 
 // User Management
 export const userDB = {
@@ -186,9 +292,23 @@ export const userDB = {
     return true;
   },
   
-  authenticate: (username: string, password: string): User | null => {
+  authenticate: (username: string, password: string): { user: User | null; error?: string } => {
     const cleanUsername = (username || '').trim();
     const cleanPassword = (password || '').trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      return { user: null, error: 'Please enter both username and password.' };
+    }
+
+    // 1. Check Rate Limiter / Brute Force Lockout
+    const status = authRateLimiter.checkStatus(cleanUsername);
+    if (status.isLocked) {
+      const minutes = Math.ceil((status.remainingSeconds || 60) / 60);
+      return {
+        user: null,
+        error: `Account temporarily locked due to multiple failed attempts. Please try again in ${minutes} minute(s) (${status.remainingSeconds}s).`,
+      };
+    }
 
     let user = userDB.getByUsername(cleanUsername);
     
@@ -198,11 +318,50 @@ export const userDB = {
       user = userDB.getByUsername(cleanUsername);
     }
 
-    if (!user || !user.isActive) return null;
-    if (!safeComparePassword(cleanPassword, user.password)) return null;
+    if (!user || !user.isActive) {
+      const failure = authRateLimiter.recordFailedAttempt(cleanUsername);
+      if (failure.isLocked) {
+        return {
+          user: null,
+          error: `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
+        };
+      }
+      return {
+        user: null,
+        error: failure.attemptsRemaining > 0
+          ? `Invalid username or password. ${failure.attemptsRemaining} attempt(s) remaining.`
+          : `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
+      };
+    }
+
+    if (!safeComparePassword(cleanPassword, user.password)) {
+      const failure = authRateLimiter.recordFailedAttempt(cleanUsername);
+      if (failure.isLocked) {
+        return {
+          user: null,
+          error: `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
+        };
+      }
+      return {
+        user: null,
+        error: failure.attemptsRemaining > 0
+          ? `Invalid username or password. ${failure.attemptsRemaining} attempt(s) remaining.`
+          : `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
+      };
+    }
     
-    userDB.update(user.id, { lastLogin: new Date().toISOString() });
-    return user;
+    // Success: Reset rate limit attempts
+    authRateLimiter.resetAttempts(cleanUsername);
+
+    // Auto-upgrade password to bcrypt hash if it was stored in old format
+    if (!user.password.startsWith('$2')) {
+      const newHash = safeHashPassword(cleanPassword);
+      userDB.update(user.id, { password: newHash, lastLogin: new Date().toISOString() });
+    } else {
+      userDB.update(user.id, { lastLogin: new Date().toISOString() });
+    }
+
+    return { user, error: undefined };
   }
 };
 
@@ -819,8 +978,14 @@ export const analyticsDB = {
 // Backup & Restore
 export const backupDB = {
   export: (): string => {
+    const rawUsers = userDB.getAll();
+    const sanitizedUsers = rawUsers.map((u) => ({
+      ...u,
+      password: safeHashPassword(u.password),
+    }));
+
     const data = {
-      users: userDB.getAll(),
+      users: sanitizedUsers,
       employees: employeeDB.getAll(),
       categories: categoryDB.getAll(),
       menuItems: menuItemDB.getAll(),
@@ -898,7 +1063,22 @@ export const initializeSampleData = (): void => {
     }
   }
   
-  if (userDB.getAll().length > 0) return;
+  // Auto-migrate any existing unhashed passwords in localStorage to bcrypt
+  if (users.length > 0) {
+    let migrated = false;
+    const upgraded = users.map((u) => {
+      if (u.password && !u.password.startsWith('$2')) {
+        migrated = true;
+        return { ...u, password: safeHashPassword(u.password) };
+      }
+      return u;
+    });
+    if (migrated) {
+      setCollection('users', upgraded);
+    }
+    return;
+  }
+
   userDB.create({
     username: 'admin',
     password: 'admin123',
