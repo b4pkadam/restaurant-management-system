@@ -36,7 +36,7 @@ import {
   Check,
 } from 'lucide-react';
 import { getStoredFirebaseConfig, saveStoredFirebaseConfig, type FirebaseConfig } from '../services/firebaseConfig';
-import { isFirebaseActive, initFirebase } from '../services/firebase';
+import { isFirebaseActive, initFirebase, testFirebaseConnection } from '../services/firebase';
 import { firebaseSync } from '../services/firebaseSync';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
@@ -2455,31 +2455,41 @@ export function SettingsPage() {
   const [rawFirebaseJson, setRawFirebaseJson] = useState('');
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(() => isFirebaseActive());
   const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
 
-  const handleSaveFirebaseConfig = () => {
+  const handleSaveFirebaseConfig = async () => {
     if (!firebaseConfig.apiKey.trim() || !firebaseConfig.projectId.trim()) {
       error('Please provide at least a valid Firebase API Key and Project ID.');
       return;
     }
 
-    saveStoredFirebaseConfig({
-      apiKey: firebaseConfig.apiKey.trim(),
-      authDomain: firebaseConfig.authDomain.trim() || `${firebaseConfig.projectId.trim()}.firebaseapp.com`,
-      projectId: firebaseConfig.projectId.trim(),
-      appId: firebaseConfig.appId.trim(),
-      storageBucket: firebaseConfig.storageBucket?.trim() || `${firebaseConfig.projectId.trim()}.appspot.com`,
-      messagingSenderId: firebaseConfig.messagingSenderId?.trim() || '',
-      databaseURL: firebaseConfig.databaseURL?.trim() || '',
-    });
+    setIsTestingConnection(true);
+    try {
+      const configToSave: FirebaseConfig = {
+        apiKey: firebaseConfig.apiKey.trim(),
+        authDomain: firebaseConfig.authDomain.trim() || `${firebaseConfig.projectId.trim()}.firebaseapp.com`,
+        projectId: firebaseConfig.projectId.trim(),
+        appId: firebaseConfig.appId.trim(),
+        storageBucket: firebaseConfig.storageBucket?.trim() || `${firebaseConfig.projectId.trim()}.appspot.com`,
+        messagingSenderId: firebaseConfig.messagingSenderId?.trim() || '',
+        databaseURL: firebaseConfig.databaseURL?.trim() || '',
+      };
 
-    const initResult = initFirebase();
-    if (initResult.isConnected) {
-      firebaseSync.start();
-      setIsFirebaseConnected(true);
-      success('🎉 Firebase Connected successfully! Real-time cloud sync is now active.');
-    } else {
-      setIsFirebaseConnected(false);
-      error('Unable to connect with provided Firebase credentials. Please verify your Project ID and API Key.');
+      const testResult = await testFirebaseConnection(configToSave);
+      if (testResult.success) {
+        saveStoredFirebaseConfig(configToSave);
+        initFirebase(configToSave);
+        firebaseSync.start();
+        setIsFirebaseConnected(true);
+        success(testResult.message);
+      } else {
+        setIsFirebaseConnected(false);
+        error(testResult.message);
+      }
+    } catch (err: any) {
+      error(err?.message || 'Failed to connect to Firebase.');
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -2865,6 +2875,7 @@ export function SettingsPage() {
               variant="primary"
               className="bg-blue-600 hover:bg-blue-700 font-bold"
               onClick={handleSaveFirebaseConfig}
+              isLoading={isTestingConnection}
               leftIcon={<Save size={16} />}
             >
               Save & Connect Cloud
