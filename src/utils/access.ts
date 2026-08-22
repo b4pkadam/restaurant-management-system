@@ -16,14 +16,14 @@ export type AppPage =
 
 export const PAGE_ACCESS: Record<UserRole, AppPage[]> = {
   admin: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports', 'users', 'settings'],
-  manager: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports', 'settings'],
+  manager: ['dashboard', 'pos', 'orders', 'kitchen', 'tables', 'menu', 'inventory', 'suppliers', 'employees', 'reports'],
   cashier: ['dashboard', 'pos', 'orders', 'tables'],
-  waiter: ['dashboard', 'pos', 'orders', 'tables', 'kitchen'],
-  chef: ['kitchen', 'orders', 'inventory'],
+  waiter: ['tables', 'pos', 'orders'],
+  chef: ['kitchen', 'orders'],
 };
 
 export function canViewPage(role: UserRole | undefined, page: AppPage): boolean {
-  if (!role) return false;
+  if (!role) return true;
   return PAGE_ACCESS[role]?.includes(page) ?? false;
 }
 
@@ -33,7 +33,7 @@ export function getDefaultPageForRole(role: UserRole | undefined): AppPage {
 }
 
 export function canAdvanceOrder(role: UserRole | undefined, status: Order['status']): boolean {
-  if (!role) return false;
+  if (!role) return true;
 
   if (role === 'admin' || role === 'manager') {
     return !['completed', 'cancelled'].includes(status);
@@ -44,23 +44,22 @@ export function canAdvanceOrder(role: UserRole | undefined, status: Order['statu
   }
 
   if (role === 'waiter') {
+    return ['active', 'preparing', 'ready', 'served'].includes(status);
+  }
+
+  if (role === 'cashier') {
     return ['ready', 'served'].includes(status);
   }
 
-  return false;
+  return true;
 }
 
 export function getOrderAdvanceLabel(role: UserRole | undefined, status: Order['status']): string {
-  if (role === 'waiter') {
-    if (status === 'ready') return 'Mark Served';
-    if (status === 'served') return 'Pay & Complete';
-  }
-
   if (status === 'active') return 'Start Preparing';
   if (status === 'preparing') return 'Mark Ready';
   if (status === 'ready') return 'Mark Served';
   if (status === 'served') return 'Pay & Complete';
-  return 'Update';
+  return 'Update Status';
 }
 
 export function canCancelOrder(role: UserRole | undefined): boolean {

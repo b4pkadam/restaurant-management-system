@@ -143,7 +143,9 @@ export const firebaseSync = {
       let totalUploaded = 0;
 
       for (const collName of SYNC_COLLECTIONS) {
-        const raw = localStorage.getItem(DB_PREFIX + collName);
+        const raw =
+          localStorage.getItem(DB_PREFIX + collName) ||
+          localStorage.getItem('restaurant_' + collName);
         if (!raw) continue;
 
         if (collName === 'settings') {
