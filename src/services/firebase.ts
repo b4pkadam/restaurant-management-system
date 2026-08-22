@@ -2,8 +2,6 @@ import { initializeApp, getApps, getApp, deleteApp, type FirebaseApp } from 'fir
 import {
   getFirestore,
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   type Firestore,
   collection,
   doc,
@@ -54,16 +52,20 @@ export const initFirebase = (customConfig?: FirebaseConfig | null): { app: Fireb
       appInstance = initializeApp(config);
       try {
         dbInstance = initializeFirestore(appInstance, {
-          localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager(),
-          }),
+          experimentalAutoDetectLongPolling: true,
         });
       } catch {
         dbInstance = getFirestore(appInstance);
       }
     } else {
       appInstance = getApp();
-      dbInstance = getFirestore(appInstance);
+      try {
+        dbInstance = initializeFirestore(appInstance, {
+          experimentalAutoDetectLongPolling: true,
+        });
+      } catch {
+        dbInstance = getFirestore(appInstance);
+      }
     }
 
     authInstance = getAuth(appInstance);
