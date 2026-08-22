@@ -65,6 +65,20 @@ export const firebaseSync = {
                   localStorage.setItem(DB_PREFIX + 'settings', JSON.stringify(settingsDoc.data()));
                   window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
                 }
+              } else if (collName === 'tables') {
+                const items = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
+                const uniqueMap = new Map<number, any>();
+                items.forEach((t: any) => {
+                  if (t.number) {
+                    const existing = uniqueMap.get(t.number);
+                    if (!existing || (!existing.currentOrderId && t.currentOrderId)) {
+                      uniqueMap.set(t.number, t);
+                    }
+                  }
+                });
+                const cleanTables = Array.from(uniqueMap.values()).sort((a: any, b: any) => a.number - b.number);
+                localStorage.setItem(DB_PREFIX + 'tables', JSON.stringify(cleanTables));
+                window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'tables' } }));
               } else {
                 const items = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
                 localStorage.setItem(DB_PREFIX + collName, JSON.stringify(items));
@@ -109,8 +123,9 @@ export const firebaseSync = {
     if (!db) return;
 
     try {
-      const docRef = doc(db, collName, docId);
-      await setDoc(docRef, data, { merge: true });
+      const cleanDocId = collName === 'tables' && data?.number ? `table_${data.number}` : docId;
+      const docRef = doc(db, collName, cleanDocId);
+      await setDoc(docRef, { ...data, id: cleanDocId }, { merge: true });
     } catch (error) {
       console.warn(`Cloud sync failed for ${collName}/${docId}:`, error);
     }
@@ -125,7 +140,8 @@ export const firebaseSync = {
     if (!db) return;
 
     try {
-      const docRef = doc(db, collName, docId);
+      const cleanDocId = collName === 'tables' && !docId.startsWith('table_') && !isNaN(Number(docId)) ? `table_${docId}` : docId;
+      const docRef = doc(db, collName, cleanDocId);
       await deleteDoc(docRef);
     } catch (error) {
       console.warn(`Cloud delete failed for ${collName}/${docId}:`, error);
@@ -146,15 +162,14 @@ export const firebaseSync = {
         const raw =
           localStorage.getItem(DB_PREFIX + collName) ||
           localStorage.getItem('restaurant_' + collName);
-        if (!raw) continue;
 
         if (collName === 'settings') {
-          const settings = JSON.parse(raw);
+          const settings = raw ? JSON.parse(raw) : null;
           if (settings) {
             await setDoc(doc(db, 'settings', 'global_settings'), settings, { merge: true });
             totalUploaded += 1;
           }
-        } else {
+        } else if (raw) {
           const items: any[] = JSON.parse(raw);
           if (Array.isArray(items) && items.length > 0) {
             // Write in batches of 400
@@ -162,9 +177,14 @@ export const firebaseSync = {
               const batch = writeBatch(db);
               const slice = items.slice(i, i + 400);
               slice.forEach((item) => {
-                const docId = item.id || String(item.number) || `doc_${Math.random().toString(36).substring(2, 9)}`;
+                let docId = item.id;
+                if (collName === 'tables' && item.number) {
+                  docId = `table_${item.number}`;
+                } else if (!docId) {
+                  docId = item.number !== undefined ? String(item.number) : `doc_${Math.random().toString(36).substring(2, 9)}`;
+                }
                 const docRef = doc(db, collName, docId);
-                batch.set(docRef, item, { merge: true });
+                batch.set(docRef, { ...item, id: docId }, { merge: true });
               });
               await batch.commit();
               totalUploaded += slice.length;

@@ -510,10 +510,21 @@ export const menuItemDB = {
 
 // Table Management
 export const tableDB = {
-  getAll: (): Table[] => getCollection<Table>('tables'),
+  getAll: (): Table[] => {
+    const raw = getCollection<Table>('tables');
+    const uniqueMap = new Map<number, Table>();
+    raw.forEach((t) => {
+      if (!t.number) return;
+      const existing = uniqueMap.get(t.number);
+      if (!existing || (!existing.currentOrderId && t.currentOrderId)) {
+        uniqueMap.set(t.number, t);
+      }
+    });
+    return Array.from(uniqueMap.values()).sort((a, b) => a.number - b.number);
+  },
   
   getById: (id: string): Table | undefined => {
-    return tableDB.getAll().find(t => t.id === id);
+    return tableDB.getAll().find(t => t.id === id || String(t.number) === id || `table_${t.number}` === id);
   },
   
   getByNumber: (number: number): Table | undefined => {
@@ -521,10 +532,10 @@ export const tableDB = {
   },
   
   create: (table: Omit<Table, 'id'>): Table => {
-    const tables = tableDB.getAll();
+    const tables = tableDB.getAll().filter(t => t.number !== table.number);
     const newTable: Table = {
       ...table,
-      id: uuidv4()
+      id: `table_${table.number}`
     };
     tables.push(newTable);
     setCollection('tables', tables);
@@ -533,7 +544,7 @@ export const tableDB = {
   
   update: (id: string, updates: Partial<Table>): Table | null => {
     const tables = tableDB.getAll();
-    const index = tables.findIndex(t => t.id === id);
+    const index = tables.findIndex(t => t.id === id || String(t.number) === id || `table_${t.number}` === id);
     if (index === -1) return null;
     
     tables[index] = { ...tables[index], ...updates };
@@ -543,9 +554,12 @@ export const tableDB = {
   
   delete: (id: string): boolean => {
     const tables = tableDB.getAll();
-    const filtered = tables.filter(t => t.id !== id);
+    const filtered = tables.filter(t => t.id !== id && String(t.number) !== id && `table_${t.number}` !== id);
     if (filtered.length === tables.length) return false;
     setCollection('tables', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('tables', id).catch(() => {});
+    }
     return true;
   }
 };
