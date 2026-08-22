@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { settingsDB, userDB } from '../database/db';
 import { useDbUpdate } from '../hooks/useDbUpdate';
-import { isFirebaseActive, getFirebaseDb } from '../services/firebase';
+import { isFirebaseActive, getFirebaseDb, checkFirebaseHealth } from '../services/firebase';
+import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 
 export const LoginPage: React.FC = () => {
@@ -20,33 +21,38 @@ export const LoginPage: React.FC = () => {
   const { error, success } = useToast();
   const settings = settingsDB.get();
 
-  // On page load, immediately query Cloud Firestore for existing user accounts
+  // On page load, verify cloud reachability before querying Firestore for existing user accounts
   useEffect(() => {
-    if (isFirebaseActive()) {
-      const db = getFirebaseDb();
-      if (db) {
-        getDocs(collection(db, 'users'))
-          .then((snapshot) => {
-            if (!snapshot.empty) {
-              const cloudUsers = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
-              localStorage.setItem('restaurant_db_users', JSON.stringify(cloudUsers));
-              window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
-            }
-          })
-          .catch(() => {});
+    if (hasStoredFirebaseConfig()) {
+      checkFirebaseHealth()
+        .then((health) => {
+          if (!health.isConnected) return;
+          const db = getFirebaseDb();
+          if (db) {
+            getDocs(collection(db, 'users'))
+              .then((snapshot) => {
+                if (!snapshot.empty) {
+                  const cloudUsers = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
+                  localStorage.setItem('restaurant_db_users', JSON.stringify(cloudUsers));
+                  window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
+                }
+              })
+              .catch(() => {});
 
-        getDocs(collection(db, 'settings'))
-          .then((snapshot) => {
-            if (!snapshot.empty) {
-              const settingsDoc = snapshot.docs[0];
-              if (settingsDoc && settingsDoc.exists()) {
-                localStorage.setItem('restaurant_db_settings', JSON.stringify(settingsDoc.data()));
-                window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
-              }
-            }
-          })
-          .catch(() => {});
-      }
+            getDocs(collection(db, 'settings'))
+              .then((snapshot) => {
+                if (!snapshot.empty) {
+                  const settingsDoc = snapshot.docs[0];
+                  if (settingsDoc && settingsDoc.exists()) {
+                    localStorage.setItem('restaurant_db_settings', JSON.stringify(settingsDoc.data()));
+                    window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
+                  }
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 

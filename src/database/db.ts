@@ -65,7 +65,8 @@ export function notifyDbListeners(): void {
 }
 
 import { firebaseSync } from '../services/firebaseSync';
-import { isFirebaseActive } from '../services/firebase';
+import { isFirebaseActive, checkFirebaseHealth, resetFirebaseApp } from '../services/firebase';
+import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 
 // Generic storage functions
 function getCollection<T>(key: string): T[] {
@@ -101,19 +102,22 @@ function setItem<T>(key: string, data: T): void {
 
 // Auto-start real-time cloud synchronization on application launch
 if (typeof window !== 'undefined') {
-  if (isFirebaseActive()) {
+  if (hasStoredFirebaseConfig()) {
     try {
       firebaseSync.start();
+      checkFirebaseHealth().catch(() => {});
     } catch {
       // ignore
     }
   }
 
   window.addEventListener('firebase-config-changed', () => {
-    if (isFirebaseActive()) {
+    if (hasStoredFirebaseConfig()) {
       firebaseSync.start();
+      checkFirebaseHealth().catch(() => {});
     } else {
       firebaseSync.stop();
+      resetFirebaseApp().catch(() => {});
     }
   });
 }

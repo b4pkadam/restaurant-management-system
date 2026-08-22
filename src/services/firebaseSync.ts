@@ -1,15 +1,14 @@
-// Real-time Cloud Firestore Two-Way Sync Engine
 import {
   collection,
   doc,
   setDoc,
   deleteDoc,
   onSnapshot,
-  getDocs,
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { getFirebaseDb, isFirebaseActive } from './firebase';
+import { getFirebaseDb, isFirebaseActive, setFirebaseConnectionStatus } from './firebase';
+import { hasStoredFirebaseConfig } from './firebaseConfig';
 
 const DB_PREFIX = 'restaurant_db_';
 const SYNC_COLLECTIONS = [
@@ -37,12 +36,22 @@ export const firebaseSync = {
    * Start real-time Firestore listeners for all collections
    */
   start: (): void => {
-    if (!isFirebaseActive()) return;
+    if (!hasStoredFirebaseConfig()) {
+      setFirebaseConnectionStatus('disconnected');
+      return;
+    }
+
     const db = getFirebaseDb();
-    if (!db) return;
+    if (!db) {
+      setFirebaseConnectionStatus('error', 'Could not access Firestore database.');
+      return;
+    }
 
     // Clean up any existing listeners
     firebaseSync.stop();
+    setFirebaseConnectionStatus('connecting');
+
+    let listenerErrorFired = false;
 
     SYNC_COLLECTIONS.forEach((collName) => {
       try {
@@ -50,6 +59,9 @@ export const firebaseSync = {
         const unsub = onSnapshot(
           collRef,
           (snapshot) => {
+            // Mark connected on receiving data or empty snapshot
+            setFirebaseConnectionStatus('connected');
+
             if (snapshot.metadata.hasPendingWrites && !snapshot.metadata.fromCache) {
               // Local change pending cloud write, ignore echo
               return;
@@ -89,13 +101,30 @@ export const firebaseSync = {
             }
           },
           (error) => {
-            console.warn(`Firestore listener error on ${collName}:`, error);
+            console.error(`Firestore listener error on ${collName}:`, error);
+            if (!listenerErrorFired) {
+              listenerErrorFired = true;
+              const errorMsg = error?.message || String(error);
+              let friendly = `Firestore listener failed: ${errorMsg}`;
+
+              if (errorMsg.includes('permission-denied') || errorMsg.includes('PERMISSION_DENIED')) {
+                friendly = 'Firebase sync stopped: Permission denied. Project may be deleted or Firestore rules reject access.';
+              } else if (errorMsg.includes('not-found') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('not found')) {
+                friendly = 'Firebase sync stopped: The project does not exist or has been deleted.';
+              } else if (errorMsg.includes('unauthenticated')) {
+                friendly = 'Firebase sync stopped: Authentication failed.';
+              }
+
+              setFirebaseConnectionStatus('error', friendly);
+              firebaseSync.stop();
+            }
           }
         );
 
         activeUnsubscribers.push(unsub);
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`Failed to listen on collection ${collName}:`, err);
+        setFirebaseConnectionStatus('error', err?.message || 'Failed to initialize collection listener');
       }
     });
   },
@@ -127,8 +156,13 @@ export const firebaseSync = {
       const docRef = doc(db, collName, cleanDocId);
       await setDoc(docRef, { ...data, id: cleanDocId }, { merge: true });
       console.log(`[Cloud Sync] Pushed ${collName}/${cleanDocId} to Firestore`);
-    } catch (error) {
+    } catch (error: any) {
       console.warn(`Cloud sync failed for ${collName}/${docId}:`, error);
+      const msg = error?.message || String(error);
+      if (msg.includes('permission-denied') || msg.includes('not-found') || msg.includes('unauthenticated')) {
+        setFirebaseConnectionStatus('error', `Cloud write failed: ${msg}`);
+        firebaseSync.stop();
+      }
     }
   },
 
@@ -145,8 +179,13 @@ export const firebaseSync = {
       const docRef = doc(db, collName, cleanDocId);
       await deleteDoc(docRef);
       console.log(`[Cloud Sync] Deleted ${collName}/${cleanDocId} from Firestore`);
-    } catch (error) {
+    } catch (error: any) {
       console.warn(`Cloud delete failed for ${collName}/${docId}:`, error);
+      const msg = error?.message || String(error);
+      if (msg.includes('permission-denied') || msg.includes('not-found') || msg.includes('unauthenticated')) {
+        setFirebaseConnectionStatus('error', `Cloud delete failed: ${msg}`);
+        firebaseSync.stop();
+      }
     }
   },
 
@@ -154,8 +193,15 @@ export const firebaseSync = {
    * Seed / Upload all local data to Firestore in one batch
    */
   uploadLocalDataToCloud: async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!hasStoredFirebaseConfig()) {
+      return { success: false, count: 0, error: 'No Firebase cloud configuration found. Please enter and save your credentials first.' };
+    }
+
     const db = getFirebaseDb();
-    if (!db) return { success: false, count: 0, error: 'Firebase is not connected' };
+    if (!db) {
+      setFirebaseConnectionStatus('error', 'Firebase database is not connected.');
+      return { success: false, count: 0, error: 'Firebase is not connected' };
+    }
 
     try {
       let totalUploaded = 0;
@@ -195,9 +241,12 @@ export const firebaseSync = {
         }
       }
 
+      setFirebaseConnectionStatus('connected');
       return { success: true, count: totalUploaded };
     } catch (err: any) {
-      return { success: false, count: 0, error: err?.message || 'Failed to upload data to Firebase' };
+      const errMsg = err?.message || 'Failed to upload data to Firebase';
+      setFirebaseConnectionStatus('error', errMsg);
+      return { success: false, count: 0, error: errMsg };
     }
   },
 };

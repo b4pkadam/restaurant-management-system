@@ -35,8 +35,23 @@ import {
   Database,
   Check,
 } from 'lucide-react';
-import { getStoredFirebaseConfig, saveStoredFirebaseConfig, parseFirebaseConfigSnippet, type FirebaseConfig } from '../services/firebaseConfig';
-import { isFirebaseActive, initFirebase, testFirebaseConnection } from '../services/firebase';
+import {
+  getStoredFirebaseConfig,
+  saveStoredFirebaseConfig,
+  parseFirebaseConfigSnippet,
+  hasStoredFirebaseConfig,
+  type FirebaseConfig,
+} from '../services/firebaseConfig';
+import {
+  isFirebaseActive,
+  initFirebase,
+  testFirebaseConnection,
+  checkFirebaseHealth,
+  subscribeFirebaseStatus,
+  getFirebaseConnectionState,
+  resetFirebaseApp,
+  type FirebaseConnectionState,
+} from '../services/firebase';
 import { firebaseSync } from '../services/firebaseSync';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
@@ -2447,9 +2462,21 @@ export function SettingsPage() {
     );
   });
   const [rawFirebaseJson, setRawFirebaseJson] = useState('');
-  const [isFirebaseConnected, setIsFirebaseConnected] = useState(() => isFirebaseActive());
+  const [cloudState, setCloudState] = useState<FirebaseConnectionState>(() => getFirebaseConnectionState());
   const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeFirebaseStatus((state) => {
+      setCloudState(state);
+    });
+
+    if (hasStoredFirebaseConfig()) {
+      checkFirebaseHealth();
+    }
+
+    return () => unsub();
+  }, []);
 
   const handleSaveFirebaseConfig = async () => {
     let current = { ...firebaseConfig };
@@ -2489,14 +2516,57 @@ export function SettingsPage() {
         saveStoredFirebaseConfig(configToSave);
         initFirebase(configToSave);
         firebaseSync.start();
-        setIsFirebaseConnected(true);
         success(testResult.message);
       } else {
-        setIsFirebaseConnected(false);
         error(testResult.message);
       }
     } catch (err: any) {
       error(err?.message || 'Failed to connect to Firebase.');
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleTestOnlyConnection = async () => {
+    let current = { ...firebaseConfig };
+    if (rawFirebaseJson.trim()) {
+      const extracted = parseFirebaseConfigSnippet(rawFirebaseJson);
+      current = {
+        apiKey: (extracted.apiKey || current.apiKey || '').trim(),
+        authDomain: (extracted.authDomain || current.authDomain || '').trim(),
+        projectId: (extracted.projectId || current.projectId || '').trim(),
+        appId: (extracted.appId || current.appId || '').trim(),
+        storageBucket: (extracted.storageBucket || current.storageBucket || '').trim(),
+        messagingSenderId: (extracted.messagingSenderId || current.messagingSenderId || '').trim(),
+        databaseURL: (extracted.databaseURL || current.databaseURL || '').trim(),
+      };
+    }
+
+    if (!current.apiKey.trim() || !current.projectId.trim()) {
+      error('Please enter at least your Firebase API Key and Project ID to test.');
+      return;
+    }
+
+    setIsTestingConnection(true);
+    try {
+      const configToTest: FirebaseConfig = {
+        apiKey: current.apiKey.trim(),
+        authDomain: current.authDomain.trim() || `${current.projectId.trim()}.firebaseapp.com`,
+        projectId: current.projectId.trim(),
+        appId: current.appId.trim(),
+        storageBucket: current.storageBucket?.trim() || `${current.projectId.trim()}.appspot.com`,
+        messagingSenderId: current.messagingSenderId?.trim() || '',
+        databaseURL: current.databaseURL?.trim() || '',
+      };
+
+      const testResult = await testFirebaseConnection(configToTest);
+      if (testResult.success) {
+        success(testResult.message);
+      } else {
+        error(testResult.message);
+      }
+    } catch (err: any) {
+      error(err?.message || 'Connection test failed.');
     } finally {
       setIsTestingConnection(false);
     }
@@ -2521,10 +2591,10 @@ export function SettingsPage() {
     }
   };
 
-  const handleDisconnectFirebase = () => {
+  const handleDisconnectFirebase = async () => {
     saveStoredFirebaseConfig(null);
+    await resetFirebaseApp();
     firebaseSync.stop();
-    setIsFirebaseConnected(false);
     setFirebaseConfig({
       apiKey: '',
       authDomain: '',
@@ -2801,12 +2871,25 @@ export function SettingsPage() {
             </div>
           </div>
           <div>
-            {isFirebaseConnected ? (
+            {cloudState.status === 'connected' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 Cloud Connected (Live Sync Active)
               </span>
-            ) : (
+            )}
+            {cloudState.status === 'connecting' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3.5 py-1 text-xs font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                Verifying Cloud Connection...
+              </span>
+            )}
+            {cloudState.status === 'error' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+                <span className="h-2 w-2 rounded-full bg-rose-500"></span>
+                Cloud Error (Sync Inactive)
+              </span>
+            )}
+            {cloudState.status === 'disconnected' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
                 <span className="h-2 w-2 rounded-full bg-amber-500"></span>
                 Offline Local Mode (Browser Storage)
@@ -2814,6 +2897,42 @@ export function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* Cloud Error Alert Box */}
+        {cloudState.status === 'error' && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+              <div>
+                <p className="font-bold">Cloud Connection / Project Inaccessible</p>
+                <p className="text-rose-700 dark:text-rose-300 mt-0.5">
+                  {cloudState.errorMessage || 'Unable to connect to Google Firebase Cloud Firestore. The project may have been deleted, disabled, or Firestore rules are preventing sync.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs border-rose-300 hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-900/50"
+                onClick={() => checkFirebaseHealth()}
+                isLoading={cloudState.status === 'connecting'}
+                leftIcon={<RefreshCw size={13} />}
+              >
+                Re-check Health
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                className="text-xs"
+                onClick={handleDisconnectFirebase}
+                leftIcon={<Trash2 size={13} />}
+              >
+                Disconnect / Switch Offline
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Quick Paste JSON Box */}
         <div className="space-y-2 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
@@ -2881,7 +3000,15 @@ export function SettingsPage() {
             >
               Save & Connect Cloud
             </Button>
-            {isFirebaseConnected && (
+            <Button
+              variant="outline"
+              onClick={handleTestOnlyConnection}
+              isLoading={isTestingConnection}
+              leftIcon={<RefreshCw size={16} />}
+            >
+              Test Connection
+            </Button>
+            {cloudState.status === 'connected' && (
               <Button
                 variant="outline"
                 className="font-semibold text-emerald-700 border-emerald-300 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
@@ -2893,7 +3020,7 @@ export function SettingsPage() {
               </Button>
             )}
           </div>
-          {isFirebaseConnected && (
+          {(hasStoredFirebaseConfig() || Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)) && (
             <Button variant="danger" size="sm" onClick={handleDisconnectFirebase} leftIcon={<Trash2 size={14} />}>
               Disconnect Cloud
             </Button>
