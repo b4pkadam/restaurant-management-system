@@ -282,6 +282,10 @@ export const userDB = {
     };
     users.push(newUser);
     setCollection('users', users);
+    authRateLimiter.resetAttempts(newUser.username);
+    if (isFirebaseActive()) {
+      firebaseSync.pushDoc('users', newUser.id, newUser).catch(() => {});
+    }
     return newUser;
   },
   
@@ -296,6 +300,10 @@ export const userDB = {
     
     users[index] = { ...users[index], ...updates };
     setCollection('users', users);
+    authRateLimiter.resetAttempts(users[index].username);
+    if (isFirebaseActive()) {
+      firebaseSync.pushDoc('users', users[index].id, users[index]).catch(() => {});
+    }
     return users[index];
   },
   
@@ -304,6 +312,9 @@ export const userDB = {
     const filtered = users.filter(u => u.id !== id);
     if (filtered.length === users.length) return false;
     setCollection('users', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('users', id).catch(() => {});
+    }
     return true;
   },
   

@@ -1436,7 +1436,7 @@ export function TableManagementPage() {
       <SectionHeader
         title="Table Management"
         description="Create tables, manage occupancy, reservations, and move orders between tables."
-        action={canManageTableStructure(user?.role) ? <Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button> : undefined}
+        action={<Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button>}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -1494,15 +1494,12 @@ export function TableManagementPage() {
             })()}
 
             <div className="grid grid-cols-2 gap-2">
-              {canManageTableStructure(user?.role) ? (
-                <Button variant="outline" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>Edit</Button>
-              ) : (
-                <div />
-              )}
+              <Button variant="outline" size="sm" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>Edit</Button>
 
-              {canOperateTables(user?.role) && table.status === 'available' ? (
+              {table.status === 'available' ? (
                 <Button
                   variant="secondary"
+                  size="sm"
                   onClick={() => {
                     setSelectedTable(table);
                     setReservationForm({ customerName: '', customerPhone: '', reservationTime: '', partySize: String(table.capacity) });
@@ -1511,25 +1508,22 @@ export function TableManagementPage() {
                 >
                   Reserve
                 </Button>
-              ) : canOperateTables(user?.role) && table.status === 'reserved' ? (
-                <Button variant="secondary" onClick={() => clearReservation(table)}>Clear</Button>
-              ) : canOperateTables(user?.role) ? (
-                <Button variant="secondary" onClick={() => tableDB.update(table.id, { status: table.status === 'cleaning' ? 'available' : 'cleaning' }) || loadTables()}>
+              ) : table.status === 'reserved' ? (
+                <Button variant="secondary" size="sm" onClick={() => clearReservation(table)}>Clear</Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={() => tableDB.update(table.id, { status: table.status === 'cleaning' ? 'available' : 'cleaning' }) || loadTables()}>
                   {table.status === 'cleaning' ? 'Ready' : 'Cleaning'}
                 </Button>
-              ) : (
-                <div />
               )}
 
-              {canOperateTables(user?.role) && table.status === 'occupied' ? (
-                <Button variant="outline" onClick={() => moveOrder(table)} leftIcon={<ArrowRightLeft size={14} />}>Move</Button>
-              ) : canManageTableStructure(user?.role) ? (
-                <Button variant="ghost" onClick={() => deleteTable(table)} leftIcon={<Trash2 size={14} />}>Delete</Button>
+              {table.status === 'occupied' ? (
+                <Button variant="outline" size="sm" onClick={() => moveOrder(table)} leftIcon={<ArrowRightLeft size={14} />}>Move</Button>
               ) : (
-                <div />
+                <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => deleteTable(table)} leftIcon={<Trash2 size={14} />}>Delete</Button>
               )}
               <Button
                 variant="secondary"
+                size="sm"
                 className="col-span-2"
                 onClick={() => { setQrTableNumber(table.number); setShowQRModal(true); }}
                 leftIcon={<QrCode size={14} />}
@@ -2931,18 +2925,12 @@ export function SettingsPage() {
 }
 
 export function UserManagementPage() {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { success, error } = useToast();
-  const [users, setUsers] = useState<User[]>([]);
+  const users = useMemo(() => userDB.getAll(), [tick]);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [form, setForm] = useState({ username: '', password: '', role: 'manager' as UserRole, isActive: true });
-
-  const loadUsers = () => setUsers(userDB.getAll());
-
-  useEffect(() => {
-    loadUsers();
-  }, []);
 
   const openModal = (user?: User) => {
     if (user) {
@@ -2964,9 +2952,9 @@ export function UserManagementPage() {
       error('Please enter a password.');
       return;
     }
-    const existing = users.find((user) => user.username.toLowerCase() === form.username.trim().toLowerCase() && user.id !== editingUser?.id);
+    const existing = userDB.getAll().find((user) => user.username.toLowerCase() === form.username.trim().toLowerCase() && user.id !== editingUser?.id);
     if (existing) {
-      error('Username already exists.');
+      error(`Username "${form.username.trim()}" already exists. Please choose another username or edit the existing account.`);
       return;
     }
 
@@ -2977,29 +2965,27 @@ export function UserManagementPage() {
         isActive: form.isActive,
         ...(form.password.trim() ? { password: form.password.trim() } : {}),
       });
-      success('User updated successfully.');
+      success(`User "${form.username.trim()}" (${form.role.toUpperCase()}) updated successfully.`);
     } else {
       userDB.create({ username: form.username.trim(), password: form.password.trim(), role: form.role, isActive: form.isActive });
-      success('User created successfully.');
+      success(`User "${form.username.trim()}" created as ${form.role.toUpperCase()} successfully.`);
     }
 
     setShowModal(false);
-    loadUsers();
   };
 
   const deleteUser = (user: User) => {
     if (!window.confirm(`Delete user ${user.username}?`)) return;
     userDB.delete(user.id);
     success('User deleted.');
-    loadUsers();
   };
 
   const roleDescriptions: Record<UserRole, { label: string; desc: string; color: string }> = {
     admin: { label: 'Admin', desc: 'Full access to all 12 modules & settings', color: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300' },
     manager: { label: 'Manager', desc: 'POS, Orders, Kitchen, Menu, Inventory, Staff & Reports', color: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300' },
     cashier: { label: 'Cashier', desc: 'POS billing, live orders, tables & dashboard', color: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300' },
-    waiter: { label: 'Waiter', desc: 'Table management, customer orders, POS & kitchen view', color: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300' },
-    chef: { label: 'Chef', desc: 'Kitchen Display System, order preparation & stock', color: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/60 dark:text-red-300' },
+    waiter: { label: 'Waiter', desc: 'Table management, customer orders, POS billing', color: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300' },
+    chef: { label: 'Chef', desc: 'Kitchen Display System & orders', color: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/60 dark:text-red-300' },
   };
 
   return (
@@ -3057,7 +3043,7 @@ export function UserManagementPage() {
         ]}
         data={users}
         keyExtractor={(user) => user.id}
-        emptyMessage="No users found"
+        emptyMessage="No users found. Click 'Add User' to create a manager, waiter, chef, or cashier account."
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUser ? 'Edit User Account' : 'Add New Staff User'}>
@@ -3065,11 +3051,23 @@ export function UserManagementPage() {
           <Input label="Username" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} placeholder="e.g. manager1 or john" />
           <Input label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="At least 6 characters" />
           
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Select Role & Access Level
             </label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <select
+              value={form.role}
+              onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as UserRole }))}
+              className="w-full rounded-xl border border-gray-300 bg-white p-2.5 text-sm font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white cursor-pointer"
+            >
+              <option value="admin">Admin — 👑 Master Access (All Modules + Users & Settings)</option>
+              <option value="manager">Manager — 💼 Operations (POS, Orders, Kitchen, Menu, Inventory, Staff & Reports)</option>
+              <option value="cashier">Cashier — 💳 Counter Billing (POS, Orders, Tables & Dashboard)</option>
+              <option value="waiter">Waiter — 🍽️ Floor Staff (Tables, Orders, POS Billing)</option>
+              <option value="chef">Chef — 👨‍🍳 Kitchen Team (Kitchen Display & Orders)</option>
+            </select>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1">
               {(Object.keys(roleDescriptions) as UserRole[]).map((r) => {
                 const info = roleDescriptions[r];
                 const isSelected = form.role === r;

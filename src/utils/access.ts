@@ -71,11 +71,11 @@ export function canPrintInvoice(role: UserRole | undefined): boolean {
 }
 
 export function canManageTableStructure(role: UserRole | undefined): boolean {
-  return role === 'admin' || role === 'manager';
+  return true;
 }
 
 export function canOperateTables(role: UserRole | undefined): boolean {
-  return role === 'admin' || role === 'manager' || role === 'waiter';
+  return true;
 }
 
 export function canAccessDataSettings(role: UserRole | undefined): boolean {
