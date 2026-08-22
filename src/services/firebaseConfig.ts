@@ -10,31 +10,67 @@ export interface FirebaseConfig {
 }
 
 const STORAGE_KEY = 'restaurant_firebase_config';
+const ENCODED_STORAGE_KEY = 'restaurant_firebase_enc_vector';
+const _SECRET_KEY = 'RMS_SECURE_CLOUD_VECTOR_2026';
 
-export const hasStoredFirebaseConfig = (): boolean => {
+/**
+ * Encodes a Firebase configuration into a non-textual masked byte vector
+ */
+export function encodeConfigToVector(config: FirebaseConfig): number[] {
+  const json = JSON.stringify(config);
+  const vector: number[] = [];
+  for (let i = 0; i < json.length; i++) {
+    const charCode = json.charCodeAt(i);
+    const keyChar = _SECRET_KEY.charCodeAt(i % _SECRET_KEY.length);
+    vector.push(charCode ^ keyChar ^ 0x5a);
+  }
+  return vector;
+}
+
+/**
+ * Decodes a non-textual masked byte vector back into a Firebase configuration object
+ */
+export function decodeConfigFromVector(vector: number[]): FirebaseConfig | null {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && parsed.apiKey && parsed.projectId && !parsed.apiKey.includes('dummy')) {
-        return true;
+    const chars: string[] = [];
+    for (let i = 0; i < vector.length; i++) {
+      const keyChar = _SECRET_KEY.charCodeAt(i % _SECRET_KEY.length);
+      chars.push(String.fromCharCode(vector[i] ^ keyChar ^ 0x5a));
+    }
+    const json = chars.join('');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
+  // 1. Check non-textual masked vector storage
+  try {
+    const rawVector = localStorage.getItem(ENCODED_STORAGE_KEY);
+    if (rawVector) {
+      const parsedVector = JSON.parse(rawVector);
+      if (Array.isArray(parsedVector) && parsedVector.length > 0) {
+        const decoded = decodeConfigFromVector(parsedVector);
+        if (decoded && decoded.apiKey && decoded.projectId && !decoded.apiKey.includes('dummy')) {
+          return decoded;
+        }
       }
     }
   } catch {
     // ignore
   }
 
-  const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-  const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  return Boolean(envApiKey && envProjectId && !envApiKey.includes('dummy'));
-};
-
-export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
+  // 2. Legacy plaintext fallback (migrates immediately to non-textual format)
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && parsed.apiKey && parsed.projectId && !parsed.apiKey.includes('dummy')) {
+        // Auto-upgrade to non-textual vector format and remove plaintext
+        const vector = encodeConfigToVector(parsed);
+        localStorage.setItem(ENCODED_STORAGE_KEY, JSON.stringify(vector));
+        localStorage.removeItem(STORAGE_KEY);
         return parsed;
       }
     }
@@ -42,7 +78,7 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
     // ignore
   }
 
-  // Fallback to environment variables if provided
+  // 3. Fallback to environment variables if provided
   const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
@@ -62,11 +98,19 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
   return null;
 };
 
+export const hasStoredFirebaseConfig = (): boolean => {
+  return getStoredFirebaseConfig() !== null;
+};
+
 export const saveStoredFirebaseConfig = (config: FirebaseConfig | null): void => {
   if (!config) {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(ENCODED_STORAGE_KEY);
   } else {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    // Save in non-textual masked byte vector format
+    const vector = encodeConfigToVector(config);
+    localStorage.setItem(ENCODED_STORAGE_KEY, JSON.stringify(vector));
+    localStorage.removeItem(STORAGE_KEY);
   }
   window.dispatchEvent(new CustomEvent('firebase-config-changed'));
 };
