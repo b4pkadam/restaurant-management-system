@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { settingsDB, userDB } from '../database/db';
 import { useDbUpdate } from '../hooks/useDbUpdate';
+import { isFirebaseActive, getFirebaseDb } from '../services/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 export const LoginPage: React.FC = () => {
   useDbUpdate();
@@ -17,6 +19,36 @@ export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const { error, success } = useToast();
   const settings = settingsDB.get();
+
+  // On page load, immediately query Cloud Firestore for existing user accounts
+  useEffect(() => {
+    if (isFirebaseActive()) {
+      const db = getFirebaseDb();
+      if (db) {
+        getDocs(collection(db, 'users'))
+          .then((snapshot) => {
+            if (!snapshot.empty) {
+              const cloudUsers = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
+              localStorage.setItem('restaurant_db_users', JSON.stringify(cloudUsers));
+              window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
+            }
+          })
+          .catch(() => {});
+
+        getDocs(collection(db, 'settings'))
+          .then((snapshot) => {
+            if (!snapshot.empty) {
+              const settingsDoc = snapshot.docs[0];
+              if (settingsDoc && settingsDoc.exists()) {
+                localStorage.setItem('restaurant_db_settings', JSON.stringify(settingsDoc.data()));
+                window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
+              }
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, []);
 
   const users = userDB.getAll();
   const isFirstTimeSetup = users.length === 0;
