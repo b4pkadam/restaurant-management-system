@@ -44,9 +44,13 @@ export const LoginPage: React.FC = () => {
       <div className="w-full max-w-md">
         {/* Logo and Title */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl shadow-lg mb-4">
-            <UtensilsCrossed className="w-8 h-8 text-white" />
-          </div>
+          {settings.restaurantLogo ? (
+            <img src={settings.restaurantLogo} alt="Logo" className="inline-block w-20 h-20 rounded-2xl shadow-lg mb-4 object-cover border-2 border-white dark:border-gray-700 bg-white" />
+          ) : (
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl shadow-lg mb-4">
+              <UtensilsCrossed className="w-8 h-8 text-white" />
+            </div>
+          )}
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             {settings.restaurantName}
           </h1>

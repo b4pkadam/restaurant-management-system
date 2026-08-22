@@ -28,6 +28,7 @@ export function QRCodeModal({ isOpen, onClose, tableNumber }: QRCodeModalProps) 
         <head><title>Table ${tableNumber} QR Code</title></head>
         <body style="font-family:Arial,sans-serif;text-align:center;padding:40px;">
           <div style="max-width:400px;margin:0 auto;border:3px solid #111;border-radius:24px;padding:40px 32px;">
+            ${settings.restaurantLogo ? `<img src="${settings.restaurantLogo}" alt="Logo" style="width:64px;height:64px;object-fit:cover;border-radius:14px;margin-bottom:12px;" />` : ''}
             <h1 style="margin:0 0 8px;font-size:24px;">${settings.restaurantName}</h1>
             <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Scan to order from your phone</p>
             <div style="display:flex;justify-content:center;margin-bottom:24px;" id="qr-container"></div>

@@ -12,6 +12,8 @@ import { settingsDB } from '../../database/db';
 import type { UserRole } from '../../types';
 import { canViewPage, type AppPage } from '../../utils/access';
 
+import { useDbUpdate } from '../../hooks/useDbUpdate';
+
 type Page = AppPage;
 
 interface SidebarProps {
@@ -27,10 +29,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse
 }) => {
+  const tick = useDbUpdate();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { unreadCount } = useNotifications();
-  const settings = settingsDB.get();
+  const settings = React.useMemo(() => settingsDB.get(), [tick]);
 
   const menuItems: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier'] },
@@ -62,15 +65,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'flex items-center h-16 px-4 border-b border-gray-200 dark:border-gray-800',
         isCollapsed ? 'justify-center' : 'justify-between'
       )}>
-        {!isCollapsed && (
+        {!isCollapsed ? (
           <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
-              <UtensilsCrossed className="w-5 h-5 text-white" />
-            </div>
+            {settings.restaurantLogo ? (
+              <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-gray-200 dark:border-gray-700 shadow-xs" />
+            ) : (
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
+                <UtensilsCrossed className="w-5 h-5 text-white" />
+              </div>
+            )}
             <span className="font-bold text-gray-900 dark:text-white truncate block min-w-0" title={settings.restaurantName}>
               {settings.restaurantName}
             </span>
           </div>
+        ) : (
+          settings.restaurantLogo ? (
+            <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shadow-xs" />
+          ) : (
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-xs">
+              <UtensilsCrossed className="w-5 h-5 text-white" />
+            </div>
+          )
         )}
         <button
           onClick={onToggleCollapse}

@@ -468,8 +468,14 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
               >
                 <ArrowLeft size={20} />
               </button>
+            ) : settings.restaurantLogo ? (
+              <img
+                src={settings.restaurantLogo}
+                alt="Logo"
+                className="h-10 w-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700 shadow-md bg-white shrink-0"
+              />
             ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold shadow-md">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold shadow-md shrink-0">
                 {tableNumber}
               </div>
             )}

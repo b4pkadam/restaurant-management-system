@@ -29,6 +29,8 @@ import {
   UserCog,
   Users,
   UtensilsCrossed,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
@@ -673,7 +675,15 @@ export function OrdersManagementPage() {
       return;
     }
 
-    orderDB.complete(payingOrder.id);
+    const isAllItemsServed = payingOrder.items.length > 0 && payingOrder.items.every((i) => i.status === 'served');
+    const nextStatus = isAllItemsServed ? 'completed' : payingOrder.status;
+
+    const updated = orderDB.update(payingOrder.id, {
+      status: nextStatus,
+      paymentStatus: 'paid',
+      isPaid: true,
+      completedAt: isAllItemsServed ? new Date().toISOString() : undefined,
+    });
 
     const payRecord = paymentDB.create({
       orderId: payingOrder.id,
@@ -684,14 +694,18 @@ export function OrdersManagementPage() {
       receivedBy: user?.username || 'Staff',
     });
 
-    if (payingOrder.tableId) {
-      tableDB.update(payingOrder.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+    if (isAllItemsServed) {
+      if (payingOrder.tableId) {
+        tableDB.update(payingOrder.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+      }
+      addNotification('order', 'Payment & Order Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
+      success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed! Table is now Available.`);
+    } else {
+      addNotification('order', 'Payment Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed. Order remains in kitchen until served.`);
+      success(`Payment of ${currency(payingOrder.total)} received! Order remains active in Kitchen Display until fully served.`);
     }
 
-    addNotification('order', 'Payment Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
-    success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed!`);
-
-    printInvoice(payingOrder, payRecord);
+    printInvoice(updated || payingOrder, payRecord);
     setPayingOrder(null);
     loadOrders();
   };
@@ -2426,6 +2440,67 @@ export function SettingsPage() {
     success('Settings saved successfully.');
   };
 
+  const handleLogoUpload = (file: File | null) => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      error('Please select a valid image file (PNG, JPG, SVG, WebP).');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      error('Image file is too large. Please choose an image under 5MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (!result) return;
+
+      // Compress and resize image using Canvas for optimal localStorage usage
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/png');
+          setForm((prev) => ({ ...prev, restaurantLogo: compressedDataUrl }));
+          success('Logo photo loaded! Click "Save Settings" to apply.');
+        } else {
+          setForm((prev) => ({ ...prev, restaurantLogo: result }));
+          success('Logo photo loaded! Click "Save Settings" to apply.');
+        }
+      };
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    setForm((prev) => ({ ...prev, restaurantLogo: undefined }));
+    info('Logo removed. Click "Save Settings" to apply.');
+  };
+
   const importBackup = async (file: File | null) => {
     if (!file) return;
     setIsImporting(true);
@@ -2455,9 +2530,86 @@ export function SettingsPage() {
     <div className="space-y-6">
       <SectionHeader
         title="Application Settings"
-        description="Configure restaurant details, tax, theme, language, backup and restore options."
+        description="Configure restaurant details, logo, tax, theme, language, backup and restore options."
         action={<Button onClick={saveSettings} leftIcon={<Save size={16} />}>Save Settings</Button>}
       />
+
+      {/* Restaurant Logo & Branding Section */}
+      <Card className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Restaurant Logo & Photo</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Upload your official restaurant logo photo to show across the Sidebar, Login page, QR Menu, and Printed Receipts.
+            </p>
+          </div>
+          {form.restaurantLogo ? (
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+              ✓ Logo Active
+            </span>
+          ) : (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+              ⏳ Default Icon
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
+          {/* Logo Placeholder / Preview Box */}
+          <div className="flex flex-col items-center justify-center shrink-0">
+            {form.restaurantLogo ? (
+              <div className="relative group">
+                <img
+                  src={form.restaurantLogo}
+                  alt="Restaurant Logo"
+                  className="h-28 w-28 rounded-2xl object-cover border-2 border-blue-500 shadow-md bg-white p-1"
+                />
+                <button
+                  type="button"
+                  onClick={handleRemoveLogo}
+                  className="absolute -top-2 -right-2 rounded-full bg-rose-600 p-1 text-white shadow-lg hover:bg-rose-700 transition-transform active:scale-90 cursor-pointer"
+                  title="Remove Logo"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex h-28 w-28 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 p-3 text-center dark:border-gray-700 dark:bg-gray-800/60 shadow-xs">
+                <ImageIcon className="h-8 w-8 text-gray-400 mb-1" />
+                <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 leading-tight">
+                  Logo Placeholder
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Upload Controls & Instructions */}
+          <div className="flex-1 space-y-3">
+            <div className="flex flex-wrap gap-2.5">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 active:scale-95 transition-all shadow-xs">
+                <Upload size={16} />
+                {form.restaurantLogo ? 'Change Photo' : 'Upload Photo'}
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg, image/webp, image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => handleLogoUpload(e.target.files?.[0] || null)}
+                />
+              </label>
+              {form.restaurantLogo && (
+                <Button variant="danger" onClick={handleRemoveLogo} leftIcon={<Trash2 size={16} />}>
+                  Remove Logo
+                </Button>
+              )}
+            </div>
+            <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+              <p>• Supported formats: PNG, JPG, WebP, SVG (Max 5MB).</p>
+              <p>• Recommended: Square ratio (e.g. 512×512px) with clean transparent or solid background.</p>
+              <p>• Auto-compressed and optimized for lightning fast local storage and real-time synchronization.</p>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card className="space-y-4">

@@ -72,10 +72,13 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
       <body>
         <div class="container">
           <div class="header">
-            <div>
-              <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">${settings.restaurantName}</h1>
-              <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${settings.restaurantAddress || ''}</p>
-              <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${settings.restaurantPhone || 'N/A'}${settings.gstNumber ? ` | GST: ${settings.gstNumber}` : ''}</p>
+            <div style="display:flex;align-items:center;gap:14px;">
+              ${settings.restaurantLogo ? `<img src="${settings.restaurantLogo}" alt="Logo" style="width:58px;height:58px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />` : ''}
+              <div>
+                <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">${settings.restaurantName}</h1>
+                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${settings.restaurantAddress || ''}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${settings.restaurantPhone || 'N/A'}${settings.gstNumber ? ` | GST: ${settings.gstNumber}` : ''}</p>
+              </div>
             </div>
             <div style="text-align:right;">
               <div style="margin-bottom:6px;">

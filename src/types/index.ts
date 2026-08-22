@@ -182,6 +182,7 @@ export type ThemeMode = 'light' | 'dark';
 
 export interface AppSettings {
   restaurantName: string;
+  restaurantLogo?: string;
   restaurantAddress: string;
   restaurantPhone: string;
   gstNumber: string;
