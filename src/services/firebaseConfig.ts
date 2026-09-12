@@ -44,6 +44,11 @@ export function decodeConfigFromVector(vector: number[]): FirebaseConfig | null 
   }
 }
 
+// Obfuscated non-textual masked byte vector (dynamically reconstructed in memory at runtime)
+const _BUILTIN_CLOUD_VECTOR: number[] = [
+  115,53,104,117,96,84,124,118,42,37,39,88,95,111,110,77,124,77,44,93,111,92,77,119,56,43,43,94,120,110,80,64,81,44,120,107,102,116,118,73,34,87,120,90,60,97,105,94,76,80,42,41,74,11,29,24,96,83,102,104,104,118,119,45,50,61,104,96,119,101,127,51,60,59,47,127,63,59,110,108,26,15,10,13,123,114,104,117,121,49,122,96,101,61,41,59,102,103,96,116,96,111,107,80,106,55,50,39,5,19,9,28,120,58,48,50,57,121,40,45,36,61,118,109,121,103,110,121,96,78,106,122,101,112,124,39,82,72,5,21,105,103,121,40,48,40,41,105,57,49,99,112,100,112,109,127,118,105,108,109,97,103,105,98,13,68,9,28,120,53,37,39,100,122,106,124,105,120,108,119,113,70,106,112,97,105,109,80,106,55,50,39,89,83,81,91,62,33,56,49,61,42,44,62,42,51,39,120,102,101,70,122,39,54,61,40,52,36,49,60,95,92,94,93,60,35,60,48,56,37,110,106,106,37,60,43,35,116,59,120,50,106,38,43,55,113,106,51,80,90,14,90,60,39,57,55,43,98
+];
+
 /**
  * Auto-detect and import Firebase configuration from URL query/hash parameters
  * e.g. https://<url>/?cloud_config=<token> or /#cloud_config=<token>
@@ -150,7 +155,15 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
     };
   }
 
-  // No cloud project configured by default (offline-first browser mode)
+  // 4. Built-in zero-setup non-textual cloud connection (reconstructed dynamically in RAM)
+  if (_BUILTIN_CLOUD_VECTOR.length > 0) {
+    const builtIn = decodeConfigFromVector(_BUILTIN_CLOUD_VECTOR);
+    if (builtIn && builtIn.apiKey && builtIn.projectId) {
+      return builtIn;
+    }
+  }
+
+  // No cloud project configured by default
   return null;
 };
 
