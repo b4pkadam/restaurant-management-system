@@ -44,7 +44,63 @@ export function decodeConfigFromVector(vector: number[]): FirebaseConfig | null 
   }
 }
 
+/**
+ * Auto-detect and import Firebase configuration from URL query/hash parameters
+ * e.g. https://<url>/?cloud_config=<token> or /#cloud_config=<token>
+ */
+export function importConfigFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.replace(/^#/, '');
+    const hashParams = new URLSearchParams(hash.includes('?') ? hash.split('?')[1] : hash);
+    const raw = searchParams.get('cloud_config') || hashParams.get('cloud_config');
+    if (raw) {
+      let parsed: FirebaseConfig | null = null;
+      try {
+        parsed = JSON.parse(decodeURIComponent(atob(raw)));
+      } catch {
+        try {
+          parsed = JSON.parse(decodeURIComponent(raw));
+        } catch {
+          // ignore
+        }
+      }
+      if (parsed && parsed.apiKey && parsed.projectId && !parsed.apiKey.includes('dummy')) {
+        saveStoredFirebaseConfig(parsed);
+        // Clean URL parameter without page refresh
+        const cleanUrl = window.location.pathname + (window.location.search.replace(/[?&]cloud_config=[^&]+/, '') || '');
+        window.history.replaceState({}, document.title, cleanUrl);
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export function getShareableConnectionUrl(): string | null {
+  const config = getStoredFirebaseConfig();
+  if (!config || typeof window === 'undefined') return null;
+  try {
+    const payload = btoa(encodeURIComponent(JSON.stringify(config)));
+    const basePath = window.location.pathname.replace(/\/+$/, '');
+    return `${window.location.origin}${basePath}#cloud_config=${payload}`;
+  } catch {
+    return null;
+  }
+}
+
+// Check URL parameters on module load
+if (typeof window !== 'undefined') {
+  importConfigFromUrl();
+}
+
 export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
+  // 0. Check URL parameter
+  importConfigFromUrl();
+
   // 1. Check non-textual masked vector storage
   try {
     const rawVector = localStorage.getItem(ENCODED_STORAGE_KEY);

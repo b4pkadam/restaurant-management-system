@@ -12,7 +12,10 @@ import {
   RefreshCw,
   Trash2,
   Settings,
+  Share2,
+  QrCode,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
@@ -35,6 +38,7 @@ import {
   saveStoredFirebaseConfig,
   hasStoredFirebaseConfig,
   parseFirebaseConfigSnippet,
+  getShareableConnectionUrl,
   type FirebaseConfig,
 } from '../services/firebaseConfig';
 import { firebaseSync } from '../services/firebaseSync';
@@ -71,6 +75,7 @@ export const LoginPage: React.FC = () => {
   const [modalRawJson, setModalRawJson] = useState('');
   const [isModalTesting, setIsModalTesting] = useState(false);
   const [isModalSaving, setIsModalSaving] = useState(false);
+  const [showPairingQR, setShowPairingQR] = useState(false);
 
   const { login } = useAuth();
   const { error, success, info } = useToast();
@@ -583,6 +588,59 @@ export const LoginPage: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* 1-Click New Device Pairing (Shareable Link & QR) */}
+          {hasStoredFirebaseConfig() && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                    📱 1-Click New Device Pairing
+                  </h4>
+                  <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-400">
+                    Connect any new phone, tablet, or device instantly without typing credentials.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-emerald-300 text-emerald-800 dark:border-emerald-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                    onClick={() => {
+                      const url = getShareableConnectionUrl();
+                      if (url) {
+                        navigator.clipboard.writeText(url);
+                        success('✓ 1-Click pairing link copied to clipboard! Open it on any new device to connect.');
+                      } else {
+                        error('Could not generate pairing link.');
+                      }
+                    }}
+                    leftIcon={<Share2 size={13} />}
+                  >
+                    Copy Link
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-emerald-300 text-emerald-800 dark:border-emerald-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                    onClick={() => setShowPairingQR((prev) => !prev)}
+                    leftIcon={<QrCode size={13} />}
+                  >
+                    {showPairingQR ? 'Hide QR' : 'Show QR'}
+                  </Button>
+                </div>
+              </div>
+
+              {showPairingQR && getShareableConnectionUrl() && (
+                <div className="mt-3 flex flex-col items-center justify-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-emerald-100 dark:border-emerald-900/40 shadow-xs">
+                  <QRCodeSVG value={getShareableConnectionUrl()!} size={160} level="M" includeMargin />
+                  <p className="mt-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-center">
+                    Point any new device camera at this QR code to connect it immediately.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Quick Paste JSON / Snippet Box */}
           <div className="space-y-1.5 rounded-xl bg-gray-50 p-3.5 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
