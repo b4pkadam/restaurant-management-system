@@ -1778,10 +1778,17 @@ export const settingsDB = {
       theme: 'light',
       language: 'en',
       autoBackup: true,
-      backupInterval: 24
+      backupInterval: 24,
+      waiterApkUrl: './restaurant-waiter-lite.apk',
     };
     
-    return getItem<AppSettings>('settings') || defaultSettings;
+    const stored = getItem<AppSettings>('settings');
+    if (!stored) return defaultSettings;
+    return {
+      ...defaultSettings,
+      ...stored,
+      waiterApkUrl: stored.waiterApkUrl || defaultSettings.waiterApkUrl,
+    };
   },
   
   update: (updates: Partial<AppSettings>): AppSettings => {

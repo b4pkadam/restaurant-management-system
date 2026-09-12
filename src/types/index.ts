@@ -193,4 +193,5 @@ export interface AppSettings {
   language: 'en' | 'es' | 'fr' | 'hi';
   autoBackup: boolean;
   backupInterval: number; // in hours
+  waiterApkUrl?: string;
 }
