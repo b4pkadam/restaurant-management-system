@@ -201,6 +201,167 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
   return { tables: repairedTables, changed };
 }
 
+// Global remap history for duplicate category IDs mapped to canonical category { id, name }
+export const categoryRemapHistory = new Map<string, { id: string; name: string }>();
+
+/**
+ * Auto-heals, deduplicates, and sorts categories.
+ * 1) Deduplicates categories by normalized name.
+ * 2) Preserves canonical categories, merging any missing descriptions/icons/sortOrder.
+ * 3) Re-maps any menu items referencing duplicate category IDs to the primary category ID.
+ * 4) Purges duplicate category records from memory and Firestore cloud.
+ * 5) Sorts categories ascending by sortOrder, then by name.
+ */
+export function sanitizeAndDeduplicateCategories(
+  categories: Category[]
+): { categories: Category[]; duplicateIds: string[]; changed: boolean } {
+  if (!Array.isArray(categories) || categories.length === 0) {
+    return { categories: [], duplicateIds: [], changed: false };
+  }
+
+  const initialCatIds = new Set(
+    ((initialDbData && initialDbData.categories) || []).map((c: any) => c.id)
+  );
+
+  const rawMenuItems = memoryStore.get('menuItems');
+  const menuItems: MenuItem[] = Array.isArray(rawMenuItems) ? rawMenuItems : [];
+  const menuItemCategoryIds = new Set(menuItems.map((m) => m.categoryId));
+
+  const groups = new Map<string, Category[]>();
+  categories.forEach((cat) => {
+    const key = (cat.name || '').trim().toLowerCase();
+    const list = groups.get(key) || [];
+    list.push(cat);
+    groups.set(key, list);
+  });
+
+  const cleanCategories: Category[] = [];
+  const allDuplicateIds: string[] = [];
+  let changed = false;
+
+  // Map from duplicate category ID to canonical category { id, name }
+  const remapIdMap = new Map<string, { id: string; name: string }>();
+
+  groups.forEach((group) => {
+    if (group.length === 1) {
+      cleanCategories.push(group[0]);
+      return;
+    }
+
+    changed = true;
+    // We have duplicates! Score each category to find the best canonical one:
+    // 1. ID matches initialDbData
+    // 2. ID referenced by existing menu items
+    // 3. Lowest positive sortOrder
+    const sortedGroup = [...group].sort((a, b) => {
+      const aInInitial = initialCatIds.has(a.id) ? 1 : 0;
+      const bInInitial = initialCatIds.has(b.id) ? 1 : 0;
+      if (aInInitial !== bInInitial) return bInInitial - aInInitial;
+
+      const aInMenu = menuItemCategoryIds.has(a.id) ? 1 : 0;
+      const bInMenu = menuItemCategoryIds.has(b.id) ? 1 : 0;
+      if (aInMenu !== bInMenu) return bInMenu - aInMenu;
+
+      const aOrder = a.sortOrder && a.sortOrder > 0 ? a.sortOrder : 999;
+      const bOrder = b.sortOrder && b.sortOrder > 0 ? b.sortOrder : 999;
+      return aOrder - bOrder;
+    });
+
+    const canonical = { ...sortedGroup[0] };
+    for (let i = 1; i < sortedGroup.length; i++) {
+      const dup = sortedGroup[i];
+      if (!canonical.description && dup.description) canonical.description = dup.description;
+      if (!canonical.icon && dup.icon) canonical.icon = dup.icon;
+      if ((!canonical.sortOrder || canonical.sortOrder === 0) && dup.sortOrder) canonical.sortOrder = dup.sortOrder;
+      allDuplicateIds.push(dup.id);
+      remapIdMap.set(dup.id, { id: canonical.id, name: canonical.name });
+      categoryRemapHistory.set(dup.id, { id: canonical.id, name: canonical.name });
+    }
+
+    cleanCategories.push(canonical);
+  });
+
+  // Sort clean categories by sortOrder ascending, then by name
+  cleanCategories.sort((a, b) => {
+    const orderA = a.sortOrder !== undefined && a.sortOrder !== null ? a.sortOrder : 999;
+    const orderB = b.sortOrder !== undefined && b.sortOrder !== null ? b.sortOrder : 999;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  // Remap menu items if any duplicate IDs or unmapped IDs were referenced
+  const validCatIds = new Set(cleanCategories.map((c) => c.id));
+  const catByName = new Map<string, Category>();
+  cleanCategories.forEach((c) => {
+    catByName.set((c.name || '').trim().toLowerCase(), c);
+  });
+
+  if (menuItems.length > 0) {
+    let menuItemsChanged = false;
+    const updatedMenuItems = menuItems.map((item) => {
+      let targetId: string | undefined;
+      let targetName: string | undefined;
+
+      if (remapIdMap.has(item.categoryId)) {
+        const mapped = remapIdMap.get(item.categoryId)!;
+        targetId = mapped.id;
+        targetName = mapped.name;
+      } else if (categoryRemapHistory.has(item.categoryId)) {
+        const mapped = categoryRemapHistory.get(item.categoryId)!;
+        targetId = mapped.id;
+        targetName = mapped.name;
+      } else if (!validCatIds.has(item.categoryId)) {
+        const nameKey = ((item as any).categoryName || '').trim().toLowerCase();
+        if (nameKey && catByName.has(nameKey)) {
+          const matched = catByName.get(nameKey)!;
+          targetId = matched.id;
+          targetName = matched.name;
+        }
+      }
+
+      if (targetId && targetId !== item.categoryId) {
+        menuItemsChanged = true;
+        return {
+          ...item,
+          categoryId: targetId,
+          categoryName: targetName || item.categoryName,
+        };
+      }
+      return item;
+    });
+
+    if (menuItemsChanged) {
+      memoryStore.set('menuItems', updatedMenuItems);
+      notifyDbListeners();
+      if (isFirebaseActive()) {
+        updatedMenuItems.forEach((item) => {
+          if (item.id) {
+            firebaseSync.pushDoc('menuItems', item.id, item).catch(() => {});
+          }
+        });
+      }
+    }
+  }
+
+  if (changed || cleanCategories.length !== categories.length) {
+    changed = true;
+    memoryStore.set('categories', cleanCategories);
+    notifyDbListeners();
+    if (isFirebaseActive()) {
+      allDuplicateIds.forEach((dupId) => {
+        firebaseSync.deleteDoc('categories', dupId).catch(() => {});
+      });
+      cleanCategories.forEach((cat) => {
+        firebaseSync.pushDoc('categories', cat.id, cat).catch(() => {});
+      });
+    }
+  }
+
+  return { categories: cleanCategories, duplicateIds: allDuplicateIds, changed };
+}
+
 // Generic storage functions
 export function getCollection<T>(key: string): T[] {
   const data = memoryStore.get(key);
@@ -216,6 +377,14 @@ export function setCollection<T>(key: string, data: T[]): void {
     const orders = getCollection<Order>('orders');
     const { tables } = sanitizeAndRepairTables(data as unknown as Table[], orders);
     finalData = tables as unknown as T[];
+  } else if (key === 'categories' && Array.isArray(data)) {
+    const { categories, duplicateIds, changed } = sanitizeAndDeduplicateCategories(data as unknown as Category[]);
+    finalData = categories as unknown as T[];
+    if (changed && isFirebaseActive()) {
+      duplicateIds.forEach((dupId) => {
+        firebaseSync.deleteDoc('categories', dupId).catch(() => {});
+      });
+    }
   }
   memoryStore.set(key, finalData);
   notifyDbListeners();
@@ -275,6 +444,17 @@ registerCloudUpdateHandler({
       if (changed && isFirebaseActive()) {
         tables.forEach((t) => {
           firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+        });
+      }
+    } else if (collName === 'categories' && Array.isArray(items)) {
+      const { categories, duplicateIds, changed } = sanitizeAndDeduplicateCategories(items as Category[]);
+      finalItems = categories;
+      if (changed && isFirebaseActive()) {
+        duplicateIds.forEach((dupId) => {
+          firebaseSync.deleteDoc('categories', dupId).catch(() => {});
+        });
+        categories.forEach((cat) => {
+          firebaseSync.pushDoc('categories', cat.id, cat).catch(() => {});
         });
       }
     }
@@ -698,17 +878,40 @@ export const employeeDB = {
 
 // Category Management
 export const categoryDB = {
-  getAll: (): Category[] => getCollection<Category>('categories'),
+  getAll: (): Category[] => {
+    const raw = getCollection<Category>('categories');
+    // Deduplicate if duplicate category names exist
+    const seen = new Set<string>();
+    let hasDuplicates = false;
+    for (const c of raw) {
+      const k = (c.name || '').trim().toLowerCase();
+      if (k && seen.has(k)) {
+        hasDuplicates = true;
+        break;
+      }
+      if (k) seen.add(k);
+    }
+    if (hasDuplicates) {
+      const { categories } = sanitizeAndDeduplicateCategories(raw);
+      return categories;
+    }
+    return raw.sort((a, b) => {
+      const orderA = a.sortOrder !== undefined && a.sortOrder !== null ? a.sortOrder : 999;
+      const orderB = b.sortOrder !== undefined && b.sortOrder !== null ? b.sortOrder : 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  },
   
   getById: (id: string): Category | undefined => {
     return categoryDB.getAll().find(c => c.id === id);
   },
   
-  create: (category: Omit<Category, 'id'>): Category => {
+  create: (category: Omit<Category, 'id'> & { id?: string }): Category => {
     const categories = categoryDB.getAll();
     const newCategory: Category = {
       ...category,
-      id: uuidv4()
+      id: category.id || uuidv4()
     };
     categories.push(newCategory);
     setCollection('categories', categories);
@@ -730,20 +933,47 @@ export const categoryDB = {
     const filtered = categories.filter(c => c.id !== id);
     if (filtered.length === categories.length) return false;
     setCollection('categories', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('categories', id).catch(() => {});
+    }
     return true;
   }
 };
 
 // Menu Item Management
 export const menuItemDB = {
-  getAll: (): MenuItem[] => getCollection<MenuItem>('menuItems'),
+  getAll: (): MenuItem[] => {
+    const items = getCollection<MenuItem>('menuItems');
+    if (categoryRemapHistory.size > 0) {
+      let changed = false;
+      const repaired = items.map((m) => {
+        if (categoryRemapHistory.has(m.categoryId)) {
+          changed = true;
+          const canonical = categoryRemapHistory.get(m.categoryId)!;
+          return {
+            ...m,
+            categoryId: canonical.id,
+            categoryName: canonical.name || (m as any).categoryName,
+          };
+        }
+        return m;
+      });
+      if (changed) {
+        memoryStore.set('menuItems', repaired);
+        notifyDbListeners();
+      }
+      return repaired;
+    }
+    return items;
+  },
   
   getById: (id: string): MenuItem | undefined => {
     return menuItemDB.getAll().find(m => m.id === id);
   },
   
   getByCategory: (categoryId: string): MenuItem[] => {
-    return menuItemDB.getAll().filter(m => m.categoryId === categoryId);
+    const targetId = categoryRemapHistory.get(categoryId)?.id || categoryId;
+    return menuItemDB.getAll().filter(m => m.categoryId === targetId);
   },
   
   getByBarcode: (barcode: string): MenuItem | undefined => {
@@ -751,9 +981,18 @@ export const menuItemDB = {
   },
   
   create: (item: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem => {
+    let catId = item.categoryId;
+    let catName = (item as any).categoryName;
+    if (categoryRemapHistory.has(catId)) {
+      const canonical = categoryRemapHistory.get(catId)!;
+      catId = canonical.id;
+      catName = canonical.name;
+    }
     const items = menuItemDB.getAll();
     const newItem: MenuItem = {
       ...item,
+      categoryId: catId,
+      categoryName: catName || (item as any).categoryName,
       id: uuidv4(),
       createdAt: new Date().toISOString()
     };
@@ -767,7 +1006,18 @@ export const menuItemDB = {
     const index = items.findIndex(m => m.id === id);
     if (index === -1) return null;
     
-    items[index] = { ...items[index], ...updates };
+    let catId = updates.categoryId;
+    let catName = (updates as any).categoryName;
+    if (catId && categoryRemapHistory.has(catId)) {
+      const canonical = categoryRemapHistory.get(catId)!;
+      catId = canonical.id;
+      catName = canonical.name;
+    }
+    items[index] = {
+      ...items[index],
+      ...updates,
+      ...(catId ? { categoryId: catId, categoryName: catName || (items[index] as any).categoryName } : {})
+    };
     setCollection('menuItems', items);
     return items[index];
   },
@@ -777,6 +1027,9 @@ export const menuItemDB = {
     const filtered = items.filter(m => m.id !== id);
     if (filtered.length === items.length) return false;
     setCollection('menuItems', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('menuItems', id).catch(() => {});
+    }
     return true;
   }
 };
@@ -1517,51 +1770,67 @@ export const initializeSampleData = (): void => {
     employees.forEach(e => employeeDB.create(e));
   }
   
-  // Create categories from initialDbData
-  initialDbData.categories.forEach((c) => categoryDB.create(c as Category));
+  // Create categories from initialDbData if empty
+  if (categoryDB.getAll().length === 0 && initialDbData.categories) {
+    setCollection('categories', initialDbData.categories as Category[]);
+  }
 
-  // Create menu items from initialDbData
-  initialDbData.menuItems.forEach((m) =>
-    menuItemDB.create({
-      ...m,
-      price: Number(m.price),
-      isAvailable: m.isAvailable ?? true,
-      isVeg: m.isVeg ?? (m as any).isVegetarian ?? true,
-      imageUrl: m.imageUrl || (m as any).image,
-    } as unknown as MenuItem)
-  );
-  
-  // Create tables
-  for (let i = 1; i <= 12; i++) {
-    tableDB.create({
-      number: i,
-      capacity: i <= 4 ? 2 : i <= 8 ? 4 : 6,
-      status: 'available',
-      floor: i <= 6 ? 1 : 2
-    });
+  // Create menu items from initialDbData if empty
+  if (menuItemDB.getAll().length === 0 && initialDbData.menuItems) {
+    initialDbData.menuItems.forEach((m) =>
+      menuItemDB.create({
+        ...m,
+        price: Number(m.price),
+        isAvailable: m.isAvailable ?? true,
+        isVeg: m.isVeg ?? (m as any).isVegetarian ?? true,
+        imageUrl: m.imageUrl || (m as any).image,
+      } as unknown as MenuItem)
+    );
   }
   
-  // Create suppliers
-  const suppliers = [
-    { name: 'Utsunomiya Food Supplies Ltd', email: 'orders@utsunomiyafood.jp', phone: '028-632-0001', address: '1-2-3 Odori, Utsunomiya', gstNumber: 'JP9876543210', isActive: true },
-    { name: 'Tochigi Fresh Poultry & Dairy', email: 'ken@tochigifresh.jp', phone: '028-632-0002', address: '4-5-6 Station Road, Utsunomiya', gstNumber: 'JP1122334455', isActive: true },
-    { name: 'Tokyo Spice & Rice Imports', email: 'sales@tokyospice.jp', phone: '03-5551-2222', address: '7-8-9 Tsukiji, Tokyo', gstNumber: 'JP5566778899', isActive: true }
-  ];
-  const createdSuppliers = suppliers.map(s => supplierDB.create(s));
+  // Create tables if empty
+  if (tableDB.getAll().length === 0) {
+    for (let i = 1; i <= 12; i++) {
+      tableDB.create({
+        number: i,
+        capacity: i <= 4 ? 2 : i <= 8 ? 4 : 6,
+        status: 'available',
+        floor: i <= 6 ? 1 : 2
+      });
+    }
+  }
   
-  // Create inventory items with realistic JPY unit costs
-  const inventoryItems = [
-    { name: 'Chicken Breast', unit: 'kg', quantity: 25, minQuantity: 10, costPerUnit: 600, supplierId: createdSuppliers[1].id, isActive: true },
-    { name: 'Salmon Fillet', unit: 'kg', quantity: 15, minQuantity: 5, costPerUnit: 1200, supplierId: createdSuppliers[1].id, isActive: true },
-    { name: 'Tomatoes', unit: 'kg', quantity: 30, minQuantity: 15, costPerUnit: 250, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Lettuce', unit: 'kg', quantity: 20, minQuantity: 8, costPerUnit: 300, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Orange Juice', unit: 'L', quantity: 50, minQuantity: 20, costPerUnit: 400, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Coffee Beans', unit: 'kg', quantity: 10, minQuantity: 5, costPerUnit: 1500, supplierId: createdSuppliers[2].id, isActive: true },
-    { name: 'Basmati Rice', unit: 'kg', quantity: 40, minQuantity: 15, costPerUnit: 300, supplierId: createdSuppliers[2].id, isActive: true },
-    { name: 'Mozzarella Cheese', unit: 'kg', quantity: 8, minQuantity: 5, costPerUnit: 800, supplierId: createdSuppliers[1].id, isActive: true }
-  ];
-  inventoryItems.forEach(i => inventoryDB.create(i));
+  // Create suppliers if empty
+  if (supplierDB.getAll().length === 0) {
+    const suppliers = [
+      { name: 'Utsunomiya Food Supplies Ltd', email: 'orders@utsunomiyafood.jp', phone: '028-632-0001', address: '1-2-3 Odori, Utsunomiya', gstNumber: 'JP9876543210', isActive: true },
+      { name: 'Tochigi Fresh Poultry & Dairy', email: 'ken@tochigifresh.jp', phone: '028-632-0002', address: '4-5-6 Station Road, Utsunomiya', gstNumber: 'JP1122334455', isActive: true },
+      { name: 'Tokyo Spice & Rice Imports', email: 'sales@tokyospice.jp', phone: '03-5551-2222', address: '7-8-9 Tsukiji, Tokyo', gstNumber: 'JP5566778899', isActive: true }
+    ];
+    const createdSuppliers = suppliers.map(s => supplierDB.create(s));
+    
+    // Create inventory items with realistic JPY unit costs if empty
+    if (inventoryDB.getAll().length === 0) {
+      const inventoryItems = [
+        { name: 'Chicken Breast', unit: 'kg', quantity: 25, minQuantity: 10, costPerUnit: 600, supplierId: createdSuppliers[1].id, isActive: true },
+        { name: 'Salmon Fillet', unit: 'kg', quantity: 15, minQuantity: 5, costPerUnit: 1200, supplierId: createdSuppliers[1].id, isActive: true },
+        { name: 'Tomatoes', unit: 'kg', quantity: 30, minQuantity: 15, costPerUnit: 250, supplierId: createdSuppliers[0].id, isActive: true },
+        { name: 'Lettuce', unit: 'kg', quantity: 20, minQuantity: 8, costPerUnit: 300, supplierId: createdSuppliers[0].id, isActive: true },
+        { name: 'Orange Juice', unit: 'L', quantity: 50, minQuantity: 20, costPerUnit: 400, supplierId: createdSuppliers[0].id, isActive: true },
+        { name: 'Coffee Beans', unit: 'kg', quantity: 10, minQuantity: 5, costPerUnit: 1500, supplierId: createdSuppliers[2].id, isActive: true },
+        { name: 'Basmati Rice', unit: 'kg', quantity: 40, minQuantity: 15, costPerUnit: 300, supplierId: createdSuppliers[2].id, isActive: true },
+        { name: 'Mozzarella Cheese', unit: 'kg', quantity: 8, minQuantity: 5, costPerUnit: 800, supplierId: createdSuppliers[1].id, isActive: true }
+      ];
+      inventoryItems.forEach(i => inventoryDB.create(i));
+    }
+  }
   
+  // Deduplicate and sanitize categories to clean up any past duplicates
+  const currentCategories = getCollection<Category>('categories');
+  if (currentCategories.length > 0) {
+    sanitizeAndDeduplicateCategories(currentCategories);
+  }
+
   // Purge any legacy sample data so database is clean
   purgeSampleData();
 

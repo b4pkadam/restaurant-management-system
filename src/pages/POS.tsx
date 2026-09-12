@@ -80,7 +80,12 @@ export const POSPage: React.FC = () => {
     'Pepsi (ペプシ)',
   ], []);
   
-  const categories = useMemo(() => categoryDB.getAll().filter(c => c.isActive), [tick]);
+  const categories = useMemo(() => {
+    return categoryDB
+      .getAll()
+      .filter((c) => c.isActive)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }, [tick]);
   const tables = useMemo(() => tableDB.getAll(), [tick]);
   
   // Active table orders pending payment — automatically reactive to DB updates
@@ -95,22 +100,34 @@ export const POSPage: React.FC = () => {
   }, [tick]);
 
   const menuItems = useMemo(() => {
-    let items = menuItemDB.getAll().filter(m => m.isAvailable);
+    let items = menuItemDB.getAll().filter((m) => m.isAvailable);
     
     if (selectedCategory) {
-      items = items.filter(m => m.categoryId === selectedCategory);
+      items = items.filter((m) => m.categoryId === selectedCategory);
     }
     
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      items = items.filter(m => 
+      items = items.filter((m) => 
         m.name.toLowerCase().includes(query) ||
         m.barcode?.toLowerCase() === query
       );
     }
-    
-    return items;
-  }, [selectedCategory, searchQuery, tick]);
+
+    const categoryOrderMap = new Map<string, number>();
+    categories.forEach((c) => {
+      categoryOrderMap.set(c.id, c.sortOrder ?? 0);
+    });
+
+    return items.sort((a, b) => {
+      const orderA = categoryOrderMap.get(a.categoryId) ?? 999;
+      const orderB = categoryOrderMap.get(b.categoryId) ?? 999;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [selectedCategory, searchQuery, categories, tick]);
 
   // Calculate totals
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);

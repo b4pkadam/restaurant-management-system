@@ -221,25 +221,44 @@ export function MenuManagementPage() {
     isActive: true,
   });
 
+  const tick = useDbUpdate();
+
   const loadData = () => {
-    const allCategories = categoryDB.getAll().sort((a, b) => a.sortOrder - b.sortOrder);
+    const allCategories = categoryDB.getAll().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     setCategories(allCategories);
     setItems(menuItemDB.getAll());
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [tick]);
+
+  const categoryOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    categories.forEach((cat) => {
+      map.set(cat.id, cat.sortOrder ?? 0);
+    });
+    return map;
+  }, [categories]);
 
   const filteredItems = useMemo(() => {
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
       const matchesSearch = `${item.name} ${item.description || ''} ${item.barcode || ''}`
         .toLowerCase()
         .includes(search.toLowerCase());
       const matchesCategory = categoryFilter === 'all' || item.categoryId === categoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [items, search, categoryFilter]);
+
+    return filtered.sort((a, b) => {
+      const orderA = categoryOrderMap.get(a.categoryId) ?? 999;
+      const orderB = categoryOrderMap.get(b.categoryId) ?? 999;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [items, search, categoryFilter, categoryOrderMap]);
 
   const resetItemForm = () => {
     setEditingItem(null);
