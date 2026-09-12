@@ -18,12 +18,13 @@ import {
 } from './pages/ManagementPages';
 import { CustomerOrderPage } from './pages/CustomerOrder';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { ToastProvider } from './components/ui/Toast';
 import { initializeSampleData, inventoryDB, notificationDB, settingsDB, clearBrowserDataStorage } from './database/db';
 import { Card } from './components/ui/Card';
-import { Laptop2, UtensilsCrossed, Table2, ShoppingCart, CreditCard, ChefHat, LayoutDashboard, Menu } from 'lucide-react';
+import { Button } from './components/ui/Button';
+import { Laptop2, UtensilsCrossed, Table2, ShoppingCart, CreditCard, ChefHat, LayoutDashboard, X, LogOut, Sun, Moon } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
 import { canViewPage, getDefaultPageForRole, type AppPage } from './utils/access';
 import { VersionBadge } from './components/VersionBadge';
@@ -55,10 +56,12 @@ function getCustomerTableFromUrl(): number | null {
 
 function AppShell() {
   useDbUpdate();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
 
   // Synchronously ensure browser storage contains no restaurant data for multi-user safety
@@ -157,19 +160,30 @@ function AppShell() {
   }, [currentPage]);
 
   const bottomNavItems = useMemo(() => {
+    const profileItem = {
+      id: 'profile' as const,
+      label: user?.username ? (user.username.length > 8 ? `${user.username.slice(0, 7)}…` : user.username) : 'Profile',
+      icon: (
+        <div className="w-5 h-5 rounded-full bg-blue-600 dark:bg-blue-500 text-white font-black text-[11px] flex items-center justify-center shadow-xs ring-1 ring-white/50">
+          {(user?.username || 'W').charAt(0).toUpperCase()}
+        </div>
+      ),
+      isProfile: true,
+    };
+
     if (user?.role === 'waiter') {
       return [
         { id: 'tables' as const, label: 'Tables', icon: <Table2 size={20} /> },
         { id: 'pos' as const, label: 'POS', icon: <CreditCard size={20} /> },
         { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
-        { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+        profileItem,
       ];
     }
     if (user?.role === 'chef') {
       return [
         { id: 'kitchen' as const, label: 'Kitchen', icon: <ChefHat size={20} /> },
         { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
-        { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+        profileItem,
       ];
     }
     return [
@@ -177,9 +191,9 @@ function AppShell() {
       { id: 'pos' as const, label: 'POS', icon: <CreditCard size={20} /> },
       { id: 'tables' as const, label: 'Tables', icon: <Table2 size={20} /> },
       { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
-      { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+      profileItem,
     ];
-  }, [user?.role]);
+  }, [user?.role, user?.username]);
 
   if (!bootstrapped) {
     // Show appropriate loading screen based on mode
@@ -299,13 +313,16 @@ function AppShell() {
       {/* Mobile / Tablet Dynamic Bottom Navigation Bar */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 py-1.5 flex items-center justify-around">
         {bottomNavItems.map((item) => {
-          const isActive = currentPage === item.id;
+          const isProfileItem = 'isProfile' in item && item.isProfile;
+          const isActive = !isProfileItem && currentPage === item.id;
           return (
             <button
               key={item.id}
               type="button"
               onClick={() => {
-                if ('isAction' in item && item.isAction) {
+                if (isProfileItem) {
+                  setShowProfilePopup((prev) => !prev);
+                } else if ('isAction' in item && item.isAction) {
                   setShowMobileSidebar(true);
                 } else {
                   setCurrentPage(item.id as Page);
@@ -313,19 +330,99 @@ function AppShell() {
               }}
               className={cn(
                 'flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all cursor-pointer',
-                isActive
+                isActive || (isProfileItem && showProfilePopup)
                   ? 'text-blue-600 dark:text-blue-400 font-bold'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 font-medium'
               )}
             >
-              <div className={cn('p-1 rounded-lg transition-colors', isActive ? 'bg-blue-50 dark:bg-blue-950/60' : '')}>
+              <div className={cn('p-1 rounded-lg transition-colors', (isActive || (isProfileItem && showProfilePopup)) ? 'bg-blue-50 dark:bg-blue-950/60' : '')}>
                 {item.icon}
               </div>
-              <span className="text-[11px] leading-tight mt-0.5">{item.label}</span>
+              <span className="text-[11px] leading-tight mt-0.5 truncate max-w-[64px] text-center">{item.label}</span>
             </button>
           );
         })}
       </nav>
+
+      {/* Staff / Waiter Mobile Profile Popover Modal */}
+      {showProfilePopup && (
+        <div className="lg:hidden fixed inset-0 z-50 flex items-end justify-center p-3 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="fixed inset-0"
+            onClick={() => setShowProfilePopup(false)}
+          />
+          <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 p-5 shadow-2xl border border-gray-200 dark:border-gray-800 space-y-4 mb-16 animate-in slide-in-from-bottom-5 duration-200">
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setShowProfilePopup(false)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            {/* Profile Avatar & Info */}
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-black text-xl flex items-center justify-center shadow-md">
+                {(user?.username || 'W').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white truncate">
+                    {user?.username}
+                  </h3>
+                  <span className="rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-extrabold px-2 py-0.5 uppercase tracking-wide">
+                    {user?.role}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Logged in as {user?.role}
+                </p>
+              </div>
+            </div>
+
+            {/* Session / System info */}
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-3 text-xs space-y-1.5 border border-gray-100 dark:border-gray-800">
+              <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                <span>Restaurant</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-200">{settingsDB.get().restaurantName}</span>
+              </div>
+              <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                <span>Status</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Active Session
+                </span>
+              </div>
+            </div>
+
+            {/* Theme Toggle Button */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="w-full flex items-center justify-between p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                {theme === 'dark' ? <Sun size={16} className="text-amber-400" /> : <Moon size={16} className="text-blue-500" />}
+                <span>{theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}</span>
+              </div>
+              <span className="text-[11px] text-gray-400 font-normal">Toggle</span>
+            </button>
+
+            {/* Logout Button */}
+            <Button
+              variant="danger"
+              className="w-full font-bold py-2.5 rounded-xl shadow-md flex items-center justify-center gap-2"
+              onClick={() => {
+                setShowProfilePopup(false);
+                logout();
+              }}
+              leftIcon={<LogOut size={16} />}
+            >
+              Log Out ({user?.username})
+            </Button>
+          </div>
+        </div>
+      )}
 
       <VersionBadge />
     </div>

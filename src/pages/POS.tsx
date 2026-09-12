@@ -16,7 +16,7 @@ import {
   menuItemDB, categoryDB, tableDB, orderDB, paymentDB, settingsDB,
   notificationDB
 } from '../database/db';
-import type { MenuItem, OrderItem, Table, Order } from '../types';
+import type { MenuItem, OrderItem, Table, Order, Payment } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useDbUpdate } from '../hooks/useDbUpdate';
@@ -51,6 +51,7 @@ export const POSPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
   const [paymentSuccessData, setPaymentSuccessData] = useState<{ order: Order; payment: Payment } | null>(null);
+  const [pendingTableAction, setPendingTableAction] = useState<'kitchen' | 'pay' | null>(null);
 
   // Mobile / Tablet Responsive View State
   const [mobileView, setMobileView] = useState<'menu' | 'cart'>('menu');
@@ -295,13 +296,15 @@ export const POSPage: React.FC = () => {
   }, [addToCart, success]);
 
   // Send order to Kitchen Display
-  const handleSendToKitchen = () => {
+  const executeSendToKitchen = (tableToUse?: Table | null) => {
     if (cart.length === 0) {
       error('Cart is empty');
       return;
     }
 
-    if (orderType === 'dine-in' && !selectedTable) {
+    const effectiveTable = tableToUse || selectedTable;
+    if (orderType === 'dine-in' && !effectiveTable) {
+      setPendingTableAction('kitchen');
       setShowTableModal(true);
       return;
     }
@@ -335,11 +338,11 @@ export const POSPage: React.FC = () => {
         total,
         notes: orderNotes.trim() || undefined,
       });
-      success(`Updated Table ${selectedTable?.number || 'Order'} on Kitchen Display!`);
+      success(`Updated Table ${effectiveTable?.number || 'Order'} on Kitchen Display!`);
     } else {
       const order = orderDB.create({
-        tableId: selectedTable?.id,
-        tableNumber: selectedTable?.number,
+        tableId: effectiveTable?.id,
+        tableNumber: effectiveTable?.number,
         type: orderType,
         items: orderItems,
         subtotal,
@@ -348,7 +351,9 @@ export const POSPage: React.FC = () => {
         discountType,
         total,
         status: 'active',
-        customerName: customerName || (selectedTable ? `Table ${selectedTable.number}` : undefined),
+        paymentStatus: 'pending',
+        isPaid: false,
+        customerName: customerName || (effectiveTable ? `Table ${effectiveTable.number}` : undefined),
         customerPhone: customerPhone || undefined,
         waiterId: user?.id,
         waiterName: user?.username,
@@ -361,10 +366,15 @@ export const POSPage: React.FC = () => {
         message: `Order #${order.orderNumber} sent to kitchen display.`
       });
 
-      success(`Order #${order.orderNumber} sent to Kitchen Board!`);
+      success(`Order #${order.orderNumber} placed and sent to Kitchen!`);
     }
 
     clearCart();
+    setMobileView('menu');
+  };
+
+  const handleSendToKitchen = () => {
+    executeSendToKitchen();
   };
 
   // Process payment
@@ -543,7 +553,7 @@ export const POSPage: React.FC = () => {
   const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
 
   return (
-    <div className="h-[calc(100dvh-7.5rem)] lg:h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-3 lg:gap-4 relative">
+    <div className="h-[calc(100dvh-10.5rem)] lg:h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-3 lg:gap-4 relative pb-2 lg:pb-0">
       {/* Mobile / Tablet Segmented View Switcher */}
       <div className="lg:hidden flex items-center gap-1.5 p-1 bg-gray-200/80 dark:bg-gray-800/80 rounded-xl shrink-0">
         <button
@@ -900,7 +910,7 @@ export const POSPage: React.FC = () => {
 
         {/* Cart Footer */}
         {cart.length > 0 && (
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+          <div className="p-3 sm:p-4 border-t border-gray-200 dark:border-gray-700 space-y-2.5 sm:space-y-3 bg-gray-50 dark:bg-gray-800/50 pb-4 lg:pb-4">
             {/* Discount */}
             <div className="flex gap-2">
               <div className="flex-1">
@@ -1006,6 +1016,7 @@ export const POSPage: React.FC = () => {
                   className="w-full font-bold shadow-md py-3 text-base"
                   onClick={() => {
                     if (orderType === 'dine-in' && !selectedTable) {
+                      setPendingTableAction('pay');
                       setShowTableModal(true);
                       return;
                     }
@@ -1031,6 +1042,7 @@ export const POSPage: React.FC = () => {
                   className="font-bold shadow-md"
                   onClick={() => {
                     if (orderType === 'dine-in' && !selectedTable) {
+                      setPendingTableAction('pay');
                       setShowTableModal(true);
                       return;
                     }
@@ -1075,7 +1087,10 @@ export const POSPage: React.FC = () => {
       {/* Table Selection Modal */}
       <Modal
         isOpen={showTableModal}
-        onClose={() => setShowTableModal(false)}
+        onClose={() => {
+          setShowTableModal(false);
+          setPendingTableAction(null);
+        }}
         title="Select Table"
         size="lg"
       >
@@ -1090,29 +1105,96 @@ export const POSPage: React.FC = () => {
                   if (table.status === 'cleaning') {
                     if (window.confirm(`Table ${table.number} is marked as Cleaning. Mark it Ready (Available) and select it?`)) {
                       tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-                      setSelectedTable({ ...table, status: 'available' });
+                      const updatedTable = { ...table, status: 'available' as const };
+                      setSelectedTable(updatedTable);
                       setLoadedOrderId(null);
                       setShowTableModal(false);
-                      success(`Table ${table.number} is now Available and selected!`);
+                      if (pendingTableAction === 'kitchen') {
+                        setPendingTableAction(null);
+                        executeSendToKitchen(updatedTable);
+                      } else if (pendingTableAction === 'pay') {
+                        setPendingTableAction(null);
+                        setShowPaymentModal(true);
+                      } else {
+                        success(`Table ${table.number} is now Available and selected!`);
+                      }
                     }
                     return;
                   }
                   if (table.status === 'occupied' && !activeOrd) {
                     if (window.confirm(`Table ${table.number} is marked occupied but has no active order. Reset to Available and select?`)) {
                       tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-                      setSelectedTable({ ...table, status: 'available' });
+                      const updatedTable = { ...table, status: 'available' as const };
+                      setSelectedTable(updatedTable);
                       setLoadedOrderId(null);
                       setShowTableModal(false);
-                      success(`Table ${table.number} reset to Available and selected!`);
+                      if (pendingTableAction === 'kitchen') {
+                        setPendingTableAction(null);
+                        executeSendToKitchen(updatedTable);
+                      } else if (pendingTableAction === 'pay') {
+                        setPendingTableAction(null);
+                        setShowPaymentModal(true);
+                      } else {
+                        success(`Table ${table.number} reset to Available and selected!`);
+                      }
                     }
                     return;
                   }
                   if (activeOrd) {
+                    if (pendingTableAction === 'kitchen' && cart.length > 0 && !loadedOrderId) {
+                      if (window.confirm(`Table ${table.number} already has active order #${activeOrd.orderNumber}. Add these ${cart.length} item(s) to the existing order in the kitchen?`)) {
+                        setSelectedTable(table);
+                        setShowTableModal(false);
+                        setPendingTableAction(null);
+                        const appendedItems: OrderItem[] = [
+                          ...activeOrd.items,
+                          ...cart.map((item) => ({
+                            id: item.id,
+                            menuItemId: item.menuItemId,
+                            menuItemName: item.menuItemName,
+                            quantity: item.quantity,
+                            unitPrice: item.unitPrice,
+                            totalPrice: item.totalPrice,
+                            spiceLevel: item.spiceLevel,
+                            selectedDrink: item.selectedDrink,
+                            notes: item.notes,
+                            status: item.status || ('pending' as const),
+                          })),
+                        ];
+                        const newSubtotal = appendedItems.reduce((sum, it) => sum + it.totalPrice, 0);
+                        const newTax = Math.round(newSubtotal * 0.10);
+                        const newTotal = newSubtotal + newTax - (activeOrd.discount || 0);
+                        orderDB.update(activeOrd.id, {
+                          items: appendedItems,
+                          subtotal: newSubtotal,
+                          tax: newTax,
+                          total: newTotal,
+                        });
+                        notificationDB.create({
+                          type: 'order',
+                          title: '👨‍🍳 Items Added to Kitchen Order',
+                          message: `Added ${cart.length} item(s) to Table ${table.number} (Order #${activeOrd.orderNumber}).`
+                        });
+                        success(`Added ${cart.length} item(s) to Table ${table.number} and sent to Kitchen!`);
+                        clearCart();
+                        setMobileView('menu');
+                        return;
+                      }
+                    }
                     loadActiveOrder(activeOrd);
+                    setShowTableModal(false);
+                    setPendingTableAction(null);
                   } else {
                     setSelectedTable(table);
                     setLoadedOrderId(null);
                     setShowTableModal(false);
+                    if (pendingTableAction === 'kitchen') {
+                      setPendingTableAction(null);
+                      executeSendToKitchen(table);
+                    } else if (pendingTableAction === 'pay') {
+                      setPendingTableAction(null);
+                      setShowPaymentModal(true);
+                    }
                   }
                 }}
                 className={cn(

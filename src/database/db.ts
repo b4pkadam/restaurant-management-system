@@ -961,6 +961,8 @@ export const orderDB = {
     }
 
     const newOrder: Order = {
+      paymentStatus: 'pending',
+      isPaid: false,
       ...order,
       tableId: targetTableId,
       id: uuidv4(),

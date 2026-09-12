@@ -1164,6 +1164,7 @@ export function EditOrderModal({ order, isOpen, onClose, onSaved, userRole }: Ed
 }
 
 export function OrdersManagementPage() {
+  const tick = useDbUpdate();
   const { success, error } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
@@ -1192,7 +1193,7 @@ export function OrdersManagementPage() {
 
   useEffect(() => {
     loadOrders();
-  }, []);
+  }, [tick]);
 
   const handleDeleteOrderRecord = (order: Order) => {
     const confirmed = window.confirm(
@@ -1469,7 +1470,9 @@ export function OrdersManagementPage() {
                     Edit Record
                   </Button>
                 )}
-                {isWaiter && !['completed', 'cancelled'].includes(order.status) && (
+                {isWaiter &&
+                  !['completed', 'cancelled'].includes(order.status) &&
+                  order.items.some((i) => !i.status || i.status === 'pending') && (
                   <Button
                     variant="outline"
                     className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-400 dark:text-amber-400 dark:hover:bg-amber-950/40 font-medium"
@@ -2078,11 +2081,19 @@ export function TableManagementPage() {
     const isPaid = activeOrder
       ? Boolean(activeOrder.paymentStatus === 'paid' || activeOrder.isPaid || paymentDB.getByOrder(activeOrder.id))
       : true;
+    const nonCancelled = activeOrder?.items.filter((i) => i.status !== 'cancelled') || [];
+    const isServed = activeOrder
+      ? activeOrder.status === 'served' || (nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'served'))
+      : true;
 
-    if (activeOrder && !isPaid && !['completed', 'cancelled'].includes(activeOrder.status)) {
+    if (activeOrder && (!isPaid || !isServed)) {
+      if (user?.role === 'waiter') {
+        error(`Table ${table.number} can only be cleaned after order #${activeOrder.orderNumber} is fully served and paid.`);
+        return;
+      }
       if (
         !window.confirm(
-          `Order #${activeOrder.orderNumber} for Table ${table.number} is not yet paid. Mark table as Cleaning anyway?`
+          `Order #${activeOrder.orderNumber} for Table ${table.number} is not yet fully served and paid. Mark table as Cleaning anyway?`
         )
       ) {
         return;
@@ -2095,6 +2106,34 @@ export function TableManagementPage() {
 
   const markTableReady = (table: Table) => {
     if (!canClearOrClean) return;
+    const activeOrder = table.currentOrderId
+      ? orderDB.getById(table.currentOrderId)
+      : orderDB
+          .getAll()
+          .find(
+            (o) =>
+              (o.tableId === table.id || o.tableNumber === table.number) &&
+              !['completed', 'cancelled'].includes(o.status)
+          );
+
+    if (activeOrder) {
+      const isPaid = Boolean(activeOrder.paymentStatus === 'paid' || activeOrder.isPaid || paymentDB.getByOrder(activeOrder.id));
+      const nonCancelled = activeOrder.items.filter((i) => i.status !== 'cancelled');
+      const isServed = activeOrder.status === 'served' || (nonCancelled.length > 0 && nonCancelled.every((i) => i.status === 'served'));
+
+      if (!isServed || !isPaid) {
+        error(
+          `Table ${table.number} cannot be cleared: Order #${activeOrder.orderNumber} must be fully served and paid first.`
+        );
+        return;
+      }
+      orderDB.update(activeOrder.id, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        items: activeOrder.items.map((i) => ({ ...i, status: 'served' })),
+      });
+    }
+
     tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
     success(`Table ${table.number} cleared and is now Ready & Available.`);
     loadTables();
@@ -2167,6 +2206,13 @@ export function TableManagementPage() {
           const isPaid = activeOrder
             ? Boolean(activeOrder.paymentStatus === 'paid' || activeOrder.isPaid || paymentDB.getByOrder(activeOrder.id))
             : true;
+
+          const nonCancelledItems = activeOrder?.items.filter((i) => i.status !== 'cancelled') || [];
+          const isServed = activeOrder
+            ? Boolean(activeOrder.status === 'served' || (nonCancelledItems.length > 0 && nonCancelledItems.every((i) => i.status === 'served')))
+            : true;
+
+          const canClearCurrentTable = !activeOrder || (isServed && isPaid);
 
           return (
             <Card key={table.id} className="space-y-4">
@@ -2266,15 +2312,28 @@ export function TableManagementPage() {
                   )}
 
                   {table.status === 'occupied' && canClearOrClean && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={`border-purple-500 text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40 font-bold ${canManageTableStructure ? '' : 'col-span-2'}`}
-                      onClick={() => markTableCleaning(table, activeOrder)}
-                      leftIcon={<RefreshCw size={14} />}
-                    >
-                      Cleaning
-                    </Button>
+                    canClearCurrentTable || canManageTableStructure ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`border-purple-500 text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40 font-bold ${canManageTableStructure ? '' : 'col-span-2'}`}
+                        onClick={() => markTableCleaning(table, activeOrder)}
+                        leftIcon={<RefreshCw size={14} />}
+                      >
+                        Cleaning
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="opacity-40 cursor-not-allowed font-medium text-xs col-span-2 border-gray-300 dark:border-gray-700 text-gray-400"
+                        title="Table can only be cleaned after order is served and paid."
+                        leftIcon={<RefreshCw size={14} />}
+                      >
+                        Cleaning ({!isServed ? 'Not Served' : 'Unpaid'})
+                      </Button>
+                    )
                   )}
 
                   {table.status === 'available' && (
@@ -2312,15 +2371,28 @@ export function TableManagementPage() {
                 {table.status === 'occupied' && (
                   <div className="grid grid-cols-2 gap-2">
                     {canClearOrClean && (
-                      <Button
-                        variant="success"
-                        size="sm"
-                        className={`bg-emerald-600 hover:bg-emerald-700 text-white font-bold ${!activeOrder && !canManageTableStructure ? 'col-span-2' : ''}`}
-                        onClick={() => markTableReady(table)}
-                        leftIcon={<CheckCircle2 size={14} />}
-                      >
-                        Clear Table
-                      </Button>
+                      canClearCurrentTable ? (
+                        <Button
+                          variant="success"
+                          size="sm"
+                          className={`bg-emerald-600 hover:bg-emerald-700 text-white font-bold ${!activeOrder && !canManageTableStructure ? 'col-span-2' : ''}`}
+                          onClick={() => markTableReady(table)}
+                          leftIcon={<CheckCircle2 size={14} />}
+                        >
+                          Clear Table
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          className={`opacity-40 cursor-not-allowed font-medium text-xs border-gray-300 dark:border-gray-700 text-gray-400 ${!activeOrder && !canManageTableStructure ? 'col-span-2' : ''}`}
+                          title="Table can only be cleared after order is fully served and paid."
+                          leftIcon={<CheckCircle2 size={14} />}
+                        >
+                          Clear Table ({!isServed ? 'Not Served' : 'Unpaid'})
+                        </Button>
+                      )
                     )}
                     {activeOrder ? (
                       <Button

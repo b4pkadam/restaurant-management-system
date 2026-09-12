@@ -44,7 +44,9 @@ export function canAdvanceOrder(role: UserRole | undefined, status: Order['statu
   }
 
   if (role === 'waiter') {
-    return ['active', 'preparing', 'ready', 'served'].includes(status);
+    // Waiter can only advance ready orders (to served) or served orders (to pay & complete).
+    // Waiters cannot close or advance orders before they are prepared by the kitchen.
+    return ['ready', 'served'].includes(status);
   }
 
   if (role === 'cashier') {
