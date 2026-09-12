@@ -83,6 +83,7 @@ import { QRCodeModal } from '../components/QRCodeModal';
 import { useNotifications } from '../context/NotificationContext';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { v4 as uuidv4 } from 'uuid';
 import {
   analyticsDB,
   backupDB,
@@ -93,6 +94,7 @@ import {
   orderDB,
   paymentDB,
   purchaseDB,
+  purgeSampleData,
   settingsDB,
   supplierDB,
   tableDB,
@@ -616,10 +618,67 @@ export function OrdersManagementPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const isAdmin = user?.role === 'admin';
+  const settings = settingsDB.get();
+
   // Payment Settlement state
   const [payingOrder, setPayingOrder] = useState<Order | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
   const [cashReceived, setCashReceived] = useState<string>('');
+
+  // Admin Record Edit state
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [editForm, setEditForm] = useState<{
+    customerName: string;
+    customerPhone: string;
+    tableNumber: string;
+    type: 'dine-in' | 'takeaway' | 'delivery';
+    status: Order['status'];
+    paymentStatus: 'paid' | 'pending';
+    paymentMethod: 'cash' | 'card' | 'upi';
+    discount: number;
+    discountType: 'percentage' | 'fixed';
+    notes: string;
+    items: OrderItem[];
+  }>({
+    customerName: '',
+    customerPhone: '',
+    tableNumber: '',
+    type: 'dine-in',
+    status: 'active',
+    paymentStatus: 'pending',
+    paymentMethod: 'cash',
+    discount: 0,
+    discountType: 'percentage',
+    notes: '',
+    items: [],
+  });
+  const [selectedMenuItemToAdd, setSelectedMenuItemToAdd] = useState<string>('');
+
+  const allMenuItems = useMemo(() => menuItemDB.getAll(), [editingOrder]);
+  const allTables = useMemo(() => tableDB.getAll().sort((a, b) => a.number - b.number), [editingOrder]);
+
+  const editSubtotal = useMemo(() => {
+    return editForm.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.quantity), 0);
+  }, [editForm.items]);
+
+  const taxPercentage = settings?.taxPercentage ?? 10;
+
+  const editDiscountAmount = useMemo(() => {
+    if (editForm.discountType === 'percentage') {
+      return Math.round((editSubtotal * (Number(editForm.discount) || 0)) / 100);
+    }
+    return Number(editForm.discount) || 0;
+  }, [editSubtotal, editForm.discount, editForm.discountType]);
+
+  const editTax = useMemo(() => {
+    const taxable = Math.max(0, editSubtotal - editDiscountAmount);
+    return Math.round((taxable * taxPercentage) / 100);
+  }, [editSubtotal, editDiscountAmount, taxPercentage]);
+
+  const editTotal = useMemo(() => {
+    return Math.max(0, editSubtotal - editDiscountAmount + editTax);
+  }, [editSubtotal, editDiscountAmount, editTax]);
 
   const loadOrders = () => {
     setOrders(orderDB.getAll().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -628,6 +687,193 @@ export function OrdersManagementPage() {
   useEffect(() => {
     loadOrders();
   }, []);
+
+  const openEditOrderModal = (order: Order) => {
+    const payment = paymentDB.getByOrder(order.id);
+    const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
+    setEditingOrder(order);
+    setEditForm({
+      customerName: order.customerName || '',
+      customerPhone: order.customerPhone || '',
+      tableNumber: order.tableNumber ? String(order.tableNumber) : '',
+      type: order.type,
+      status: order.status,
+      paymentStatus: isPaid ? 'paid' : 'pending',
+      paymentMethod:
+        payment?.method && ['cash', 'card', 'upi'].includes(payment.method)
+          ? (payment.method as 'cash' | 'card' | 'upi')
+          : 'cash',
+      discount: order.discount || 0,
+      discountType: order.discountType || 'percentage',
+      notes: order.notes || '',
+      items: JSON.parse(JSON.stringify(order.items || [])),
+    });
+    setSelectedMenuItemToAdd('');
+  };
+
+  const handleUpdateItemQty = (index: number, newQty: number) => {
+    setEditForm((prev) => {
+      const items = [...prev.items];
+      if (newQty <= 0) {
+        items.splice(index, 1);
+      } else {
+        items[index] = {
+          ...items[index],
+          quantity: newQty,
+          totalPrice: newQty * items[index].unitPrice,
+        };
+      }
+      return { ...prev, items };
+    });
+  };
+
+  const handleUpdateItemPrice = (index: number, newPrice: number) => {
+    setEditForm((prev) => {
+      const items = [...prev.items];
+      const validPrice = Math.max(0, newPrice);
+      items[index] = {
+        ...items[index],
+        unitPrice: validPrice,
+        totalPrice: items[index].quantity * validPrice,
+      };
+      return { ...prev, items };
+    });
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleAddMenuItemToOrder = () => {
+    if (!selectedMenuItemToAdd) return;
+    const menuItem = menuItemDB.getById(selectedMenuItemToAdd);
+    if (!menuItem) return;
+
+    const newItem: OrderItem = {
+      id: uuidv4(),
+      menuItemId: menuItem.id,
+      menuItemName: menuItem.name,
+      quantity: 1,
+      unitPrice: menuItem.price,
+      totalPrice: menuItem.price,
+      status: 'served',
+      notes: '',
+    };
+
+    setEditForm((prev) => ({
+      ...prev,
+      items: [...prev.items, newItem],
+    }));
+    setSelectedMenuItemToAdd('');
+  };
+
+  const handleSaveOrderEdit = () => {
+    if (!editingOrder) return;
+    if (editForm.items.length === 0) {
+      error('An order must have at least one item.');
+      return;
+    }
+
+    const tableNum = editForm.tableNumber ? Number(editForm.tableNumber) : undefined;
+    let tableId = editingOrder.tableId;
+    if (tableNum !== undefined) {
+      const tbl = tableDB.getAll().find((t) => t.number === tableNum);
+      tableId = tbl ? tbl.id : undefined;
+    } else {
+      tableId = undefined;
+    }
+
+    const isNowPaid = editForm.paymentStatus === 'paid';
+    const updatedStatus = editForm.status;
+
+    // 1. Update order record
+    orderDB.update(editingOrder.id, {
+      customerName: editForm.customerName.trim(),
+      customerPhone: editForm.customerPhone.trim(),
+      type: editForm.type,
+      tableId,
+      tableNumber: tableNum,
+      status: updatedStatus,
+      paymentStatus: isNowPaid ? 'paid' : 'pending',
+      isPaid: isNowPaid,
+      subtotal: editSubtotal,
+      discount: editDiscountAmount,
+      discountType: editForm.discountType,
+      tax: editTax,
+      total: editTotal,
+      notes: editForm.notes.trim(),
+      items: editForm.items.map((it) => ({
+        ...it,
+        totalPrice: it.quantity * it.unitPrice,
+      })),
+      completedAt: updatedStatus === 'completed' ? editingOrder.completedAt || new Date().toISOString() : undefined,
+    });
+
+    // 2. Synchronize payment record in memory & Firestore
+    const existingPay = paymentDB.getByOrder(editingOrder.id);
+    if (isNowPaid) {
+      if (existingPay) {
+        paymentDB.update(existingPay.id, {
+          amount: editTotal,
+          method: editForm.paymentMethod,
+          status: 'completed',
+        });
+      } else {
+        paymentDB.create({
+          orderId: editingOrder.id,
+          orderNumber: editingOrder.orderNumber,
+          amount: editTotal,
+          method: editForm.paymentMethod,
+          status: 'completed',
+          receivedBy: user?.username || 'Admin',
+        });
+      }
+    } else {
+      if (existingPay) {
+        paymentDB.delete(existingPay.id);
+      }
+    }
+
+    // 3. Update table occupancy
+    if (updatedStatus === 'completed' || updatedStatus === 'cancelled') {
+      if (tableId) {
+        tableDB.update(tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+      }
+    } else if (tableId && editForm.type === 'dine-in') {
+      tableDB.update(tableId, { status: 'occupied', currentOrderId: editingOrder.id });
+    }
+
+    success(`Order ${editingOrder.orderNumber} updated successfully.`);
+    setEditingOrder(null);
+    loadOrders();
+  };
+
+  const handleDeleteOrderRecord = (order: Order) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete order ${order.orderNumber}?\n\nThis will remove it from both local store and Firestore cloud database, and cascade-delete any associated payment records.`
+    );
+    if (!confirmed) return;
+
+    orderDB.delete(order.id);
+    success(`Order ${order.orderNumber} deleted permanently from database.`);
+    loadOrders();
+  };
+
+  const handlePurgeSampleData = () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to purge all sample and demo data?\n\nThis will permanently delete demo orders, sample payments, and sample notifications from both local and cloud databases.'
+    );
+    if (!confirmed) return;
+
+    const res = purgeSampleData();
+    success(
+      `Sample data purged: removed ${res.ordersRemoved} sample orders, ${res.paymentsRemoved} payments, and ${res.notificationsRemoved} notifications.`
+    );
+    loadOrders();
+  };
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -870,6 +1116,25 @@ export function OrdersManagementPage() {
                     Cancel Order
                   </Button>
                 )}
+                {isAdmin && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 font-medium"
+                      onClick={() => openEditOrderModal(order)}
+                      leftIcon={<Edit size={16} />}
+                    >
+                      Edit Record
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => handleDeleteOrderRecord(order)}
+                      leftIcon={<Trash2 size={16} />}
+                    >
+                      Delete Record
+                    </Button>
+                  </>
+                )}
               </div>
             </Card>
           );
@@ -884,9 +1149,21 @@ export function OrdersManagementPage() {
         title="Order Management"
         description="Track all active, ready, served, and completed orders in one place."
         action={
-          <Button variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={16} />}>
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <Button
+                variant="danger"
+                onClick={handlePurgeSampleData}
+                leftIcon={<Trash2 size={16} />}
+                title="Permanently remove all sample and demo records from database"
+              >
+                Purge Sample Data
+              </Button>
+            )}
+            <Button variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={16} />}>
+              Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -1021,6 +1298,261 @@ export function OrdersManagementPage() {
                 leftIcon={<CheckCircle2 size={16} />}
               >
                 Complete Payment
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Admin Edit Order Modal */}
+      {editingOrder && (
+        <Modal
+          isOpen={!!editingOrder}
+          onClose={() => setEditingOrder(null)}
+          title={`Admin Edit Record: ${editingOrder.orderNumber}`}
+          size="lg"
+        >
+          <div className="space-y-5">
+            {/* Customer & Order Metadata */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Input
+                label="Customer Name"
+                placeholder="Walk-in Customer"
+                value={editForm.customerName}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, customerName: e.target.value }))}
+              />
+              <Input
+                label="Customer Phone"
+                placeholder="090-XXXX-XXXX"
+                value={editForm.customerPhone}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, customerPhone: e.target.value }))}
+              />
+              <Select
+                label="Order Type"
+                value={editForm.type}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value as any }))}
+                options={[
+                  { value: 'dine-in', label: 'Dine-In' },
+                  { value: 'takeaway', label: 'Takeaway' },
+                  { value: 'delivery', label: 'Delivery' },
+                ]}
+              />
+              <Select
+                label="Assigned Table"
+                value={editForm.tableNumber}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, tableNumber: e.target.value }))}
+                options={[
+                  { value: '', label: 'None / Takeaway' },
+                  ...allTables.map((t) => ({ value: String(t.number), label: `Table ${t.number} (${t.capacity} seats)` })),
+                ]}
+              />
+            </div>
+
+            {/* Status & Payment Settings */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/40 p-3.5 space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                Status & Settlement
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Select
+                  label="Lifecycle Status"
+                  value={editForm.status}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as any }))}
+                  options={[
+                    { value: 'active', label: 'Active' },
+                    { value: 'preparing', label: 'Preparing' },
+                    { value: 'ready', label: 'Ready' },
+                    { value: 'served', label: 'Served' },
+                    { value: 'completed', label: 'Completed' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                  ]}
+                />
+                <Select
+                  label="Payment Status"
+                  value={editForm.paymentStatus}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, paymentStatus: e.target.value as any }))}
+                  options={[
+                    { value: 'pending', label: '⏳ Unpaid (Pending)' },
+                    { value: 'paid', label: '💳 Paid' },
+                  ]}
+                />
+                {editForm.paymentStatus === 'paid' ? (
+                  <Select
+                    label="Payment Method"
+                    value={editForm.paymentMethod}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, paymentMethod: e.target.value as any }))}
+                    options={[
+                      { value: 'cash', label: 'Cash' },
+                      { value: 'card', label: 'Card' },
+                      { value: 'upi', label: 'UPI / QR' },
+                    ]}
+                  />
+                ) : (
+                  <div className="flex items-end pb-2 text-xs text-amber-600 dark:text-amber-400 font-semibold">
+                    <span>Payment will be cleared</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Discount control */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                <Input
+                  label="Discount Value"
+                  type="number"
+                  min="0"
+                  value={editForm.discount}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, discount: Math.max(0, Number(e.target.value)) }))}
+                />
+                <Select
+                  label="Discount Type"
+                  value={editForm.discountType}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, discountType: e.target.value as any }))}
+                  options={[
+                    { value: 'percentage', label: 'Percentage (%)' },
+                    { value: 'fixed', label: `Fixed Amount (${settings.currencySymbol})` },
+                  ]}
+                />
+              </div>
+            </div>
+
+            {/* Order Items Table & Editor */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                  Order Items ({editForm.items.length})
+                </h4>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {editForm.items.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-red-500 font-semibold">
+                    No items in order! Please add at least one menu item.
+                  </p>
+                ) : (
+                  editForm.items.map((item, idx) => (
+                    <div
+                      key={item.id || idx}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5 shadow-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                          {item.menuItemName}
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          <span>Total: {currency(item.quantity * item.unitPrice)}</span>
+                          {item.spiceLevel && <span>• 🌶️ {item.spiceLevel}</span>}
+                          {item.selectedDrink && <span>• 🥤 {item.selectedDrink}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="w-20">
+                          <label className="text-[10px] text-gray-500 block">Unit Price</label>
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold"
+                            value={item.unitPrice}
+                            onChange={(e) => handleUpdateItemPrice(idx, Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="w-16">
+                          <label className="text-[10px] text-gray-500 block">Qty</label>
+                          <input
+                            type="number"
+                            min="1"
+                            className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold text-center"
+                            value={item.quantity}
+                            onChange={(e) => handleUpdateItemQty(idx, Number(e.target.value))}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(idx)}
+                          className="mt-3 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors"
+                          title="Remove item"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Add New Item From Menu */}
+              <div className="flex items-end gap-2 pt-1">
+                <div className="flex-1">
+                  <Select
+                    label="Add Item from Menu"
+                    value={selectedMenuItemToAdd}
+                    onChange={(e) => setSelectedMenuItemToAdd(e.target.value)}
+                    options={[
+                      { value: '', label: 'Select menu item to add...' },
+                      ...allMenuItems.map((m) => ({
+                        value: m.id,
+                        label: `${m.name} — ${currency(m.price)}`,
+                      })),
+                    ]}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAddMenuItemToOrder}
+                  disabled={!selectedMenuItemToAdd}
+                  leftIcon={<Plus size={16} />}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Order Notes */}
+            <div>
+              <Textarea
+                label="Kitchen / Order Notes"
+                placeholder="Special preparation instructions..."
+                value={editForm.notes}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={2}
+              />
+            </div>
+
+            {/* Realtime Live Price Summary Breakdown */}
+            <div className="rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 p-4 space-y-1.5 text-sm">
+              <div className="flex justify-between text-gray-700 dark:text-gray-300">
+                <span>Subtotal:</span>
+                <span className="font-semibold">{currency(editSubtotal)}</span>
+              </div>
+              {editDiscountAmount > 0 && (
+                <div className="flex justify-between text-rose-600 dark:text-rose-400">
+                  <span>Discount ({editForm.discountType === 'percentage' ? `${editForm.discount}%` : 'fixed'}):</span>
+                  <span className="font-semibold">- {currency(editDiscountAmount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-gray-700 dark:text-gray-300">
+                <span>Tax ({taxPercentage}%):</span>
+                <span className="font-semibold">+ {currency(editTax)}</span>
+              </div>
+              <div className="flex justify-between text-base font-black text-blue-700 dark:text-blue-300 border-t border-blue-200 dark:border-blue-900/60 pt-2">
+                <span>Final Total:</span>
+                <span className="text-lg">{currency(editTotal)}</span>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEditingOrder(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1 font-bold"
+                onClick={handleSaveOrderEdit}
+                leftIcon={<Save size={16} />}
+              >
+                Save Record Changes
               </Button>
             </div>
           </div>
@@ -2229,6 +2761,8 @@ export function EmployeeManagementPage() {
 
 export function ReportsPage() {
   const { success } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const settings = settingsDB.get();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
@@ -2427,9 +2961,31 @@ export function ReportsPage() {
             key: 'actions',
             header: 'Actions',
             render: (order) => (
-              <Button size="sm" variant="outline" onClick={() => printInvoice(order)} leftIcon={<Printer size={14} />}>
-                Invoice
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => printInvoice(order)} leftIcon={<Printer size={14} />}>
+                  Invoice
+                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Permanently delete order ${order.orderNumber}?\n\nThis will remove it from the cloud database and cascade-delete associated payments.`
+                        )
+                      ) {
+                        orderDB.delete(order.id);
+                        setRefreshKey((v) => v + 1);
+                        success(`Order ${order.orderNumber} deleted permanently.`);
+                      }
+                    }}
+                    leftIcon={<Trash2 size={14} />}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </div>
             ),
           },
         ]}

@@ -1,7 +1,7 @@
 import type { Order, Notification, AppSettings } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED';
   payload: any;
   senderId: string;
 }
@@ -164,6 +164,19 @@ class RealtimeSyncService {
         break;
       }
 
+      case 'ORDER_DELETED': {
+        const orderId: string = message.payload?.orderId;
+        if (!orderId) return;
+
+        const orders = orderDB.getAll();
+        const filtered = orders.filter((o) => o.id !== orderId);
+        if (filtered.length !== orders.length) {
+          setCollection('orders', filtered);
+          notifyDbListeners();
+        }
+        break;
+      }
+
       case 'WAITER_CALLED': {
         const { tableNumber, message: waiterMsg, timestamp } = message.payload || {};
         if (!tableNumber) return;
@@ -305,6 +318,15 @@ class RealtimeSyncService {
     const msg: SyncMessage = {
       type: 'ORDER_UPDATED',
       payload: { order: compressedOrder },
+      senderId: SENDER_ID,
+    };
+    this.sendToCloud(msg);
+  }
+
+  public broadcastOrderDeleted(orderId: string) {
+    const msg: SyncMessage = {
+      type: 'ORDER_DELETED',
+      payload: { orderId },
       senderId: SENDER_ID,
     };
     this.sendToCloud(msg);

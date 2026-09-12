@@ -938,9 +938,36 @@ export const orderDB = {
   
   delete: (id: string): boolean => {
     const orders = orderDB.getAll();
+    const target = orders.find(o => o.id === id);
+    if (!target) return false;
+
     const filtered = orders.filter(o => o.id !== id);
-    if (filtered.length === orders.length) return false;
     setCollection('orders', filtered);
+
+    // 1. Delete from Firestore cloud
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('orders', id).catch(() => {});
+    }
+
+    // 2. Cascade delete matching payments from memory & cloud
+    paymentDB.deleteByOrder(id);
+
+    // 3. Free up table if this order was assigned to one
+    if (target.tableId) {
+      const tbl = tableDB.getById(target.tableId);
+      if (tbl && tbl.currentOrderId === id) {
+        tableDB.update(target.tableId, { status: 'available', currentOrderId: undefined });
+      }
+    } else if (target.tableNumber) {
+      const tbl = tableDB.getByNumber(target.tableNumber);
+      if (tbl && tbl.currentOrderId === id) {
+        tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined });
+      }
+    }
+
+    // 4. Broadcast deletion to other connected devices
+    broadcastSync((s) => s.broadcastOrderDeleted(id));
+    notifyDbListeners();
     return true;
   }
 };
@@ -981,7 +1008,42 @@ export const paymentDB = {
     
     payments[index] = { ...payments[index], ...updates };
     setCollection('payments', payments);
+    if (isFirebaseActive()) {
+      firebaseSync.pushDoc('payments', id, payments[index]).catch(() => {});
+    }
     return payments[index];
+  },
+
+  delete: (id: string): boolean => {
+    const payments = paymentDB.getAll();
+    const target = payments.find(p => p.id === id);
+    if (!target) return false;
+
+    const filtered = payments.filter(p => p.id !== id);
+    setCollection('payments', filtered);
+
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('payments', id).catch(() => {});
+    }
+    notifyDbListeners();
+    return true;
+  },
+
+  deleteByOrder: (orderId: string): boolean => {
+    const payments = paymentDB.getAll();
+    const matching = payments.filter(p => p.orderId === orderId);
+    if (matching.length === 0) return false;
+
+    const filtered = payments.filter(p => p.orderId !== orderId);
+    setCollection('payments', filtered);
+
+    if (isFirebaseActive()) {
+      matching.forEach(p => {
+        firebaseSync.deleteDoc('payments', p.id).catch(() => {});
+      });
+    }
+    notifyDbListeners();
+    return true;
   }
 };
 
@@ -1395,61 +1457,71 @@ export const initializeSampleData = (): void => {
   ];
   inventoryItems.forEach(i => inventoryDB.create(i));
   
-  // Create some sample orders for demo (only if no orders exist yet)
-  const existingOrders = orderDB.getAll();
-  if (existingOrders.length === 0) {
-    const allMenuItems = menuItemDB.getAll();
-    const item1 = allMenuItems[0];
-    const item2 = allMenuItems[5] || allMenuItems[1] || allMenuItems[0];
+  // Purge any legacy sample data so database is clean
+  purgeSampleData();
 
-    const item1Price = Number(item1?.price) || 980;
-    const item2Price = Number(item2?.price) || 780;
-    const item1Total = item1Price * 2;
-    const item2Total = item2Price * 1;
-    const subtotal = item1Total + item2Total;
-    const tax = Math.round(subtotal * 0.10);
-    const total = subtotal + tax;
-
-    const firstTable = tableDB.getAll()[0];
-    const sampleOrders = [
-      {
-        tableId: firstTable?.id || 'tbl-1',
-        tableNumber: firstTable?.number || 1,
-        type: 'dine-in' as const,
-        items: [
-          { id: uuidv4(), menuItemId: item1?.id || 'item-1', menuItemName: item1?.name || 'Butter Chicken Curry (バターチキンカレー)', quantity: 2, unitPrice: item1Price, totalPrice: item1Total, status: 'served' as const },
-          { id: uuidv4(), menuItemId: item2?.id || 'item-6', menuItemName: item2?.name || 'Dal Lentil Curry (ダルカレー)', quantity: 1, unitPrice: item2Price, totalPrice: item2Total, status: 'served' as const }
-        ],
-        subtotal,
-        tax,
-        discount: 0,
-        discountType: 'fixed' as const,
-        total,
-        status: 'completed' as const,
-        customerName: 'John Doe',
-        waiterName: 'Sarah Waiter'
-      }
-    ];
-    
-    sampleOrders.forEach(o => {
-      const order = orderDB.create(o);
-      paymentDB.create({
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        amount: order.total,
-        method: 'card',
-        status: 'completed',
-        receivedBy: 'Lisa Cashier'
-      });
-    });
-  }
-  
-  // Create welcome notification
-  notificationDB.create({
-    type: 'system',
-    title: 'Welcome to Restaurant Manager',
-    message: 'Your restaurant management system is ready to use!'
-  });
-  
-  console.log('Sample data initialized successfully!');
+  console.log('Database initialized successfully without sample records!');
 };
+
+/**
+ * Purges any sample / demo orders, sample payments, and demo notifications from both
+ * local in-memory store and Firestore cloud.
+ */
+export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: number; notificationsRemoved: number } {
+  const orders = getCollection<Order>('orders');
+  const sampleOrders = orders.filter(
+    (o) =>
+      o.customerName === 'John Doe' ||
+      o.id.startsWith('sample-') ||
+      o.orderNumber?.toLowerCase().includes('sample') ||
+      o.customerName?.toLowerCase().includes('sample') ||
+      o.notes?.toLowerCase().includes('sample demo')
+  );
+
+  sampleOrders.forEach((o) => {
+    orderDB.delete(o.id);
+  });
+
+  // Also purge any orphaned sample payments
+  const payments = getCollection<Payment>('payments');
+  const samplePayments = payments.filter(
+    (p) =>
+      p.orderNumber?.toLowerCase().includes('sample') ||
+      p.id?.startsWith('sample-') ||
+      p.receivedBy?.toLowerCase().includes('sample')
+  );
+  samplePayments.forEach((p) => {
+    paymentDB.delete(p.id);
+  });
+
+  // Release any tables that were tied to deleted orders
+  const currentOrders = orderDB.getAll();
+  const validOrderIds = new Set(currentOrders.map((o) => o.id));
+  const tables = getCollection<Table>('tables');
+  tables.forEach((tbl) => {
+    if (tbl.currentOrderId && !validOrderIds.has(tbl.currentOrderId)) {
+      tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined });
+    }
+  });
+
+  const notifications = getCollection<Notification>('notifications');
+  const filteredNotifs = notifications.filter(
+    (n) => !n.title.toLowerCase().includes('welcome to restaurant manager')
+  );
+  if (filteredNotifs.length !== notifications.length) {
+    setCollection('notifications', filteredNotifs);
+    if (isFirebaseActive()) {
+      notifications
+        .filter((n) => n.title.toLowerCase().includes('welcome to restaurant manager'))
+        .forEach((n) => {
+          firebaseSync.deleteDoc('notifications', n.id).catch(() => {});
+        });
+    }
+  }
+
+  return {
+    ordersRemoved: sampleOrders.length,
+    paymentsRemoved: samplePayments.length,
+    notificationsRemoved: notifications.length - filteredNotifs.length,
+  };
+}
