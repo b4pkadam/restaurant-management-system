@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote,
   Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat,
-  BellRing, Printer
+  BellRing, Printer, Lock
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -187,12 +187,17 @@ export const POSPage: React.FC = () => {
   }, [error, success]);
 
   // Open POS Item Customization Modal
+  // Open POS Item Customization Modal
   const openPosItemModal = useCallback((menuItem: MenuItem, existingCartItem?: CartItem) => {
+    if (existingCartItem && user?.role === 'waiter' && existingCartItem.status && ['preparing', 'ready', 'served'].includes(existingCartItem.status)) {
+      error('Cannot modify options for items already being prepared or served in the kitchen.');
+      return;
+    }
     setPosCustomizingItem({ menuItem, cartItemId: existingCartItem?.id });
     setPosSpiceLevel(existingCartItem?.spiceLevel || '2 - Medium (中辛)');
     setPosDrinkOption(existingCartItem?.selectedDrink || 'Mango Lassi (マンゴーラッシー)');
     setPosNotes(existingCartItem?.notes || '');
-  }, []);
+  }, [user?.role, error]);
 
   const confirmPosItemOptions = useCallback(() => {
     if (!posCustomizingItem) return;
@@ -246,6 +251,11 @@ export const POSPage: React.FC = () => {
   // Update quantity
   const updateQuantity = useCallback((itemId: string, delta: number) => {
     setCart(prev => {
+      const targetItem = prev.find(item => item.id === itemId);
+      if (targetItem && user?.role === 'waiter' && targetItem.status && ['preparing', 'ready', 'served'].includes(targetItem.status)) {
+        error('Cannot change quantity for items already being prepared or served in the kitchen.');
+        return prev;
+      }
       return prev.map(item => {
         if (item.id !== itemId) return item;
         const newQty = Math.max(0, item.quantity + delta);
@@ -257,12 +267,19 @@ export const POSPage: React.FC = () => {
         };
       }).filter(item => item.quantity > 0);
     });
-  }, []);
+  }, [user?.role, error]);
 
   // Remove item
   const removeItem = useCallback((itemId: string) => {
-    setCart(prev => prev.filter(item => item.id !== itemId));
-  }, []);
+    setCart(prev => {
+      const targetItem = prev.find(item => item.id === itemId);
+      if (targetItem && user?.role === 'waiter' && targetItem.status && ['preparing', 'ready', 'served'].includes(targetItem.status)) {
+        error('Cannot remove items already being prepared or served in the kitchen.');
+        return prev;
+      }
+      return prev.filter(item => item.id !== itemId);
+    });
+  }, [user?.role, error]);
 
   // Handle barcode scan
   const handleBarcodeInput = useCallback((barcode: string) => {
@@ -756,37 +773,60 @@ export const POSPage: React.FC = () => {
                       {settings.currencySymbol}{item.unitPrice.toFixed(2)} × {item.quantity}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => openPosItemModal(item.menuItem, item)}
-                      className="w-7 h-7 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-900/50"
-                      title="Edit Spice / Drink / Notes"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => updateQuantity(item.id, -1)}
-                      className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
-                    >
-                      <Minus size={14} />
-                    </button>
-                    <span className="w-8 text-center font-medium text-gray-900 dark:text-white">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateQuantity(item.id, 1)}
-                      className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
-                    >
-                      <Plus size={14} />
-                    </button>
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="w-7 h-7 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-200 dark:hover:bg-red-900/50"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {(() => {
+                    const isWaiter = user?.role === 'waiter';
+                    const isItemLocked = isWaiter && Boolean(item.status && ['preparing', 'ready', 'served'].includes(item.status));
+
+                    if (isItemLocked) {
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-xs px-2 py-1 font-semibold"
+                            title="Item is already preparing or served in the kitchen. Waiters cannot modify or remove it."
+                          >
+                            <Lock size={12} /> In Kitchen
+                          </span>
+                          <span className="w-8 text-center font-medium text-gray-900 dark:text-white">
+                            {item.quantity}
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openPosItemModal(item.menuItem, item)}
+                          className="w-7 h-7 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                          title="Edit Spice / Drink / Notes"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => updateQuantity(item.id, -1)}
+                          className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 text-center font-medium text-gray-900 dark:text-white">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => updateQuantity(item.id, 1)}
+                          className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="w-7 h-7 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-200 dark:hover:bg-red-900/50"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })()}
                   <p className="w-16 text-right font-semibold text-gray-900 dark:text-white">
                     {settings.currencySymbol}{item.totalPrice.toFixed(2)}
                   </p>
@@ -959,6 +999,26 @@ export const POSPage: React.FC = () => {
                 key={table.id}
                 type="button"
                 onClick={() => {
+                  if (table.status === 'cleaning') {
+                    if (window.confirm(`Table ${table.number} is marked as Cleaning. Mark it Ready (Available) and select it?`)) {
+                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+                      setSelectedTable({ ...table, status: 'available' });
+                      setLoadedOrderId(null);
+                      setShowTableModal(false);
+                      success(`Table ${table.number} is now Available and selected!`);
+                    }
+                    return;
+                  }
+                  if (table.status === 'occupied' && !activeOrd) {
+                    if (window.confirm(`Table ${table.number} is marked occupied but has no active order. Reset to Available and select?`)) {
+                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+                      setSelectedTable({ ...table, status: 'available' });
+                      setLoadedOrderId(null);
+                      setShowTableModal(false);
+                      success(`Table ${table.number} reset to Available and selected!`);
+                    }
+                    return;
+                  }
                   if (activeOrd) {
                     loadActiveOrder(activeOrd);
                   } else {
@@ -972,6 +1032,7 @@ export const POSPage: React.FC = () => {
                   table.status === 'available' && 'bg-green-50 border-green-200 dark:bg-green-900/20 text-green-700 dark:text-green-300 hover:bg-green-100',
                   table.status === 'occupied' && 'bg-amber-50 border-amber-300 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 hover:bg-amber-100 ring-2 ring-amber-400/50',
                   table.status === 'reserved' && 'bg-purple-50 border-purple-200 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300',
+                  table.status === 'cleaning' && 'bg-purple-50 border-purple-300 dark:bg-purple-950/30 text-purple-900 dark:text-purple-200 hover:bg-purple-100 ring-2 ring-purple-400/50',
                   selectedTable?.id === table.id && 'ring-2 ring-blue-600 font-bold'
                 )}
               >
@@ -980,6 +1041,11 @@ export const POSPage: React.FC = () => {
                 <div className="pt-0.5">
                   <StatusBadge status={table.status} showDot={false} />
                 </div>
+                {table.status === 'cleaning' && (
+                  <span className="inline-flex items-center gap-1 mt-1 rounded-lg bg-purple-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                    🧹 Tap to Ready
+                  </span>
+                )}
                 {(() => {
                   const tableWaiterCall = notifications.find(
                     (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)

@@ -125,6 +125,82 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
   return { orders: repairedOrders, changed };
 }
 
+/**
+ * Auto-sanitizes and repairs tables:
+ * 1) Removes any test/sample tables like table 99 if no active order exists.
+ * 2) If a table is marked 'occupied' but has no matching active order, resets to 'available'.
+ * 3) If an active order is bound to a table, ensures table is 'occupied' and currentOrderId is synced.
+ */
+export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tables: Table[]; changed: boolean } {
+  let changed = false;
+  if (!Array.isArray(tables)) return { tables: [], changed: false };
+
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const activeOrders = safeOrders.filter((o) => !['completed', 'cancelled'].includes(o.status));
+  const activeOrderIdSet = new Set(activeOrders.map((o) => o.id));
+  const activeTableNumberMap = new Map<number, Order>();
+  const activeTableIdMap = new Map<string, Order>();
+
+  activeOrders.forEach((o) => {
+    if (o.tableNumber) activeTableNumberMap.set(o.tableNumber, o);
+    if (o.tableId) activeTableIdMap.set(o.tableId, o);
+  });
+
+  // Purge test/sample table 99 if no active order exists
+  const validTables = tables.filter((t) => {
+    if (!t || !t.number) return false;
+    if (t.number === 99 || t.number >= 90) {
+      const hasActive = activeTableNumberMap.has(t.number) || (t.id && activeTableIdMap.has(t.id));
+      if (!hasActive) {
+        changed = true;
+        if (isFirebaseActive()) {
+          firebaseSync.deleteDoc('tables', t.id).catch(() => {});
+          firebaseSync.deleteDoc('tables', `table_${t.number}`).catch(() => {});
+          firebaseSync.deleteDoc('tables', String(t.number)).catch(() => {});
+        }
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const repairedTables = validTables.map((tbl) => {
+    const t = { ...tbl };
+    const matchingOrder =
+      t.currentOrderId && activeOrderIdSet.has(t.currentOrderId)
+        ? activeOrders.find((o) => o.id === t.currentOrderId)
+        : activeTableNumberMap.get(t.number) || (t.id ? activeTableIdMap.get(t.id) : undefined);
+
+    if (t.status === 'occupied') {
+      if (!matchingOrder) {
+        t.status = 'available';
+        t.currentOrderId = undefined;
+        changed = true;
+      } else if (t.currentOrderId !== matchingOrder.id) {
+        t.currentOrderId = matchingOrder.id;
+        changed = true;
+      }
+    } else if (t.status === 'cleaning') {
+      if (t.currentOrderId && !matchingOrder) {
+        t.currentOrderId = undefined;
+        changed = true;
+      }
+    } else if (t.status === 'available') {
+      if (matchingOrder) {
+        t.status = 'occupied';
+        t.currentOrderId = matchingOrder.id;
+        changed = true;
+      } else if (t.currentOrderId) {
+        t.currentOrderId = undefined;
+        changed = true;
+      }
+    }
+    return t;
+  });
+
+  return { tables: repairedTables, changed };
+}
+
 // Generic storage functions
 export function getCollection<T>(key: string): T[] {
   const data = memoryStore.get(key);
@@ -136,12 +212,19 @@ export function setCollection<T>(key: string, data: T[]): void {
   if (key === 'orders' && Array.isArray(data)) {
     const { orders } = sanitizeAndRepairOrders(data as unknown as Order[]);
     finalData = orders as unknown as T[];
+  } else if (key === 'tables' && Array.isArray(data)) {
+    const orders = getCollection<Order>('orders');
+    const { tables } = sanitizeAndRepairTables(data as unknown as Table[], orders);
+    finalData = tables as unknown as T[];
   }
   memoryStore.set(key, finalData);
   notifyDbListeners();
   if (isFirebaseActive() && Array.isArray(finalData)) {
     finalData.forEach((item: any) => {
-      const docId = item.id || (item.number !== undefined ? String(item.number) : undefined);
+      const docId =
+        key === 'tables' && item.number
+          ? `table_${item.number}`
+          : item.id || (item.number !== undefined ? String(item.number) : undefined);
       if (docId) {
         firebaseSync.pushDoc(key, docId, item).catch(() => {});
       }
@@ -183,6 +266,15 @@ registerCloudUpdateHandler({
       if (changed && isFirebaseActive()) {
         orders.forEach((o) => {
           if (o.id) firebaseSync.pushDoc('orders', o.id, o).catch(() => {});
+        });
+      }
+    } else if (collName === 'tables' && Array.isArray(items)) {
+      const orders = getCollection<Order>('orders');
+      const { tables, changed } = sanitizeAndRepairTables(items as Table[], orders);
+      finalItems = tables;
+      if (changed && isFirebaseActive()) {
+        tables.forEach((t) => {
+          firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
         });
       }
     }
@@ -693,8 +785,19 @@ export const menuItemDB = {
 export const tableDB = {
   getAll: (): Table[] => {
     const raw = getCollection<Table>('tables');
+    const orders = getCollection<Order>('orders');
+    const { tables, changed } = sanitizeAndRepairTables(raw, orders);
+    if (changed) {
+      memoryStore.set('tables', tables);
+      notifyDbListeners();
+      if (isFirebaseActive()) {
+        tables.forEach((t) => {
+          firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+        });
+      }
+    }
     const uniqueMap = new Map<number, Table>();
-    raw.forEach((t) => {
+    tables.forEach((t) => {
       if (!t.number) return;
       const existing = uniqueMap.get(t.number);
       if (!existing || (!existing.currentOrderId && t.currentOrderId)) {
@@ -1467,7 +1570,7 @@ export const initializeSampleData = (): void => {
  * Purges any sample / demo orders, sample payments, and demo notifications from both
  * local in-memory store and Firestore cloud.
  */
-export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: number; notificationsRemoved: number } {
+export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: number; tablesRemoved: number; notificationsRemoved: number } {
   const orders = getCollection<Order>('orders');
   const sampleOrders = orders.filter(
     (o) =>
@@ -1494,13 +1597,17 @@ export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: num
     paymentDB.delete(p.id);
   });
 
-  // Release any tables that were tied to deleted orders
+  // Release any tables that were tied to deleted orders and purge test tables like 99
   const currentOrders = orderDB.getAll();
   const validOrderIds = new Set(currentOrders.map((o) => o.id));
   const tables = getCollection<Table>('tables');
+  let tablesRemoved = 0;
   tables.forEach((tbl) => {
-    if (tbl.currentOrderId && !validOrderIds.has(tbl.currentOrderId)) {
-      tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined });
+    if (tbl.number === 99 || tbl.number >= 90) {
+      tableDB.delete(tbl.id);
+      tablesRemoved++;
+    } else if (tbl.currentOrderId && !validOrderIds.has(tbl.currentOrderId)) {
+      tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
     }
   });
 
@@ -1522,6 +1629,7 @@ export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: num
   return {
     ordersRemoved: sampleOrders.length,
     paymentsRemoved: samplePayments.length,
+    tablesRemoved,
     notificationsRemoved: notifications.length - filteredNotifs.length,
   };
 }

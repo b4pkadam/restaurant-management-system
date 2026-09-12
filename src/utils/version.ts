@@ -1,5 +1,5 @@
 // App & Deployment Version Tracking
-export const APP_VERSION = 'v1.7.8';
-export const BUILD_TIMESTAMP = '2026-09-12 20:06';
+export const APP_VERSION = 'v1.7.9';
+export const BUILD_TIMESTAMP = '2026-09-12 20:39';
 
 

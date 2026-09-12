@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   FileDown,
+  Lock,
   PackagePlus,
   Plus,
   Printer,
@@ -610,24 +611,23 @@ export function MenuManagementPage() {
   );
 }
 
-export function OrdersManagementPage() {
-  const { success, error } = useToast();
-  const { addNotification } = useNotifications();
-  const { user } = useAuth();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+export interface EditOrderModalProps {
+  order: Order | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  userRole?: string;
+}
 
-  const isAdmin = user?.role === 'admin';
+export function EditOrderModal({ order, isOpen, onClose, onSaved, userRole }: EditOrderModalProps) {
+  const { success, error } = useToast();
   const settings = settingsDB.get();
 
-  // Payment Settlement state
-  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
-  const [cashReceived, setCashReceived] = useState<string>('');
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole === 'manager';
+  const isWaiter = userRole === 'waiter';
+  const canFullEdit = isAdmin || isManager;
 
-  // Admin Record Edit state
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editForm, setEditForm] = useState<{
     customerName: string;
     customerPhone: string;
@@ -653,10 +653,35 @@ export function OrdersManagementPage() {
     notes: '',
     items: [],
   });
+
   const [selectedMenuItemToAdd, setSelectedMenuItemToAdd] = useState<string>('');
 
-  const allMenuItems = useMemo(() => menuItemDB.getAll(), [editingOrder]);
-  const allTables = useMemo(() => tableDB.getAll().sort((a, b) => a.number - b.number), [editingOrder]);
+  const allMenuItems = useMemo(() => menuItemDB.getAll(), [order]);
+  const allTables = useMemo(() => tableDB.getAll().sort((a, b) => a.number - b.number), [order]);
+
+  useEffect(() => {
+    if (order) {
+      const payment = paymentDB.getByOrder(order.id);
+      const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
+      setEditForm({
+        customerName: order.customerName || '',
+        customerPhone: order.customerPhone || '',
+        tableNumber: order.tableNumber ? String(order.tableNumber) : '',
+        type: order.type,
+        status: order.status,
+        paymentStatus: isPaid ? 'paid' : 'pending',
+        paymentMethod:
+          payment?.method && ['cash', 'card', 'upi'].includes(payment.method)
+            ? (payment.method as 'cash' | 'card' | 'upi')
+            : 'cash',
+        discount: order.discount || 0,
+        discountType: order.discountType || 'percentage',
+        notes: order.notes || '',
+        items: JSON.parse(JSON.stringify(order.items || [])),
+      });
+      setSelectedMenuItemToAdd('');
+    }
+  }, [order]);
 
   const editSubtotal = useMemo(() => {
     return editForm.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.quantity), 0);
@@ -680,38 +705,16 @@ export function OrdersManagementPage() {
     return Math.max(0, editSubtotal - editDiscountAmount + editTax);
   }, [editSubtotal, editDiscountAmount, editTax]);
 
-  const loadOrders = () => {
-    setOrders(orderDB.getAll().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-  };
-
-  useEffect(() => {
-    loadOrders();
-  }, []);
-
-  const openEditOrderModal = (order: Order) => {
-    const payment = paymentDB.getByOrder(order.id);
-    const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
-    setEditingOrder(order);
-    setEditForm({
-      customerName: order.customerName || '',
-      customerPhone: order.customerPhone || '',
-      tableNumber: order.tableNumber ? String(order.tableNumber) : '',
-      type: order.type,
-      status: order.status,
-      paymentStatus: isPaid ? 'paid' : 'pending',
-      paymentMethod:
-        payment?.method && ['cash', 'card', 'upi'].includes(payment.method)
-          ? (payment.method as 'cash' | 'card' | 'upi')
-          : 'cash',
-      discount: order.discount || 0,
-      discountType: order.discountType || 'percentage',
-      notes: order.notes || '',
-      items: JSON.parse(JSON.stringify(order.items || [])),
-    });
-    setSelectedMenuItemToAdd('');
+  const isItemLockedForWaiter = (item: OrderItem) => {
+    return isWaiter && Boolean(item.status && ['preparing', 'ready', 'served'].includes(item.status));
   };
 
   const handleUpdateItemQty = (index: number, newQty: number) => {
+    const item = editForm.items[index];
+    if (isItemLockedForWaiter(item)) {
+      error('Cannot modify items already being prepared or served in the kitchen.');
+      return;
+    }
     setEditForm((prev) => {
       const items = [...prev.items];
       if (newQty <= 0) {
@@ -728,6 +731,7 @@ export function OrdersManagementPage() {
   };
 
   const handleUpdateItemPrice = (index: number, newPrice: number) => {
+    if (!canFullEdit) return;
     setEditForm((prev) => {
       const items = [...prev.items];
       const validPrice = Math.max(0, newPrice);
@@ -741,6 +745,11 @@ export function OrdersManagementPage() {
   };
 
   const handleRemoveItem = (index: number) => {
+    const item = editForm.items[index];
+    if (isItemLockedForWaiter(item)) {
+      error('Cannot delete items already being prepared or served in the kitchen.');
+      return;
+    }
     setEditForm((prev) => ({
       ...prev,
       items: prev.items.filter((_, i) => i !== index),
@@ -759,7 +768,7 @@ export function OrdersManagementPage() {
       quantity: 1,
       unitPrice: menuItem.price,
       totalPrice: menuItem.price,
-      status: 'served',
+      status: 'pending',
       notes: '',
     };
 
@@ -771,14 +780,14 @@ export function OrdersManagementPage() {
   };
 
   const handleSaveOrderEdit = () => {
-    if (!editingOrder) return;
+    if (!order) return;
     if (editForm.items.length === 0) {
       error('An order must have at least one item.');
       return;
     }
 
     const tableNum = editForm.tableNumber ? Number(editForm.tableNumber) : undefined;
-    let tableId = editingOrder.tableId;
+    let tableId = order.tableId;
     if (tableNum !== undefined) {
       const tbl = tableDB.getAll().find((t) => t.number === tableNum);
       tableId = tbl ? tbl.id : undefined;
@@ -787,69 +796,403 @@ export function OrdersManagementPage() {
     }
 
     const isNowPaid = editForm.paymentStatus === 'paid';
-    const updatedStatus = editForm.status;
+    const updatedStatus = canFullEdit ? editForm.status : order.status;
 
     // 1. Update order record
-    orderDB.update(editingOrder.id, {
+    orderDB.update(order.id, {
       customerName: editForm.customerName.trim(),
       customerPhone: editForm.customerPhone.trim(),
-      type: editForm.type,
-      tableId,
-      tableNumber: tableNum,
+      type: canFullEdit ? editForm.type : order.type,
+      tableId: canFullEdit ? tableId : order.tableId,
+      tableNumber: canFullEdit ? tableNum : order.tableNumber,
       status: updatedStatus,
-      paymentStatus: isNowPaid ? 'paid' : 'pending',
-      isPaid: isNowPaid,
+      paymentStatus: canFullEdit ? (isNowPaid ? 'paid' : 'pending') : order.paymentStatus,
+      isPaid: canFullEdit ? isNowPaid : order.isPaid,
       subtotal: editSubtotal,
-      discount: editDiscountAmount,
-      discountType: editForm.discountType,
+      discount: canFullEdit ? editDiscountAmount : order.discount,
+      discountType: canFullEdit ? editForm.discountType : order.discountType,
       tax: editTax,
       total: editTotal,
       notes: editForm.notes.trim(),
       items: editForm.items.map((it) => ({
         ...it,
         totalPrice: it.quantity * it.unitPrice,
+        status: it.status || 'pending',
       })),
-      completedAt: updatedStatus === 'completed' ? editingOrder.completedAt || new Date().toISOString() : undefined,
+      completedAt: updatedStatus === 'completed' ? order.completedAt || new Date().toISOString() : undefined,
     });
 
-    // 2. Synchronize payment record in memory & Firestore
-    const existingPay = paymentDB.getByOrder(editingOrder.id);
-    if (isNowPaid) {
-      if (existingPay) {
-        paymentDB.update(existingPay.id, {
-          amount: editTotal,
-          method: editForm.paymentMethod,
-          status: 'completed',
-        });
+    // 2. Synchronize payment record in memory & Firestore if full edit
+    if (canFullEdit) {
+      const existingPay = paymentDB.getByOrder(order.id);
+      if (isNowPaid) {
+        if (existingPay) {
+          paymentDB.update(existingPay.id, {
+            amount: editTotal,
+            method: editForm.paymentMethod,
+            status: 'completed',
+          });
+        } else {
+          paymentDB.create({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            amount: editTotal,
+            method: editForm.paymentMethod,
+            status: 'completed',
+            receivedBy: userRole || 'Admin',
+          });
+        }
       } else {
-        paymentDB.create({
-          orderId: editingOrder.id,
-          orderNumber: editingOrder.orderNumber,
-          amount: editTotal,
-          method: editForm.paymentMethod,
-          status: 'completed',
-          receivedBy: user?.username || 'Admin',
-        });
+        if (existingPay) {
+          paymentDB.delete(existingPay.id);
+        }
       }
-    } else {
-      if (existingPay) {
-        paymentDB.delete(existingPay.id);
+
+      // 3. Update table occupancy
+      if (updatedStatus === 'completed' || updatedStatus === 'cancelled') {
+        if (tableId) {
+          tableDB.update(tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+        }
+      } else if (tableId && editForm.type === 'dine-in') {
+        tableDB.update(tableId, { status: 'occupied', currentOrderId: order.id });
       }
     }
 
-    // 3. Update table occupancy
-    if (updatedStatus === 'completed' || updatedStatus === 'cancelled') {
-      if (tableId) {
-        tableDB.update(tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-      }
-    } else if (tableId && editForm.type === 'dine-in') {
-      tableDB.update(tableId, { status: 'occupied', currentOrderId: editingOrder.id });
-    }
-
-    success(`Order ${editingOrder.orderNumber} updated successfully.`);
-    setEditingOrder(null);
-    loadOrders();
+    success(`Order ${order.orderNumber} updated successfully.`);
+    onSaved();
+    onClose();
   };
+
+  if (!isOpen || !order) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Edit Order #${order.orderNumber}`}
+      size="lg"
+    >
+      <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+        {isWaiter && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700/60 p-3 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
+            <ChefHat size={16} className="text-amber-600 shrink-0" />
+            <span>
+              <strong>Waiter Mode:</strong> You can edit or remove items that are not yet prepared, add new items, or update notes. Items already cooking or served in the kitchen are locked.
+            </span>
+          </div>
+        )}
+
+        {/* Customer & Order Metadata */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Input
+            label="Customer Name"
+            placeholder="Walk-in Customer"
+            value={editForm.customerName}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, customerName: e.target.value }))}
+          />
+          <Input
+            label="Customer Phone"
+            placeholder="090-XXXX-XXXX"
+            value={editForm.customerPhone}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, customerPhone: e.target.value }))}
+          />
+          {canFullEdit ? (
+            <>
+              <Select
+                label="Order Type"
+                value={editForm.type}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value as any }))}
+                options={[
+                  { value: 'dine-in', label: 'Dine-In' },
+                  { value: 'takeaway', label: 'Takeaway' },
+                  { value: 'delivery', label: 'Delivery' },
+                ]}
+              />
+              <Select
+                label="Assigned Table"
+                value={editForm.tableNumber}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, tableNumber: e.target.value }))}
+                options={[
+                  { value: '', label: 'None / Takeaway' },
+                  ...allTables.map((t) => ({ value: String(t.number), label: `Table ${t.number} (${t.capacity} seats)` })),
+                ]}
+              />
+            </>
+          ) : (
+            <div className="md:col-span-2 flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700">
+              <span><strong>Type:</strong> {order.type}</span>
+              <span><strong>Table:</strong> {order.tableNumber ? `Table ${order.tableNumber}` : 'N/A'}</span>
+              <span><strong>Status:</strong> <StatusBadge status={order.status} /></span>
+            </div>
+          )}
+        </div>
+
+        {/* Status & Payment Settings (for Admin and Manager) */}
+        {canFullEdit && (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/40 p-3.5 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+              Status & Settlement
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Select
+                label="Lifecycle Status"
+                value={editForm.status}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as any }))}
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'preparing', label: 'Preparing' },
+                  { value: 'ready', label: 'Ready' },
+                  { value: 'served', label: 'Served' },
+                  { value: 'completed', label: 'Completed' },
+                  { value: 'cancelled', label: 'Cancelled' },
+                ]}
+              />
+              <Select
+                label="Payment Status"
+                value={editForm.paymentStatus}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, paymentStatus: e.target.value as any }))}
+                options={[
+                  { value: 'pending', label: '⏳ Unpaid (Pending)' },
+                  { value: 'paid', label: '💳 Paid' },
+                ]}
+              />
+              {editForm.paymentStatus === 'paid' ? (
+                <Select
+                  label="Payment Method"
+                  value={editForm.paymentMethod}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, paymentMethod: e.target.value as any }))}
+                  options={[
+                    { value: 'cash', label: 'Cash' },
+                    { value: 'card', label: 'Card' },
+                    { value: 'upi', label: 'UPI / QR' },
+                  ]}
+                />
+              ) : (
+                <div className="flex items-end pb-2 text-xs text-amber-600 dark:text-amber-400 font-semibold">
+                  <span>Payment will be cleared</span>
+                </div>
+              )}
+            </div>
+
+            {/* Discount control */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <Input
+                label="Discount Value"
+                type="number"
+                min="0"
+                value={editForm.discount}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, discount: Math.max(0, Number(e.target.value)) }))}
+              />
+              <Select
+                label="Discount Type"
+                value={editForm.discountType}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, discountType: e.target.value as any }))}
+                options={[
+                  { value: 'percentage', label: 'Percentage (%)' },
+                  { value: 'fixed', label: `Fixed Amount (${settings.currencySymbol})` },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Order Items Table & Editor */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+              Order Items ({editForm.items.length})
+            </h4>
+          </div>
+
+          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {editForm.items.length === 0 ? (
+              <p className="py-4 text-center text-xs text-red-500 font-semibold">
+                No items in order! Please add at least one menu item.
+              </p>
+            ) : (
+              editForm.items.map((item, idx) => {
+                const isLocked = isItemLockedForWaiter(item);
+                return (
+                  <div
+                    key={item.id || idx}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5 shadow-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                          {item.menuItemName}
+                        </p>
+                        {isLocked ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] px-2 py-0.5 font-bold">
+                            <Lock size={10} /> {item.status === 'served' ? 'Served' : item.status === 'ready' ? 'Ready' : 'In Kitchen'}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 text-[10px] px-1.5 py-0.5 font-medium">
+                            Pending / Not Prepared
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        <span>Total: {currency(item.quantity * item.unitPrice)}</span>
+                        {item.spiceLevel && <span>• 🌶️ {item.spiceLevel}</span>}
+                        {item.selectedDrink && <span>• 🥤 {item.selectedDrink}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="w-20">
+                        <label className="text-[10px] text-gray-500 block">Unit Price</label>
+                        {canFullEdit ? (
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold"
+                            value={item.unitPrice}
+                            onChange={(e) => handleUpdateItemPrice(idx, Number(e.target.value))}
+                          />
+                        ) : (
+                          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 block py-1">
+                            {currency(item.unitPrice)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="w-16">
+                        <label className="text-[10px] text-gray-500 block">Qty</label>
+                        <input
+                          type="number"
+                          min="1"
+                          disabled={isLocked}
+                          className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          value={item.quantity}
+                          onChange={(e) => handleUpdateItemQty(idx, Number(e.target.value))}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => handleRemoveItem(idx)}
+                        className="mt-3 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={isLocked ? 'Cannot remove cooking or served item' : 'Remove item'}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Add New Item From Menu */}
+          <div className="flex items-end gap-2 pt-1">
+            <div className="flex-1">
+              <Select
+                label="Add Item from Menu"
+                value={selectedMenuItemToAdd}
+                onChange={(e) => setSelectedMenuItemToAdd(e.target.value)}
+                options={[
+                  { value: '', label: 'Select menu item to add...' },
+                  ...allMenuItems.map((m) => ({
+                    value: m.id,
+                    label: `${m.name} — ${currency(m.price)}`,
+                  })),
+                ]}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleAddMenuItemToOrder}
+              disabled={!selectedMenuItemToAdd}
+              leftIcon={<Plus size={16} />}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+
+        {/* Order Notes */}
+        <div>
+          <Textarea
+            label="Kitchen / Order Notes"
+            placeholder="Special preparation instructions..."
+            value={editForm.notes}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+            rows={2}
+          />
+        </div>
+
+        {/* Realtime Live Price Summary Breakdown */}
+        <div className="rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 p-4 space-y-1.5 text-sm">
+          <div className="flex justify-between text-gray-700 dark:text-gray-300">
+            <span>Subtotal:</span>
+            <span className="font-semibold">{currency(editSubtotal)}</span>
+          </div>
+          {editDiscountAmount > 0 && (
+            <div className="flex justify-between text-rose-600 dark:text-rose-400">
+              <span>Discount ({editForm.discountType === 'percentage' ? `${editForm.discount}%` : 'fixed'}):</span>
+              <span className="font-semibold">- {currency(editDiscountAmount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between text-gray-700 dark:text-gray-300">
+            <span>Tax ({taxPercentage}%):</span>
+            <span className="font-semibold">+ {currency(editTax)}</span>
+          </div>
+          <div className="flex justify-between text-base font-black text-blue-700 dark:text-blue-300 border-t border-blue-200 dark:border-blue-900/60 pt-2">
+            <span>Final Total:</span>
+            <span className="text-lg">{currency(editTotal)}</span>
+          </div>
+        </div>
+
+        {/* Modal Actions */}
+        <div className="flex gap-2 pt-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1 font-bold"
+            onClick={handleSaveOrderEdit}
+            leftIcon={<Save size={16} />}
+          >
+            Save Record Changes
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function OrdersManagementPage() {
+  const { success, error } = useToast();
+  const { addNotification } = useNotifications();
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const isAdmin = user?.role === 'admin';
+  const isManager = user?.role === 'manager';
+  const isWaiter = user?.role === 'waiter';
+  const canEditOrder = isAdmin || isManager;
+  const canDeleteOrder = isAdmin;
+  const settings = settingsDB.get();
+
+  // Payment Settlement state
+  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
+  const [cashReceived, setCashReceived] = useState<string>('');
+
+  // Record Edit state
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+
+  const loadOrders = () => {
+    setOrders(orderDB.getAll().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  };
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
 
   const handleDeleteOrderRecord = (order: Order) => {
     const confirmed = window.confirm(
@@ -1116,24 +1459,34 @@ export function OrdersManagementPage() {
                     Cancel Order
                   </Button>
                 )}
-                {isAdmin && (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 font-medium"
-                      onClick={() => openEditOrderModal(order)}
-                      leftIcon={<Edit size={16} />}
-                    >
-                      Edit Record
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() => handleDeleteOrderRecord(order)}
-                      leftIcon={<Trash2 size={16} />}
-                    >
-                      Delete Record
-                    </Button>
-                  </>
+                {canEditOrder && (
+                  <Button
+                    variant="outline"
+                    className="border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 font-medium"
+                    onClick={() => setEditingOrder(order)}
+                    leftIcon={<Edit size={16} />}
+                  >
+                    Edit Record
+                  </Button>
+                )}
+                {isWaiter && !['completed', 'cancelled'].includes(order.status) && (
+                  <Button
+                    variant="outline"
+                    className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-400 dark:text-amber-400 dark:hover:bg-amber-950/40 font-medium"
+                    onClick={() => setEditingOrder(order)}
+                    leftIcon={<Edit size={16} />}
+                  >
+                    Edit Placed Items
+                  </Button>
+                )}
+                {canDeleteOrder && (
+                  <Button
+                    variant="danger"
+                    onClick={() => handleDeleteOrderRecord(order)}
+                    leftIcon={<Trash2 size={16} />}
+                  >
+                    Delete Record
+                  </Button>
                 )}
               </div>
             </Card>
@@ -1304,260 +1657,14 @@ export function OrdersManagementPage() {
         </Modal>
       )}
 
-      {/* Admin Edit Order Modal */}
-      {editingOrder && (
-        <Modal
-          isOpen={!!editingOrder}
-          onClose={() => setEditingOrder(null)}
-          title={`Admin Edit Record: ${editingOrder.orderNumber}`}
-          size="lg"
-        >
-          <div className="space-y-5">
-            {/* Customer & Order Metadata */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input
-                label="Customer Name"
-                placeholder="Walk-in Customer"
-                value={editForm.customerName}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, customerName: e.target.value }))}
-              />
-              <Input
-                label="Customer Phone"
-                placeholder="090-XXXX-XXXX"
-                value={editForm.customerPhone}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, customerPhone: e.target.value }))}
-              />
-              <Select
-                label="Order Type"
-                value={editForm.type}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value as any }))}
-                options={[
-                  { value: 'dine-in', label: 'Dine-In' },
-                  { value: 'takeaway', label: 'Takeaway' },
-                  { value: 'delivery', label: 'Delivery' },
-                ]}
-              />
-              <Select
-                label="Assigned Table"
-                value={editForm.tableNumber}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, tableNumber: e.target.value }))}
-                options={[
-                  { value: '', label: 'None / Takeaway' },
-                  ...allTables.map((t) => ({ value: String(t.number), label: `Table ${t.number} (${t.capacity} seats)` })),
-                ]}
-              />
-            </div>
-
-            {/* Status & Payment Settings */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/40 p-3.5 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                Status & Settlement
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Select
-                  label="Lifecycle Status"
-                  value={editForm.status}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as any }))}
-                  options={[
-                    { value: 'active', label: 'Active' },
-                    { value: 'preparing', label: 'Preparing' },
-                    { value: 'ready', label: 'Ready' },
-                    { value: 'served', label: 'Served' },
-                    { value: 'completed', label: 'Completed' },
-                    { value: 'cancelled', label: 'Cancelled' },
-                  ]}
-                />
-                <Select
-                  label="Payment Status"
-                  value={editForm.paymentStatus}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, paymentStatus: e.target.value as any }))}
-                  options={[
-                    { value: 'pending', label: '⏳ Unpaid (Pending)' },
-                    { value: 'paid', label: '💳 Paid' },
-                  ]}
-                />
-                {editForm.paymentStatus === 'paid' ? (
-                  <Select
-                    label="Payment Method"
-                    value={editForm.paymentMethod}
-                    onChange={(e) => setEditForm((prev) => ({ ...prev, paymentMethod: e.target.value as any }))}
-                    options={[
-                      { value: 'cash', label: 'Cash' },
-                      { value: 'card', label: 'Card' },
-                      { value: 'upi', label: 'UPI / QR' },
-                    ]}
-                  />
-                ) : (
-                  <div className="flex items-end pb-2 text-xs text-amber-600 dark:text-amber-400 font-semibold">
-                    <span>Payment will be cleared</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Discount control */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                <Input
-                  label="Discount Value"
-                  type="number"
-                  min="0"
-                  value={editForm.discount}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, discount: Math.max(0, Number(e.target.value)) }))}
-                />
-                <Select
-                  label="Discount Type"
-                  value={editForm.discountType}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, discountType: e.target.value as any }))}
-                  options={[
-                    { value: 'percentage', label: 'Percentage (%)' },
-                    { value: 'fixed', label: `Fixed Amount (${settings.currencySymbol})` },
-                  ]}
-                />
-              </div>
-            </div>
-
-            {/* Order Items Table & Editor */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                  Order Items ({editForm.items.length})
-                </h4>
-              </div>
-
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {editForm.items.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-red-500 font-semibold">
-                    No items in order! Please add at least one menu item.
-                  </p>
-                ) : (
-                  editForm.items.map((item, idx) => (
-                    <div
-                      key={item.id || idx}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5 shadow-xs"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                          {item.menuItemName}
-                        </p>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                          <span>Total: {currency(item.quantity * item.unitPrice)}</span>
-                          {item.spiceLevel && <span>• 🌶️ {item.spiceLevel}</span>}
-                          {item.selectedDrink && <span>• 🥤 {item.selectedDrink}</span>}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="w-20">
-                          <label className="text-[10px] text-gray-500 block">Unit Price</label>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold"
-                            value={item.unitPrice}
-                            onChange={(e) => handleUpdateItemPrice(idx, Number(e.target.value))}
-                          />
-                        </div>
-                        <div className="w-16">
-                          <label className="text-[10px] text-gray-500 block">Qty</label>
-                          <input
-                            type="number"
-                            min="1"
-                            className="w-full rounded border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 text-xs font-semibold text-center"
-                            value={item.quantity}
-                            onChange={(e) => handleUpdateItemQty(idx, Number(e.target.value))}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(idx)}
-                          className="mt-3 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors"
-                          title="Remove item"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Add New Item From Menu */}
-              <div className="flex items-end gap-2 pt-1">
-                <div className="flex-1">
-                  <Select
-                    label="Add Item from Menu"
-                    value={selectedMenuItemToAdd}
-                    onChange={(e) => setSelectedMenuItemToAdd(e.target.value)}
-                    options={[
-                      { value: '', label: 'Select menu item to add...' },
-                      ...allMenuItems.map((m) => ({
-                        value: m.id,
-                        label: `${m.name} — ${currency(m.price)}`,
-                      })),
-                    ]}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAddMenuItemToOrder}
-                  disabled={!selectedMenuItemToAdd}
-                  leftIcon={<Plus size={16} />}
-                >
-                  Add
-                </Button>
-              </div>
-            </div>
-
-            {/* Order Notes */}
-            <div>
-              <Textarea
-                label="Kitchen / Order Notes"
-                placeholder="Special preparation instructions..."
-                value={editForm.notes}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={2}
-              />
-            </div>
-
-            {/* Realtime Live Price Summary Breakdown */}
-            <div className="rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 p-4 space-y-1.5 text-sm">
-              <div className="flex justify-between text-gray-700 dark:text-gray-300">
-                <span>Subtotal:</span>
-                <span className="font-semibold">{currency(editSubtotal)}</span>
-              </div>
-              {editDiscountAmount > 0 && (
-                <div className="flex justify-between text-rose-600 dark:text-rose-400">
-                  <span>Discount ({editForm.discountType === 'percentage' ? `${editForm.discount}%` : 'fixed'}):</span>
-                  <span className="font-semibold">- {currency(editDiscountAmount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-gray-700 dark:text-gray-300">
-                <span>Tax ({taxPercentage}%):</span>
-                <span className="font-semibold">+ {currency(editTax)}</span>
-              </div>
-              <div className="flex justify-between text-base font-black text-blue-700 dark:text-blue-300 border-t border-blue-200 dark:border-blue-900/60 pt-2">
-                <span>Final Total:</span>
-                <span className="text-lg">{currency(editTotal)}</span>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setEditingOrder(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                className="flex-1 font-bold"
-                onClick={handleSaveOrderEdit}
-                leftIcon={<Save size={16} />}
-              >
-                Save Record Changes
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {/* Edit Order Modal */}
+      <EditOrderModal
+        order={editingOrder}
+        isOpen={!!editingOrder}
+        onClose={() => setEditingOrder(null)}
+        onSaved={loadOrders}
+        userRole={user?.role}
+      />
     </div>
   );
 }
@@ -1931,14 +2038,51 @@ export function TableManagementPage() {
     loadTables();
   };
 
+  const canClearOrClean = ['admin', 'manager', 'waiter'].includes(user?.role || '');
+  const isAdmin = user?.role === 'admin';
+
   const deleteTable = (table: Table) => {
-    if (table.currentOrderId || table.status === 'occupied') {
-      error('Cannot delete a table with an active order.');
-      return;
+    const activeOrder = table.currentOrderId ? orderDB.getById(table.currentOrderId) : null;
+    if (activeOrder && !['completed', 'cancelled'].includes(activeOrder.status)) {
+      if (
+        !window.confirm(
+          `Table ${table.number} has active order #${activeOrder.orderNumber}. Are you sure you want to delete this table?`
+        )
+      ) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Delete Table ${table.number}?`)) return;
     }
-    if (!window.confirm(`Delete Table ${table.number}?`)) return;
     tableDB.delete(table.id);
-    success('Table deleted.');
+    success(`Table ${table.number} deleted.`);
+    loadTables();
+  };
+
+  const markTableCleaning = (table: Table, activeOrder?: Order | null) => {
+    if (!canClearOrClean) return;
+    const isPaid = activeOrder
+      ? Boolean(activeOrder.paymentStatus === 'paid' || activeOrder.isPaid || paymentDB.getByOrder(activeOrder.id))
+      : true;
+
+    if (activeOrder && !isPaid && !['completed', 'cancelled'].includes(activeOrder.status)) {
+      if (
+        !window.confirm(
+          `Order #${activeOrder.orderNumber} for Table ${table.number} is not yet paid. Mark table as Cleaning anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+    tableDB.update(table.id, { status: 'cleaning', currentOrderId: undefined });
+    success(`Table ${table.number} marked for Cleaning.`);
+    loadTables();
+  };
+
+  const markTableReady = (table: Table) => {
+    if (!canClearOrClean) return;
+    tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+    success(`Table ${table.number} cleared and is now Ready & Available.`);
     loadTables();
   };
 
@@ -1995,92 +2139,220 @@ export function TableManagementPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {tables.map((table) => (
-          <Card key={table.id} className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">Table {table.number}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Capacity {table.capacity} • Floor {table.floor}</p>
-              </div>
-              <StatusBadge status={table.status} />
-            </div>
+        {tables.map((table) => {
+          const activeOrder = table.currentOrderId
+            ? orderDB.getById(table.currentOrderId)
+            : orderDB
+                .getAll()
+                .find(
+                  (o) =>
+                    (o.tableId === table.id || o.tableNumber === table.number) &&
+                    !['completed', 'cancelled'].includes(o.status)
+                );
 
-            {table.reservationInfo && (
-              <div className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-100">
-                <p className="font-medium">Reserved for {table.reservationInfo.customerName}</p>
-                <p>{table.reservationInfo.customerPhone || 'No phone'}</p>
-                <p>{format(new Date(table.reservationInfo.reservationTime), 'PPP p')}</p>
-                <p>Party size: {table.reservationInfo.partySize}</p>
-              </div>
-            )}
+          const isPaid = activeOrder
+            ? Boolean(activeOrder.paymentStatus === 'paid' || activeOrder.isPaid || paymentDB.getByOrder(activeOrder.id))
+            : true;
 
-            {table.currentOrderId && (
-              <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900 dark:bg-blue-900/20 dark:text-blue-100">
-                Active order: {orderDB.getById(table.currentOrderId)?.orderNumber || table.currentOrderId}
-              </div>
-            )}
-
-            {(() => {
-              const tableWaiterCall = notifications.find(
-                (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)
-              );
-              if (!tableWaiterCall) return null;
-              return (
-                <div className="rounded-xl bg-amber-500 text-white p-2.5 text-xs font-bold flex items-center justify-between shadow-md animate-pulse border border-amber-300">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <BellRing size={14} className="animate-bounce shrink-0 text-yellow-200" />
-                    <span className="truncate">Customer Calling Waiter!</span>
-                  </div>
-                  <button
-                    onClick={() => markAsRead(tableWaiterCall.id)}
-                    className="ml-1 shrink-0 rounded-md bg-white/25 hover:bg-white/40 px-2 py-0.5 text-[11px] cursor-pointer"
-                  >
-                    ✓ Dismiss
-                  </button>
+          return (
+            <Card key={table.id} className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">Table {table.number}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Capacity {table.capacity} • Floor {table.floor}
+                  </p>
                 </div>
-              );
-            })()}
+                <StatusBadge status={table.status} />
+              </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>Edit</Button>
+              {table.reservationInfo && (
+                <div className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-100">
+                  <p className="font-medium">Reserved for {table.reservationInfo.customerName}</p>
+                  <p>{table.reservationInfo.customerPhone || 'No phone'}</p>
+                  <p>{format(new Date(table.reservationInfo.reservationTime), 'PPP p')}</p>
+                  <p>Party size: {table.reservationInfo.partySize}</p>
+                </div>
+              )}
 
-              {table.status === 'available' ? (
+              {table.status === 'occupied' && !activeOrder && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-950/40 p-2.5 text-xs text-red-700 dark:text-red-300 font-bold border border-red-200 dark:border-red-800 flex items-center justify-between">
+                  <span>⚠️ Occupied (No Active Order)</span>
+                  {canClearOrClean && (
+                    <button
+                      onClick={() => markTableReady(table)}
+                      className="rounded bg-red-600 px-2 py-0.5 text-white text-[11px] font-bold hover:bg-red-700"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {activeOrder && (
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2.5 text-xs text-blue-900 dark:text-blue-100 flex items-center justify-between border border-blue-200 dark:border-blue-900">
+                  <div>
+                    <span className="font-bold">Order #{activeOrder.orderNumber}</span>
+                    <span className="text-gray-500 dark:text-gray-400 block">
+                      {currency(activeOrder.total)} • {activeOrder.items.length} items
+                    </span>
+                  </div>
+                  {isPaid ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      💳 Paid
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      ⏳ Unpaid
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {(() => {
+                const tableWaiterCall = notifications.find(
+                  (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)
+                );
+                if (!tableWaiterCall) return null;
+                return (
+                  <div className="rounded-xl bg-amber-500 text-white p-2.5 text-xs font-bold flex items-center justify-between shadow-md animate-pulse border border-amber-300">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <BellRing size={14} className="animate-bounce shrink-0 text-yellow-200" />
+                      <span className="truncate">Customer Calling Waiter!</span>
+                    </div>
+                    <button
+                      onClick={() => markAsRead(tableWaiterCall.id)}
+                      className="ml-1 shrink-0 rounded-md bg-white/25 hover:bg-white/40 px-2 py-0.5 text-[11px] cursor-pointer"
+                    >
+                      ✓ Dismiss
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Table Action Controls */}
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>
+                    Edit
+                  </Button>
+
+                  {table.status === 'cleaning' && canClearOrClean && (
+                    <Button
+                      variant="success"
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                      onClick={() => markTableReady(table)}
+                      leftIcon={<CheckCircle2 size={14} />}
+                    >
+                      Mark Ready
+                    </Button>
+                  )}
+
+                  {table.status === 'occupied' && canClearOrClean && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40 font-bold"
+                      onClick={() => markTableCleaning(table, activeOrder)}
+                      leftIcon={<RefreshCw size={14} />}
+                    >
+                      Cleaning
+                    </Button>
+                  )}
+
+                  {table.status === 'available' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedTable(table);
+                        setReservationForm({
+                          customerName: '',
+                          customerPhone: '',
+                          reservationTime: '',
+                          partySize: String(table.capacity),
+                        });
+                        setShowReserveModal(true);
+                      }}
+                    >
+                      Reserve
+                    </Button>
+                  )}
+
+                  {table.status === 'reserved' && (
+                    <Button variant="secondary" size="sm" onClick={() => clearReservation(table)}>
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                {table.status === 'occupied' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {canClearOrClean && (
+                      <Button
+                        variant="success"
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        onClick={() => markTableReady(table)}
+                        leftIcon={<CheckCircle2 size={14} />}
+                      >
+                        Clear Table
+                      </Button>
+                    )}
+                    {activeOrder ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => moveOrder(table)}
+                        leftIcon={<ArrowRightLeft size={14} />}
+                      >
+                        Move
+                      </Button>
+                    ) : (
+                      isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                          onClick={() => deleteTable(table)}
+                          leftIcon={<Trash2 size={14} />}
+                        >
+                          Delete
+                        </Button>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {table.status !== 'occupied' && isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                    onClick={() => deleteTable(table)}
+                    leftIcon={<Trash2 size={14} />}
+                  >
+                    Delete Table
+                  </Button>
+                )}
+
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="w-full"
                   onClick={() => {
-                    setSelectedTable(table);
-                    setReservationForm({ customerName: '', customerPhone: '', reservationTime: '', partySize: String(table.capacity) });
-                    setShowReserveModal(true);
+                    setQrTableNumber(table.number);
+                    setShowQRModal(true);
                   }}
+                  leftIcon={<QrCode size={14} />}
                 >
-                  Reserve
+                  QR Order
                 </Button>
-              ) : table.status === 'reserved' ? (
-                <Button variant="secondary" size="sm" onClick={() => clearReservation(table)}>Clear</Button>
-              ) : (
-                <Button variant="secondary" size="sm" onClick={() => tableDB.update(table.id, { status: table.status === 'cleaning' ? 'available' : 'cleaning' }) || loadTables()}>
-                  {table.status === 'cleaning' ? 'Ready' : 'Cleaning'}
-                </Button>
-              )}
-
-              {table.status === 'occupied' ? (
-                <Button variant="outline" size="sm" onClick={() => moveOrder(table)} leftIcon={<ArrowRightLeft size={14} />}>Move</Button>
-              ) : (
-                <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => deleteTable(table)} leftIcon={<Trash2 size={14} />}>Delete</Button>
-              )}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="col-span-2"
-                onClick={() => { setQrTableNumber(table.number); setShowQRModal(true); }}
-                leftIcon={<QrCode size={14} />}
-              >
-                QR Order
-              </Button>
-            </div>
-          </Card>
-        ))}
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       <Modal isOpen={showTableModal && canManageTableStructure(user?.role)} onClose={() => setShowTableModal(false)} title={editingTable ? 'Edit Table' : 'Add Table'}>
@@ -2763,7 +3035,11 @@ export function ReportsPage() {
   const { success } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isManager = user?.role === 'manager';
+  const canEditOrder = isAdmin || isManager;
+  const canDeleteOrder = isAdmin;
   const settings = settingsDB.get();
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 29);
@@ -2965,7 +3241,18 @@ export function ReportsPage() {
                 <Button size="sm" variant="outline" onClick={() => printInvoice(order)} leftIcon={<Printer size={14} />}>
                   Invoice
                 </Button>
-                {isAdmin && (
+                {canEditOrder && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-blue-500 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 font-medium"
+                    onClick={() => setEditingOrder(order)}
+                    leftIcon={<Edit size={14} />}
+                  >
+                    Edit
+                  </Button>
+                )}
+                {canDeleteOrder && (
                   <Button
                     size="sm"
                     variant="danger"
@@ -2992,6 +3279,15 @@ export function ReportsPage() {
         data={orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())}
         keyExtractor={(order) => order.id}
         emptyMessage="No orders found in selected range"
+      />
+
+      {/* Edit Order Modal */}
+      <EditOrderModal
+        order={editingOrder}
+        isOpen={!!editingOrder}
+        onClose={() => setEditingOrder(null)}
+        onSaved={() => setRefreshKey((v) => v + 1)}
+        userRole={user?.role}
       />
     </div>
   );
