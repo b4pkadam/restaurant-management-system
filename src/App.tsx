@@ -23,10 +23,11 @@ import { NotificationProvider } from './context/NotificationContext';
 import { ToastProvider } from './components/ui/Toast';
 import { initializeSampleData, inventoryDB, notificationDB, settingsDB, clearBrowserDataStorage } from './database/db';
 import { Card } from './components/ui/Card';
-import { Laptop2, UtensilsCrossed } from 'lucide-react';
+import { Laptop2, UtensilsCrossed, Table2, ShoppingCart, CreditCard, ChefHat, LayoutDashboard, Menu } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
 import { canViewPage, getDefaultPageForRole, type AppPage } from './utils/access';
 import { VersionBadge } from './components/VersionBadge';
+import { cn } from './utils/cn';
 
 type Page = AppPage;
 
@@ -155,6 +156,31 @@ function AppShell() {
     return titles[currentPage];
   }, [currentPage]);
 
+  const bottomNavItems = useMemo(() => {
+    if (user?.role === 'waiter') {
+      return [
+        { id: 'tables' as const, label: 'Tables', icon: <Table2 size={20} /> },
+        { id: 'pos' as const, label: 'POS', icon: <CreditCard size={20} /> },
+        { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
+        { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+      ];
+    }
+    if (user?.role === 'chef') {
+      return [
+        { id: 'kitchen' as const, label: 'Kitchen', icon: <ChefHat size={20} /> },
+        { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
+        { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+      ];
+    }
+    return [
+      { id: 'dashboard' as const, label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+      { id: 'pos' as const, label: 'POS', icon: <CreditCard size={20} /> },
+      { id: 'tables' as const, label: 'Tables', icon: <Table2 size={20} /> },
+      { id: 'orders' as const, label: 'Orders', icon: <ShoppingCart size={20} /> },
+      { id: 'more' as const, label: 'More', icon: <Menu size={20} />, isAction: true },
+    ];
+  }, [user?.role]);
+
   if (!bootstrapped) {
     // Show appropriate loading screen based on mode
     if (customerTable !== null) {
@@ -265,10 +291,42 @@ function AppShell() {
       <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         <Header title={pageTitle} onMenuClick={() => setShowMobileSidebar(true)} />
 
-        <main className="p-4 md:p-6">
+        <main className="p-3 sm:p-4 md:p-6 pb-20 lg:pb-6">
           <div className="w-full min-w-0">{renderPage()}</div>
         </main>
       </div>
+
+      {/* Mobile / Tablet Dynamic Bottom Navigation Bar */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 py-1.5 flex items-center justify-around">
+        {bottomNavItems.map((item) => {
+          const isActive = currentPage === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                if ('isAction' in item && item.isAction) {
+                  setShowMobileSidebar(true);
+                } else {
+                  setCurrentPage(item.id as Page);
+                }
+              }}
+              className={cn(
+                'flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all cursor-pointer',
+                isActive
+                  ? 'text-blue-600 dark:text-blue-400 font-bold'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 font-medium'
+              )}
+            >
+              <div className={cn('p-1 rounded-lg transition-colors', isActive ? 'bg-blue-50 dark:bg-blue-950/60' : '')}>
+                {item.icon}
+              </div>
+              <span className="text-[11px] leading-tight mt-0.5">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       <VersionBadge />
     </div>
   );

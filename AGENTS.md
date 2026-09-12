@@ -21,3 +21,8 @@ For EVERY session, before completing tasks, the following sequential workflow MU
 - Stage all modified files (`git add .`).
 - Create a conventional commit referencing the version: `git commit -m "<type>(v<version>): <summary>"`.
 - Push changes to the remote branch (`git push origin main`).
+
+## Strict Scope Discipline: Targeted Changes Only
+- Only change, update, or implement the exact features and fixes explicitly requested by the user.
+- Any features or code other than the requested changes MUST NOT be touched, modified, or affected. Always preserve existing functionality and behavior without unnecessary refactoring.
+

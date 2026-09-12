@@ -1974,7 +1974,16 @@ export function TableManagementPage() {
     loadTables();
   }, []);
 
+  const isAdmin = user?.role === 'admin';
+  const isManager = user?.role === 'manager';
+  const canManageTableStructure = isAdmin || isManager;
+  const canClearOrClean = ['admin', 'manager', 'waiter'].includes(user?.role || '');
+
   const openTableModal = (table?: Table) => {
+    if (!canManageTableStructure) {
+      error('Only managers and admins can add or edit tables.');
+      return;
+    }
     if (table) {
       setEditingTable(table);
       setTableForm({ number: String(table.number), capacity: String(table.capacity), floor: String(table.floor) });
@@ -1986,6 +1995,10 @@ export function TableManagementPage() {
   };
 
   const saveTable = () => {
+    if (!canManageTableStructure) {
+      error('Only managers and admins can add or edit tables.');
+      return;
+    }
     const number = Number(tableForm.number);
     const capacity = Number(tableForm.capacity);
     const floor = Number(tableForm.floor);
@@ -2038,10 +2051,11 @@ export function TableManagementPage() {
     loadTables();
   };
 
-  const canClearOrClean = ['admin', 'manager', 'waiter'].includes(user?.role || '');
-  const isAdmin = user?.role === 'admin';
-
   const deleteTable = (table: Table) => {
+    if (!canManageTableStructure) {
+      error('Only managers and admins can delete tables.');
+      return;
+    }
     const activeOrder = table.currentOrderId ? orderDB.getById(table.currentOrderId) : null;
     if (activeOrder && !['completed', 'cancelled'].includes(activeOrder.status)) {
       if (
@@ -2127,8 +2141,8 @@ export function TableManagementPage() {
     <div className="space-y-6">
       <SectionHeader
         title="Table Management"
-        description="Create tables, manage occupancy, reservations, and move orders between tables."
-        action={<Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button>}
+        description="Monitor table occupancy, clean/clear tables, manage reservations, and assign orders."
+        action={canManageTableStructure ? <Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button> : undefined}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -2233,15 +2247,17 @@ export function TableManagementPage() {
               {/* Table Action Controls */}
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" size="sm" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>
-                    Edit
-                  </Button>
+                  {canManageTableStructure && (
+                    <Button variant="outline" size="sm" onClick={() => openTableModal(table)} leftIcon={<Edit size={14} />}>
+                      Edit
+                    </Button>
+                  )}
 
                   {table.status === 'cleaning' && canClearOrClean && (
                     <Button
                       variant="success"
                       size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                      className={`bg-emerald-600 hover:bg-emerald-700 text-white font-bold ${canManageTableStructure ? '' : 'col-span-2'}`}
                       onClick={() => markTableReady(table)}
                       leftIcon={<CheckCircle2 size={14} />}
                     >
@@ -2253,7 +2269,7 @@ export function TableManagementPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40 font-bold"
+                      className={`border-purple-500 text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950/40 font-bold ${canManageTableStructure ? '' : 'col-span-2'}`}
                       onClick={() => markTableCleaning(table, activeOrder)}
                       leftIcon={<RefreshCw size={14} />}
                     >
@@ -2265,6 +2281,7 @@ export function TableManagementPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className={canManageTableStructure ? '' : 'col-span-2'}
                       onClick={() => {
                         setSelectedTable(table);
                         setReservationForm({
@@ -2281,7 +2298,12 @@ export function TableManagementPage() {
                   )}
 
                   {table.status === 'reserved' && (
-                    <Button variant="secondary" size="sm" onClick={() => clearReservation(table)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className={canManageTableStructure ? '' : 'col-span-2'}
+                      onClick={() => clearReservation(table)}
+                    >
                       Clear
                     </Button>
                   )}
@@ -2293,7 +2315,7 @@ export function TableManagementPage() {
                       <Button
                         variant="success"
                         size="sm"
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        className={`bg-emerald-600 hover:bg-emerald-700 text-white font-bold ${!activeOrder && !canManageTableStructure ? 'col-span-2' : ''}`}
                         onClick={() => markTableReady(table)}
                         leftIcon={<CheckCircle2 size={14} />}
                       >
@@ -2310,7 +2332,7 @@ export function TableManagementPage() {
                         Move
                       </Button>
                     ) : (
-                      isAdmin && (
+                      canManageTableStructure && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -2325,7 +2347,7 @@ export function TableManagementPage() {
                   </div>
                 )}
 
-                {table.status !== 'occupied' && isAdmin && (
+                {table.status !== 'occupied' && canManageTableStructure && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -2355,7 +2377,7 @@ export function TableManagementPage() {
         })}
       </div>
 
-      <Modal isOpen={showTableModal && canManageTableStructure(user?.role)} onClose={() => setShowTableModal(false)} title={editingTable ? 'Edit Table' : 'Add Table'}>
+      <Modal isOpen={showTableModal && canManageTableStructure} onClose={() => setShowTableModal(false)} title={editingTable ? 'Edit Table' : 'Add Table'}>
         <div className="space-y-4">
           <Input label="Table Number" type="number" value={tableForm.number} onChange={(e) => setTableForm((prev) => ({ ...prev, number: e.target.value }))} />
           <Input label="Capacity" type="number" value={tableForm.capacity} onChange={(e) => setTableForm((prev) => ({ ...prev, capacity: e.target.value }))} />

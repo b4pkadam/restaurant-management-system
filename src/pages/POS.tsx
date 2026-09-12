@@ -52,6 +52,9 @@ export const POSPage: React.FC = () => {
   const [loadedOrderId, setLoadedOrderId] = useState<string | null>(null);
   const [paymentSuccessData, setPaymentSuccessData] = useState<{ order: Order; payment: Payment } | null>(null);
 
+  // Mobile / Tablet Responsive View State
+  const [mobileView, setMobileView] = useState<'menu' | 'cart'>('menu');
+
   // POS Item Customization Modal State
   const [posCustomizingItem, setPosCustomizingItem] = useState<{ menuItem: MenuItem; cartItemId?: string } | null>(null);
   const [posSpiceLevel, setPosSpiceLevel] = useState<string>('2 - Medium (中辛)');
@@ -537,10 +540,51 @@ export const POSPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cart.length, orderType, selectedTable]);
 
+  const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
+
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-4">
+    <div className="h-[calc(100dvh-7.5rem)] lg:h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-3 lg:gap-4 relative">
+      {/* Mobile / Tablet Segmented View Switcher */}
+      <div className="lg:hidden flex items-center gap-1.5 p-1 bg-gray-200/80 dark:bg-gray-800/80 rounded-xl shrink-0">
+        <button
+          type="button"
+          onClick={() => setMobileView('menu')}
+          className={cn(
+            'flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer',
+            mobileView === 'menu'
+              ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+          )}
+        >
+          <span>🍽️ Menu ({menuItems.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileView('cart')}
+          className={cn(
+            'flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 relative cursor-pointer',
+            mobileView === 'cart'
+              ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-xs'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+          )}
+        >
+          <ShoppingCart size={14} />
+          <span>Order</span>
+          {cartItemCount > 0 && (
+            <span className="rounded-full bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.2">
+              {cartItemCount}
+            </span>
+          )}
+          {total > 0 && (
+            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+              {formatCurrency(total)}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Left Panel - Menu Items */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={cn('flex-1 flex-col min-w-0 overflow-hidden', mobileView === 'menu' ? 'flex' : 'hidden lg:flex')}>
         {/* Search & Categories */}
         <div className="mb-4 space-y-3">
           {/* Active Table Bills Quick Bar */}
@@ -685,7 +729,25 @@ export const POSPage: React.FC = () => {
       </div>
 
       {/* Right Panel - Cart */}
-      <div className="w-96 flex flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+      <div
+        className={cn(
+          'w-full lg:w-96 flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shrink-0 shadow-xs overflow-hidden',
+          mobileView === 'cart' ? 'flex' : 'hidden lg:flex'
+        )}
+      >
+        {/* Mobile back to menu bar */}
+        <div className="lg:hidden px-3 py-2 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900/60 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setMobileView('menu')}
+            className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline cursor-pointer"
+          >
+            ← Add More Items (Menu)
+          </button>
+          <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">
+            {selectedTable ? `Table ${selectedTable.number}` : 'Takeaway'}
+          </span>
+        </div>
         {/* Cart Header */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-3">
@@ -983,6 +1045,32 @@ export const POSPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Mobile Floating Cart Summary Bar */}
+      {mobileView === 'menu' && cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-20 left-3 right-3 z-30 bg-gray-900/95 dark:bg-gray-800/95 text-white backdrop-blur-md rounded-2xl p-3 shadow-2xl flex items-center justify-between border border-gray-700/50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-black text-sm text-white shadow-xs">
+              {cartItemCount}
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-300">
+                {selectedTable ? `Table ${selectedTable.number}` : 'Takeaway Order'}
+              </p>
+              <p className="text-base font-black text-white">{formatCurrency(total)}</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-blue-600 hover:bg-blue-500 font-bold px-4 shadow-md text-white"
+            onClick={() => setMobileView('cart')}
+            rightIcon={<ShoppingCart size={16} />}
+          >
+            Review Order
+          </Button>
+        </div>
+      )}
 
       {/* Table Selection Modal */}
       <Modal
