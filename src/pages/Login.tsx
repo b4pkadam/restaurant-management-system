@@ -43,6 +43,7 @@ import {
 } from '../services/firebaseConfig';
 import { firebaseSync } from '../services/firebaseSync';
 import { collection, getDocs } from 'firebase/firestore';
+import { validateUsername, validatePassword, USERNAME_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '../utils/security';
 
 export const LoginPage: React.FC = () => {
   useDbUpdate();
@@ -313,13 +314,22 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
-    const cleanUsername = (username.trim() || (isFirstTimeSetup ? 'admin' : '')).trim();
-    const cleanPassword = password.trim();
-
-    if (!cleanUsername || !cleanPassword) {
-      error('Please enter both username and password.');
+    // 2. Strict credential validation against injection, overlong payloads, and script attacks
+    const rawUsername = username.trim() || (isFirstTimeSetup ? 'admin' : '');
+    const userVal = validateUsername(rawUsername);
+    if (!userVal.isValid) {
+      error(userVal.error || 'Invalid username format.');
       return;
     }
+
+    const passVal = validatePassword(password);
+    if (!passVal.isValid) {
+      error(passVal.error || 'Invalid password format.');
+      return;
+    }
+
+    const cleanUsername = userVal.cleanValue;
+    const cleanPassword = passVal.cleanValue;
 
     setIsLoading(true);
     try {
@@ -333,7 +343,7 @@ export const LoginPage: React.FC = () => {
 
         // Create initial administrator account and log in
         const newAdmin = userDB.create({
-          username: cleanUsername || 'admin',
+          username: cleanUsername,
           password: 'agy',
           role: 'admin',
           isActive: true,
@@ -490,6 +500,8 @@ export const LoginPage: React.FC = () => {
               onChange={(e) => setUsername(e.target.value)}
               leftIcon={<User size={18} />}
               autoComplete="username"
+              maxLength={USERNAME_MAX_LENGTH}
+              spellCheck={false}
             />
 
             <Input
@@ -509,6 +521,8 @@ export const LoginPage: React.FC = () => {
                 </button>
               }
               autoComplete={isFirstTimeSetup ? 'new-password' : 'current-password'}
+              maxLength={PASSWORD_MAX_LENGTH}
+              spellCheck={false}
             />
 
             <Button
@@ -520,6 +534,11 @@ export const LoginPage: React.FC = () => {
             >
               {isFirstTimeSetup ? 'Sign In as Admin (Master Password: agy)' : 'Sign In'}
             </Button>
+
+            <div className="pt-1 flex items-center justify-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 text-center">
+              <ShieldCheck size={13} className="text-emerald-500 shrink-0" />
+              <span>Hardened Login: 3-30 chars, max 72 password chars & rate-limit protection</span>
+            </div>
           </form>
         </div>
 

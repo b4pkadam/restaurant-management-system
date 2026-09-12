@@ -140,18 +140,18 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
   }
 
   // 3. Fallback to environment variables if provided
-  const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-  const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const envApiKey = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_FIREBASE_API_KEY : undefined;
+  const envProjectId = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_FIREBASE_PROJECT_ID : undefined;
 
   if (envApiKey && envProjectId && !envApiKey.includes('dummy')) {
     return {
       apiKey: envApiKey,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${envProjectId}.firebaseapp.com`,
-      databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+      authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || `${envProjectId}.firebaseapp.com`,
+      databaseURL: import.meta.env?.VITE_FIREBASE_DATABASE_URL,
       projectId: envProjectId,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${envProjectId}.appspot.com`,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-      appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+      storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || `${envProjectId}.appspot.com`,
+      messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+      appId: import.meta.env?.VITE_FIREBASE_APP_ID || '',
     };
   }
 

@@ -6,6 +6,7 @@ import type {
   Supplier, InventoryItem, PurchaseEntry, DailySales, Notification, AppSettings
 } from '../types';
 import initialDbData from './initialDbData.json';
+import { validateUsername, validatePassword } from '../utils/security';
 const DB_PREFIX = 'restaurant_db_';
 
 function broadcastSync(action: (sync: typeof import('../services/realtimeSync').realtimeSync) => void) {
@@ -66,6 +67,64 @@ import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 // Generic in-memory database store (no business data saved in browser storage for multi-user mode)
 const memoryStore = new Map<string, any>();
 
+/**
+ * Auto-heals and sanitizes legacy orders that suffer from:
+ * 1) Hardcoded USD sample prices (¥31 bills) where subtotal was 27.97 and total was 30.77
+ * 2) Orders whose items have realistic JPY prices (e.g. 980, 780) but order total was recorded <= 50
+ */
+export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; changed: boolean } {
+  let changed = false;
+  if (!Array.isArray(orders)) return { orders: [], changed: false };
+
+  const repairedOrders = orders.map((order) => {
+    if (!order) return order;
+    let orderChanged = false;
+    const newOrder: Order = { ...order };
+
+    if (Array.isArray(newOrder.items) && newOrder.items.length > 0) {
+      let computedItemSubtotal = 0;
+      const repairedItems = newOrder.items.map((item) => {
+        let itemChanged = false;
+        const newItem = { ...item };
+        const unitPrice = Number(newItem.unitPrice) || 0;
+        const qty = Number(newItem.quantity) || 1;
+        const expectedTotal = unitPrice * qty;
+
+        if (newItem.totalPrice === undefined || (expectedTotal > 0 && Math.abs(newItem.totalPrice - expectedTotal) > 0.01)) {
+          newItem.totalPrice = expectedTotal;
+          itemChanged = true;
+        }
+
+        computedItemSubtotal += (newItem.totalPrice || expectedTotal);
+        if (itemChanged) orderChanged = true;
+        return newItem;
+      });
+
+      const currentTotal = Number(newOrder.total) || 0;
+      const currentSubtotal = Number(newOrder.subtotal) || 0;
+
+      // Detect legacy USD sample order / 31 yen bug:
+      // total <= 50 (or subtotal <= 50) while items sum is >= 100
+      if ((currentTotal <= 50 || currentSubtotal <= 50) && computedItemSubtotal >= 100) {
+        newOrder.subtotal = computedItemSubtotal;
+        newOrder.tax = Math.round(computedItemSubtotal * 0.10);
+        newOrder.discount = Number(newOrder.discount) || 0;
+        newOrder.total = newOrder.subtotal + newOrder.tax - newOrder.discount;
+        newOrder.items = repairedItems;
+        orderChanged = true;
+      }
+    }
+
+    if (orderChanged) {
+      changed = true;
+      return newOrder;
+    }
+    return order;
+  });
+
+  return { orders: repairedOrders, changed };
+}
+
 // Generic storage functions
 export function getCollection<T>(key: string): T[] {
   const data = memoryStore.get(key);
@@ -73,10 +132,15 @@ export function getCollection<T>(key: string): T[] {
 }
 
 export function setCollection<T>(key: string, data: T[]): void {
-  memoryStore.set(key, data);
+  let finalData = data;
+  if (key === 'orders' && Array.isArray(data)) {
+    const { orders } = sanitizeAndRepairOrders(data as unknown as Order[]);
+    finalData = orders as unknown as T[];
+  }
+  memoryStore.set(key, finalData);
   notifyDbListeners();
-  if (isFirebaseActive() && Array.isArray(data)) {
-    data.forEach((item: any) => {
+  if (isFirebaseActive() && Array.isArray(finalData)) {
+    finalData.forEach((item: any) => {
       const docId = item.id || (item.number !== undefined ? String(item.number) : undefined);
       if (docId) {
         firebaseSync.pushDoc(key, docId, item).catch(() => {});
@@ -112,7 +176,17 @@ export function setInMemoryItem<T>(key: string, data: T): void {
 // Connect firebaseSync to in-memory store
 registerCloudUpdateHandler({
   setCollection: (collName, items) => {
-    memoryStore.set(collName, items);
+    let finalItems = items;
+    if (collName === 'orders' && Array.isArray(items)) {
+      const { orders, changed } = sanitizeAndRepairOrders(items as Order[]);
+      finalItems = orders;
+      if (changed && isFirebaseActive()) {
+        orders.forEach((o) => {
+          if (o.id) firebaseSync.pushDoc('orders', o.id, o).catch(() => {});
+        });
+      }
+    }
+    memoryStore.set(collName, finalItems);
     notifyDbListeners();
   },
   setItem: (collName, data) => {
@@ -328,10 +402,20 @@ export const userDB = {
   },
   
   create: (user: Omit<User, 'id' | 'createdAt'>): User => {
+    const userVal = validateUsername(user.username);
+    if (!userVal.isValid) {
+      throw new Error(userVal.error || 'Invalid username');
+    }
+    const passVal = validatePassword(user.password);
+    if (!passVal.isValid) {
+      throw new Error(passVal.error || 'Invalid password');
+    }
+
     const users = userDB.getAll();
-    const hashedPassword = safeHashPassword(user.password);
+    const hashedPassword = safeHashPassword(passVal.cleanValue);
     const newUser: User = {
       ...user,
+      username: userVal.cleanValue,
       id: uuidv4(),
       password: hashedPassword,
       createdAt: new Date().toISOString()
@@ -350,8 +434,20 @@ export const userDB = {
     const index = users.findIndex(u => u.id === id);
     if (index === -1) return null;
     
+    if (updates.username) {
+      const userVal = validateUsername(updates.username);
+      if (!userVal.isValid) {
+        throw new Error(userVal.error || 'Invalid username');
+      }
+      updates.username = userVal.cleanValue;
+    }
+
     if (updates.password) {
-      updates.password = safeHashPassword(updates.password);
+      const passVal = validatePassword(updates.password);
+      if (!passVal.isValid) {
+        throw new Error(passVal.error || 'Invalid password');
+      }
+      updates.password = safeHashPassword(passVal.cleanValue);
     }
     
     users[index] = { ...users[index], ...updates };
@@ -383,12 +479,19 @@ export const userDB = {
   },
   
   authenticate: (username: string, password: string): { user: User | null; error?: string } => {
-    const cleanUsername = (username || '').trim();
-    const cleanPassword = (password || '').trim();
-
-    if (!cleanUsername || !cleanPassword) {
-      return { user: null, error: 'Please enter both username and password.' };
+    // 1. Strict input validation against overlong strings, control characters, and injection
+    const userVal = validateUsername(username);
+    if (!userVal.isValid) {
+      return { user: null, error: userVal.error || 'Invalid username format.' };
     }
+
+    const passVal = validatePassword(password);
+    if (!passVal.isValid) {
+      return { user: null, error: passVal.error || 'Invalid password format.' };
+    }
+
+    const cleanUsername = userVal.cleanValue;
+    const cleanPassword = passVal.cleanValue;
 
     const allUsers = userDB.getAll();
     if (allUsers.length === 0) {
@@ -404,7 +507,7 @@ export const userDB = {
       return { user: null, error: 'No accounts exist yet. Master password is "agy" for initial administrator login.' };
     }
 
-    // 1. Check Rate Limiter / Brute Force Lockout
+    // 2. Check Rate Limiter / Brute Force Lockout
     const status = authRateLimiter.checkStatus(cleanUsername);
     if (status.isLocked) {
       const minutes = Math.ceil((status.remainingSeconds || 60) / 60);
@@ -651,7 +754,46 @@ export const tableDB = {
 
 // Order Management
 export const orderDB = {
-  getAll: (): Order[] => getCollection<Order>('orders'),
+  getAll: (): Order[] => {
+    const raw = getCollection<Order>('orders');
+    const { orders, changed } = sanitizeAndRepairOrders(raw);
+    if (changed) {
+      memoryStore.set('orders', orders);
+      notifyDbListeners();
+      if (isFirebaseActive()) {
+        orders.forEach((ord) => {
+          if (ord.id) {
+            firebaseSync.pushDoc('orders', ord.id, ord).catch(() => {});
+          }
+        });
+      }
+
+      // Also auto-repair matching payments if order total was repaired
+      const payments = getCollection<Payment>('payments');
+      let paymentsChanged = false;
+      const repairedPayments = payments.map((p) => {
+        const matchingOrder = orders.find((o) => o.id === p.orderId);
+        if (matchingOrder && Number(p.amount) <= 50 && matchingOrder.total >= 100) {
+          paymentsChanged = true;
+          return { ...p, amount: matchingOrder.total };
+        }
+        return p;
+      });
+
+      if (paymentsChanged) {
+        memoryStore.set('payments', repairedPayments);
+        notifyDbListeners();
+        if (isFirebaseActive()) {
+          repairedPayments.forEach((p) => {
+            if (p.id) {
+              firebaseSync.pushDoc('payments', p.id, p).catch(() => {});
+            }
+          });
+        }
+      }
+    }
+    return orders;
+  },
   
   getById: (id: string): Order | undefined => {
     return orderDB.getAll().find(o => o.id === id);
@@ -1200,10 +1342,10 @@ export const initializeSampleData = (): void => {
   // Create sample employees if needed
   if (employeeDB.getAll().length === 0) {
     const employees = [
-      { name: 'John Manager', email: 'john@restaurant.com', phone: '1234567890', role: 'manager' as const, salary: 5000, shift: 'morning' as const, joiningDate: '2023-01-15', isActive: true },
-      { name: 'Sarah Waiter', email: 'sarah@restaurant.com', phone: '1234567891', role: 'waiter' as const, salary: 2500, shift: 'evening' as const, joiningDate: '2023-03-20', isActive: true },
-      { name: 'Mike Chef', email: 'mike@restaurant.com', phone: '1234567892', role: 'chef' as const, salary: 4000, shift: 'morning' as const, joiningDate: '2022-11-10', isActive: true },
-      { name: 'Lisa Cashier', email: 'lisa@restaurant.com', phone: '1234567893', role: 'cashier' as const, salary: 3000, shift: 'flexible' as const, joiningDate: '2023-06-01', isActive: true }
+      { name: 'John Manager', email: 'john@miyacurry.com', phone: '1234567890', role: 'manager' as const, salary: 350000, shift: 'morning' as const, joiningDate: '2023-01-15', isActive: true },
+      { name: 'Sarah Waiter', email: 'sarah@miyacurry.com', phone: '1234567891', role: 'waiter' as const, salary: 220000, shift: 'evening' as const, joiningDate: '2023-03-20', isActive: true },
+      { name: 'Head Chef Miya', email: 'chef@miyacurry.com', phone: '1234567892', role: 'chef' as const, salary: 450000, shift: 'morning' as const, joiningDate: '2022-11-10', isActive: true },
+      { name: 'Lisa Cashier', email: 'lisa@miyacurry.com', phone: '1234567893', role: 'cashier' as const, salary: 200000, shift: 'flexible' as const, joiningDate: '2023-06-01', isActive: true }
     ];
     employees.forEach(e => employeeDB.create(e));
   }
@@ -1234,58 +1376,73 @@ export const initializeSampleData = (): void => {
   
   // Create suppliers
   const suppliers = [
-    { name: 'Fresh Foods Co.', email: 'contact@freshfoods.com', phone: '5551234567', address: '100 Market St', gstNumber: 'GST111222333', isActive: true },
-    { name: 'Beverage Distributors', email: 'orders@bevdist.com', phone: '5559876543', address: '200 Industrial Ave', gstNumber: 'GST444555666', isActive: true },
-    { name: 'Meat & Poultry Supplies', email: 'sales@meatpoultry.com', phone: '5551112222', address: '300 Farm Road', gstNumber: 'GST777888999', isActive: true }
+    { name: 'Utsunomiya Food Supplies Ltd', email: 'orders@utsunomiyafood.jp', phone: '028-632-0001', address: '1-2-3 Odori, Utsunomiya', gstNumber: 'JP9876543210', isActive: true },
+    { name: 'Tochigi Fresh Poultry & Dairy', email: 'ken@tochigifresh.jp', phone: '028-632-0002', address: '4-5-6 Station Road, Utsunomiya', gstNumber: 'JP1122334455', isActive: true },
+    { name: 'Tokyo Spice & Rice Imports', email: 'sales@tokyospice.jp', phone: '03-5551-2222', address: '7-8-9 Tsukiji, Tokyo', gstNumber: 'JP5566778899', isActive: true }
   ];
   const createdSuppliers = suppliers.map(s => supplierDB.create(s));
   
-  // Create inventory items
+  // Create inventory items with realistic JPY unit costs
   const inventoryItems = [
-    { name: 'Chicken Breast', unit: 'kg', quantity: 25, minQuantity: 10, costPerUnit: 8.00, supplierId: createdSuppliers[2].id, isActive: true },
-    { name: 'Salmon Fillet', unit: 'kg', quantity: 15, minQuantity: 5, costPerUnit: 15.00, supplierId: createdSuppliers[2].id, isActive: true },
-    { name: 'Tomatoes', unit: 'kg', quantity: 30, minQuantity: 15, costPerUnit: 2.50, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Lettuce', unit: 'kg', quantity: 20, minQuantity: 8, costPerUnit: 3.00, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Orange Juice', unit: 'L', quantity: 50, minQuantity: 20, costPerUnit: 4.00, supplierId: createdSuppliers[1].id, isActive: true },
-    { name: 'Coffee Beans', unit: 'kg', quantity: 10, minQuantity: 5, costPerUnit: 12.00, supplierId: createdSuppliers[1].id, isActive: true },
-    { name: 'Pasta', unit: 'kg', quantity: 40, minQuantity: 15, costPerUnit: 2.00, supplierId: createdSuppliers[0].id, isActive: true },
-    { name: 'Mozzarella Cheese', unit: 'kg', quantity: 8, minQuantity: 5, costPerUnit: 10.00, supplierId: createdSuppliers[0].id, isActive: true }
+    { name: 'Chicken Breast', unit: 'kg', quantity: 25, minQuantity: 10, costPerUnit: 600, supplierId: createdSuppliers[1].id, isActive: true },
+    { name: 'Salmon Fillet', unit: 'kg', quantity: 15, minQuantity: 5, costPerUnit: 1200, supplierId: createdSuppliers[1].id, isActive: true },
+    { name: 'Tomatoes', unit: 'kg', quantity: 30, minQuantity: 15, costPerUnit: 250, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Lettuce', unit: 'kg', quantity: 20, minQuantity: 8, costPerUnit: 300, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Orange Juice', unit: 'L', quantity: 50, minQuantity: 20, costPerUnit: 400, supplierId: createdSuppliers[0].id, isActive: true },
+    { name: 'Coffee Beans', unit: 'kg', quantity: 10, minQuantity: 5, costPerUnit: 1500, supplierId: createdSuppliers[2].id, isActive: true },
+    { name: 'Basmati Rice', unit: 'kg', quantity: 40, minQuantity: 15, costPerUnit: 300, supplierId: createdSuppliers[2].id, isActive: true },
+    { name: 'Mozzarella Cheese', unit: 'kg', quantity: 8, minQuantity: 5, costPerUnit: 800, supplierId: createdSuppliers[1].id, isActive: true }
   ];
   inventoryItems.forEach(i => inventoryDB.create(i));
   
-  // Create some sample orders for demo
-  const allMenuItems = menuItemDB.getAll();
-  const sampleOrders = [
-    {
-      tableId: tableDB.getAll()[0].id,
-      tableNumber: 1,
-      type: 'dine-in' as const,
-      items: [
-        { id: uuidv4(), menuItemId: allMenuItems[0].id, menuItemName: allMenuItems[0].name, quantity: 2, unitPrice: allMenuItems[0].price, totalPrice: allMenuItems[0].price * 2, status: 'served' as const },
-        { id: uuidv4(), menuItemId: allMenuItems[5].id, menuItemName: allMenuItems[5].name, quantity: 1, unitPrice: allMenuItems[5].price, totalPrice: allMenuItems[5].price, status: 'served' as const }
-      ],
-      subtotal: 27.97,
-      tax: 2.80,
-      discount: 0,
-      discountType: 'fixed' as const,
-      total: 30.77,
-      status: 'completed' as const,
-      customerName: 'John Doe',
-      waiterName: 'Sarah Waiter'
-    }
-  ];
-  
-  sampleOrders.forEach(o => {
-    const order = orderDB.create(o);
-    paymentDB.create({
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      amount: order.total,
-      method: 'card',
-      status: 'completed',
-      receivedBy: 'Lisa Cashier'
+  // Create some sample orders for demo (only if no orders exist yet)
+  const existingOrders = orderDB.getAll();
+  if (existingOrders.length === 0) {
+    const allMenuItems = menuItemDB.getAll();
+    const item1 = allMenuItems[0];
+    const item2 = allMenuItems[5] || allMenuItems[1] || allMenuItems[0];
+
+    const item1Price = Number(item1?.price) || 980;
+    const item2Price = Number(item2?.price) || 780;
+    const item1Total = item1Price * 2;
+    const item2Total = item2Price * 1;
+    const subtotal = item1Total + item2Total;
+    const tax = Math.round(subtotal * 0.10);
+    const total = subtotal + tax;
+
+    const firstTable = tableDB.getAll()[0];
+    const sampleOrders = [
+      {
+        tableId: firstTable?.id || 'tbl-1',
+        tableNumber: firstTable?.number || 1,
+        type: 'dine-in' as const,
+        items: [
+          { id: uuidv4(), menuItemId: item1?.id || 'item-1', menuItemName: item1?.name || 'Butter Chicken Curry (バターチキンカレー)', quantity: 2, unitPrice: item1Price, totalPrice: item1Total, status: 'served' as const },
+          { id: uuidv4(), menuItemId: item2?.id || 'item-6', menuItemName: item2?.name || 'Dal Lentil Curry (ダルカレー)', quantity: 1, unitPrice: item2Price, totalPrice: item2Total, status: 'served' as const }
+        ],
+        subtotal,
+        tax,
+        discount: 0,
+        discountType: 'fixed' as const,
+        total,
+        status: 'completed' as const,
+        customerName: 'John Doe',
+        waiterName: 'Sarah Waiter'
+      }
+    ];
+    
+    sampleOrders.forEach(o => {
+      const order = orderDB.create(o);
+      paymentDB.create({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        amount: order.total,
+        method: 'card',
+        status: 'completed',
+        receivedBy: 'Lisa Cashier'
+      });
     });
-  });
+  }
   
   // Create welcome notification
   notificationDB.create({

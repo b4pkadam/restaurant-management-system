@@ -53,6 +53,7 @@ import {
   type FirebaseConnectionState,
 } from '../services/firebase';
 import { firebaseSync } from '../services/firebaseSync';
+import { validateUsername, validatePassword, USERNAME_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '../utils/security';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -3064,31 +3065,38 @@ export function UserManagementPage() {
   };
 
   const saveUser = () => {
-    if (!form.username.trim()) {
-      error('Please enter a username.');
+    const userVal = validateUsername(form.username);
+    if (!userVal.isValid) {
+      error(userVal.error || 'Invalid username.');
       return;
     }
-    if (!editingUser && !form.password.trim()) {
-      error('Please enter a password.');
-      return;
+
+    if (!editingUser || form.password.trim()) {
+      const passVal = validatePassword(form.password);
+      if (!passVal.isValid) {
+        error(passVal.error || 'Invalid password.');
+        return;
+      }
     }
-    const existing = userDB.getAll().find((user) => user.username.toLowerCase() === form.username.trim().toLowerCase() && user.id !== editingUser?.id);
+
+    const cleanUsername = userVal.cleanValue;
+    const existing = userDB.getAll().find((user) => user.username.toLowerCase() === cleanUsername.toLowerCase() && user.id !== editingUser?.id);
     if (existing) {
-      error(`Username "${form.username.trim()}" already exists. Please choose another username or edit the existing account.`);
+      error(`Username "${cleanUsername}" already exists. Please choose another username or edit the existing account.`);
       return;
     }
 
     if (editingUser) {
       userDB.update(editingUser.id, {
-        username: form.username.trim(),
+        username: cleanUsername,
         role: form.role,
         isActive: form.isActive,
         ...(form.password.trim() ? { password: form.password.trim() } : {}),
       });
-      success(`User "${form.username.trim()}" (${form.role.toUpperCase()}) updated successfully.`);
+      success(`User "${cleanUsername}" (${form.role.toUpperCase()}) updated successfully.`);
     } else {
-      userDB.create({ username: form.username.trim(), password: form.password.trim(), role: form.role, isActive: form.isActive });
-      success(`User "${form.username.trim()}" created as ${form.role.toUpperCase()} successfully.`);
+      userDB.create({ username: cleanUsername, password: form.password.trim(), role: form.role, isActive: form.isActive });
+      success(`User "${cleanUsername}" created as ${form.role.toUpperCase()} successfully.`);
     }
 
     setShowModal(false);
@@ -3168,8 +3176,8 @@ export function UserManagementPage() {
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUser ? 'Edit User Account' : 'Add New Staff User'}>
         <div className="space-y-4">
-          <Input label="Username" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} placeholder="e.g. manager1 or john" />
-          <Input label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="At least 6 characters" />
+          <Input label="Username" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))} placeholder="e.g. manager1 or john" maxLength={USERNAME_MAX_LENGTH} spellCheck={false} />
+          <Input label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'} type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="3 to 72 characters" maxLength={PASSWORD_MAX_LENGTH} spellCheck={false} />
           
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
