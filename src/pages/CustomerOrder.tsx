@@ -97,32 +97,12 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
   const [selectedDrinkOption, setSelectedDrinkOption] = useState<string>('Mango Lassi (マンゴーラッシー)');
   const [itemCustomNotes, setItemCustomNotes] = useState<string>('');
 
-  // Load draft cart from localStorage if present
-  const [cart, setCart] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(`restaurant_cart_table_${tableNumber}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // In-memory draft cart for current ordering session (no data saved in browser storage)
+  const [cart, setCart] = useState<CartItem[]>([]);
 
-  // Save cart to localStorage on changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(`restaurant_cart_table_${tableNumber}`, JSON.stringify(cart));
-    } catch {
-      // ignore
-    }
-  }, [cart, tableNumber]);
-
-  // Saved customer details
-  const [customerName, setCustomerName] = useState(() => {
-    return localStorage.getItem('customer_name') || '';
-  });
-  const [customerPhone, setCustomerPhone] = useState(() => {
-    return localStorage.getItem('customer_phone') || '';
-  });
+  // Customer details for the active session (in-memory)
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
 
   const [showCart, setShowCart] = useState(false);
   const [showActiveOrdersModal, setShowActiveOrdersModal] = useState(false);
@@ -409,7 +389,6 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
     setOrderNotes('');
     setCart([]);
-    localStorage.removeItem(`restaurant_cart_table_${tableNumber}`);
     setShowCart(false);
     // Automatically open Track Order popup so customer sees placed order status immediately
     setShowActiveOrdersModal(true);

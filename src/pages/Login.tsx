@@ -18,7 +18,7 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
-import { settingsDB, userDB } from '../database/db';
+import { settingsDB, userDB, setInMemoryCollection, setInMemoryItem } from '../database/db';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import {
   initFirebase,
@@ -92,7 +92,7 @@ export const LoginPage: React.FC = () => {
           const usersSnap = await getDocs(collection(db, 'users'));
           if (!usersSnap.empty) {
             const cloudUsers = usersSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
-            localStorage.setItem('restaurant_db_users', JSON.stringify(cloudUsers));
+            setInMemoryCollection('users', cloudUsers);
             window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
           }
 
@@ -101,7 +101,7 @@ export const LoginPage: React.FC = () => {
           if (!settingsSnap.empty) {
             const settingsDoc = settingsSnap.docs[0];
             if (settingsDoc && settingsDoc.exists()) {
-              localStorage.setItem('restaurant_db_settings', JSON.stringify(settingsDoc.data()));
+              setInMemoryItem('settings', settingsDoc.data());
               window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
             }
           }

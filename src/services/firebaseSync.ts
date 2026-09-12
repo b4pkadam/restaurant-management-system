@@ -10,8 +10,7 @@ import {
 import { getFirebaseDb, isFirebaseActive, setFirebaseConnectionStatus } from './firebase';
 import { hasStoredFirebaseConfig } from './firebaseConfig';
 
-const DB_PREFIX = 'restaurant_db_';
-const SYNC_COLLECTIONS = [
+export const SYNC_COLLECTIONS = [
   'users',
   'orders',
   'tables',
@@ -26,7 +25,18 @@ const SYNC_COLLECTIONS = [
   'settings',
 ] as const;
 
-type SyncCollectionName = typeof SYNC_COLLECTIONS[number];
+export interface CloudUpdateHandler {
+  setCollection: (collName: string, items: any[]) => void;
+  setItem: (collName: string, data: any) => void;
+  getCollection: (collName: string) => any[];
+  getItem: (collName: string) => any;
+}
+
+let cloudUpdateHandler: CloudUpdateHandler | null = null;
+
+export function registerCloudUpdateHandler(handler: CloudUpdateHandler): void {
+  cloudUpdateHandler = handler;
+}
 
 let activeUnsubscribers: Unsubscribe[] = [];
 let isSyncingFromCloud = false;
@@ -74,7 +84,9 @@ export const firebaseSync = {
               if (collName === 'settings') {
                 const settingsDoc = snapshot.docs[0];
                 if (settingsDoc && settingsDoc.exists()) {
-                  localStorage.setItem(DB_PREFIX + 'settings', JSON.stringify(settingsDoc.data()));
+                  if (cloudUpdateHandler) {
+                    cloudUpdateHandler.setItem('settings', settingsDoc.data());
+                  }
                   window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
                 }
               } else if (collName === 'tables') {
@@ -89,11 +101,15 @@ export const firebaseSync = {
                   }
                 });
                 const cleanTables = Array.from(uniqueMap.values()).sort((a: any, b: any) => a.number - b.number);
-                localStorage.setItem(DB_PREFIX + 'tables', JSON.stringify(cleanTables));
+                if (cloudUpdateHandler) {
+                  cloudUpdateHandler.setCollection('tables', cleanTables);
+                }
                 window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'tables' } }));
               } else {
                 const items = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
-                localStorage.setItem(DB_PREFIX + collName, JSON.stringify(items));
+                if (cloudUpdateHandler) {
+                  cloudUpdateHandler.setCollection(collName, items);
+                }
                 window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: collName } }));
               }
             } finally {
@@ -207,18 +223,14 @@ export const firebaseSync = {
       let totalUploaded = 0;
 
       for (const collName of SYNC_COLLECTIONS) {
-        const raw =
-          localStorage.getItem(DB_PREFIX + collName) ||
-          localStorage.getItem('restaurant_' + collName);
-
         if (collName === 'settings') {
-          const settings = raw ? JSON.parse(raw) : null;
+          const settings = cloudUpdateHandler ? cloudUpdateHandler.getItem('settings') : null;
           if (settings) {
             await setDoc(doc(db, 'settings', 'global_settings'), settings, { merge: true });
             totalUploaded += 1;
           }
-        } else if (raw) {
-          const items: any[] = JSON.parse(raw);
+        } else {
+          const items: any[] = cloudUpdateHandler ? cloudUpdateHandler.getCollection(collName) : [];
           if (Array.isArray(items) && items.length > 0) {
             // Write in batches of 400
             for (let i = 0; i < items.length; i += 400) {

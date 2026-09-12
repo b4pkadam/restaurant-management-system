@@ -101,7 +101,7 @@ class RealtimeSyncService {
 
   private async handleIncomingMessage(message: SyncMessage, isInitialSync = false) {
     // Dynamically import database module to break top-level circular dependency
-    const { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners } = await import('../database/db');
+    const { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners, setCollection } = await import('../database/db');
 
     switch (message.type) {
       case 'ORDER_CREATED': {
@@ -114,7 +114,7 @@ class RealtimeSyncService {
         if (!existing) {
           const orders = orderDB.getAll();
           orders.push(order);
-          localStorage.setItem('restaurant_db_orders', JSON.stringify(orders));
+          setCollection('orders', orders);
 
           if (order.tableNumber) {
             let t = tableDB.getByNumber(order.tableNumber);
@@ -135,7 +135,7 @@ class RealtimeSyncService {
             const existsNotif = notifications.find((n) => n.id === notif.id);
             if (!existsNotif) {
               notifications.unshift(notif);
-              localStorage.setItem('restaurant_db_notifications', JSON.stringify(notifications));
+              setCollection('notifications', notifications);
             }
           }
 
@@ -155,7 +155,7 @@ class RealtimeSyncService {
         const idx = orders.findIndex((o) => o.id === order.id);
         if (idx !== -1) {
           orders[idx] = { ...orders[idx], ...order };
-          localStorage.setItem('restaurant_db_orders', JSON.stringify(orders));
+          setCollection('orders', orders);
           notifyDbListeners();
           if (!isInitialSync) {
             this.playAlertSound();
@@ -195,7 +195,7 @@ class RealtimeSyncService {
       case 'SETTINGS_UPDATED': {
         const settings: AppSettings = message.payload?.settings;
         if (settings && settings.currency) {
-          localStorage.setItem('restaurant_db_settings', JSON.stringify(settings));
+          settingsDB.update(settings);
           notifyDbListeners();
         }
         break;

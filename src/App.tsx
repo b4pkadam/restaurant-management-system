@@ -21,8 +21,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { ToastProvider } from './components/ui/Toast';
-import { initializeSampleData, inventoryDB, notificationDB, settingsDB } from './database/db';
-import { Button } from './components/ui/Button';
+import { initializeSampleData, inventoryDB, notificationDB, settingsDB, clearBrowserDataStorage } from './database/db';
 import { Card } from './components/ui/Card';
 import { Laptop2, UtensilsCrossed } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
@@ -53,26 +52,6 @@ function getCustomerTableFromUrl(): number | null {
   return null;
 }
 
-function useAutoBackup() {
-  useEffect(() => {
-    const settings = settingsDB.get();
-    if (!settings.autoBackup) return;
-
-    const runBackup = () => {
-      const snapshot = {
-        data: localStorage.getItem('restaurant_db_settings'),
-        timestamp: new Date().toISOString(),
-      };
-      localStorage.setItem('restaurant_auto_backup_meta', JSON.stringify(snapshot));
-      localStorage.setItem('restaurant_auto_backup_payload', JSON.stringify(localStorage));
-    };
-
-    runBackup();
-    const interval = window.setInterval(runBackup, Math.max(1, settings.backupInterval) * 60 * 60 * 1000);
-    return () => window.clearInterval(interval);
-  }, []);
-}
-
 function AppShell() {
   useDbUpdate();
   const { isAuthenticated, user } = useAuth();
@@ -81,10 +60,13 @@ function AppShell() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
 
+  // Synchronously ensure browser storage contains no restaurant data for multi-user safety
+  useEffect(() => {
+    clearBrowserDataStorage();
+  }, []);
+
   // Read URL synchronously on first render so customer page shows immediately
   const [customerTable, setCustomerTable] = useState<number | null>(() => getCustomerTableFromUrl());
-
-  useAutoBackup();
 
   // Listen for URL changes after initial load (hash changes + popstate for query params)
   useEffect(() => {

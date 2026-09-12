@@ -1,4 +1,4 @@
-// Database Manager - Using localStorage for offline-first storage
+// Database Manager - In-memory store for multi-user real-time cloud operation
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 import type {
@@ -33,11 +33,6 @@ try {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key && e.key.startsWith(DB_PREFIX)) {
-      listeners.forEach((cb) => cb());
-    }
-  });
   window.addEventListener('db-update', () => {
     listeners.forEach((cb) => cb());
   });
@@ -64,18 +59,21 @@ export function notifyDbListeners(): void {
   }
 }
 
-import { firebaseSync } from '../services/firebaseSync';
+import { firebaseSync, registerCloudUpdateHandler } from '../services/firebaseSync';
 import { isFirebaseActive, checkFirebaseHealth, resetFirebaseApp } from '../services/firebase';
 import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 
+// Generic in-memory database store (no business data saved in browser storage for multi-user mode)
+const memoryStore = new Map<string, any>();
+
 // Generic storage functions
-function getCollection<T>(key: string): T[] {
-  const data = localStorage.getItem(DB_PREFIX + key);
-  return data ? JSON.parse(data) : [];
+export function getCollection<T>(key: string): T[] {
+  const data = memoryStore.get(key);
+  return Array.isArray(data) ? [...data] : [];
 }
 
-function setCollection<T>(key: string, data: T[]): void {
-  localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+export function setCollection<T>(key: string, data: T[]): void {
+  memoryStore.set(key, data);
   notifyDbListeners();
   if (isFirebaseActive() && Array.isArray(data)) {
     data.forEach((item: any) => {
@@ -87,18 +85,79 @@ function setCollection<T>(key: string, data: T[]): void {
   }
 }
 
-function getItem<T>(key: string): T | null {
-  const data = localStorage.getItem(DB_PREFIX + key);
-  return data ? JSON.parse(data) : null;
+export function getItem<T>(key: string): T | null {
+  const data = memoryStore.get(key);
+  return data !== undefined ? data : null;
 }
 
-function setItem<T>(key: string, data: T): void {
-  localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+export function setItem<T>(key: string, data: T): void {
+  memoryStore.set(key, data);
   notifyDbListeners();
   if (isFirebaseActive()) {
     firebaseSync.pushDoc(key, 'global_' + key, data).catch(() => {});
   }
 }
+
+// In-memory direct setters from cloud listeners
+export function setInMemoryCollection<T>(key: string, data: T[]): void {
+  memoryStore.set(key, data);
+  notifyDbListeners();
+}
+
+export function setInMemoryItem<T>(key: string, data: T): void {
+  memoryStore.set(key, data);
+  notifyDbListeners();
+}
+
+// Connect firebaseSync to in-memory store
+registerCloudUpdateHandler({
+  setCollection: (collName, items) => {
+    memoryStore.set(collName, items);
+    notifyDbListeners();
+  },
+  setItem: (collName, data) => {
+    memoryStore.set(collName, data);
+    notifyDbListeners();
+  },
+  getCollection: (collName) => {
+    const data = memoryStore.get(collName);
+    return Array.isArray(data) ? data : [];
+  },
+  getItem: (collName) => {
+    return memoryStore.get(collName) ?? null;
+  },
+});
+
+/**
+ * Purge any legacy browser storage keys to guarantee multi-user data isolation
+ */
+export function clearBrowserDataStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (
+        k &&
+        (k.startsWith(DB_PREFIX) ||
+          k.startsWith('restaurant_cart_') ||
+          k.startsWith('restaurant_auto_backup') ||
+          k === 'restaurant_last_backup' ||
+          k === 'current_user' ||
+          k === 'customer_name' ||
+          k === 'customer_phone')
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
+// Clear any past data from browser storage immediately on launch
+clearBrowserDataStorage();
 
 // Auto-start real-time cloud synchronization on application launch
 if (typeof window !== 'undefined') {
@@ -171,24 +230,17 @@ interface AttemptRecord {
   lockedUntil?: number;
 }
 
+let memoryRateLimits: Record<string, AttemptRecord> = {};
+
 export const authRateLimiter = {
   getAttemptsKey: () => DB_PREFIX + 'login_attempts',
 
   getRecords: (): Record<string, AttemptRecord> => {
-    try {
-      const data = localStorage.getItem(authRateLimiter.getAttemptsKey());
-      return data ? JSON.parse(data) : {};
-    } catch {
-      return {};
-    }
+    return memoryRateLimits;
   },
 
   setRecords: (records: Record<string, AttemptRecord>) => {
-    try {
-      localStorage.setItem(authRateLimiter.getAttemptsKey(), JSON.stringify(records));
-    } catch {
-      // ignore
-    }
+    memoryRateLimits = records;
   },
 
   checkStatus: (username: string): { isLocked: boolean; remainingSeconds?: number; attemptsRemaining: number } => {
