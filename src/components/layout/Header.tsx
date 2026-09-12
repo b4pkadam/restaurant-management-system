@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, BellRing, Search, Menu } from 'lucide-react';
+import { Bell, BellRing, Search } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useNotifications } from '../../context/NotificationContext';
 import { format } from 'date-fns';
@@ -49,12 +49,6 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
         <div className="flex items-center justify-between h-16 px-4 lg:px-6">
           {/* Left section */}
           <div className="flex items-center gap-4">
-            <button
-              onClick={onMenuClick}
-              className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-            >
-              <Menu size={20} />
-            </button>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
               {title}
             </h1>

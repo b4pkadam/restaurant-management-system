@@ -60,7 +60,6 @@ function AppShell() {
   const { theme, toggleTheme } = useTheme();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
 
@@ -287,23 +286,8 @@ function AppShell() {
         />
       </div>
 
-      {showMobileSidebar && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileSidebar(false)} />
-          <Sidebar
-            currentPage={currentPage}
-            onPageChange={(page) => {
-              setCurrentPage(page);
-              setShowMobileSidebar(false);
-            }}
-            isCollapsed={false}
-            onToggleCollapse={() => setShowMobileSidebar(false)}
-          />
-        </div>
-      )}
-
       <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
-        <Header title={pageTitle} onMenuClick={() => setShowMobileSidebar(true)} />
+        <Header title={pageTitle} />
 
         <main className="p-3 sm:p-4 md:p-6 pb-20 lg:pb-6">
           <div className="w-full min-w-0">{renderPage()}</div>

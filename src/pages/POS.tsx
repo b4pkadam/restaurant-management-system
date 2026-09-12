@@ -927,7 +927,7 @@ export const POSPage: React.FC = () => {
 
         {/* Cart Footer */}
         {cart.length > 0 && (
-          <div className="p-3 sm:p-4 border-t border-gray-200 dark:border-gray-700 space-y-2.5 sm:space-y-3 bg-gray-50 dark:bg-gray-800/50 pb-4 lg:pb-4">
+          <div className="p-3 sm:p-4 border-t border-gray-200 dark:border-gray-700 space-y-2.5 sm:space-y-3 bg-gray-50 dark:bg-gray-800/50 pb-36 lg:pb-4">
             {/* Discount */}
             <div className="flex gap-2">
               <div className="flex-1">
@@ -1014,9 +1014,9 @@ export const POSPage: React.FC = () => {
               Print Receipt / Bill Ticket
             </Button>
 
-            {/* Actions: Send to Kitchen or Pay */}
+            {/* Actions: Send to Kitchen or Pay (Desktop inline actions) */}
             {isAlreadySentToKitchen ? (
-              <div className="space-y-2 pt-1">
+              <div className="hidden lg:block space-y-2 pt-1">
                 {loadedOrder && (
                   <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 p-2 text-center text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center justify-center gap-1.5">
                     {loadedOrder.status === 'served' ? (
@@ -1045,7 +1045,7 @@ export const POSPage: React.FC = () => {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="hidden lg:grid grid-cols-2 gap-2 pt-1">
                 <Button
                   variant="outline"
                   className="border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
@@ -1075,7 +1075,7 @@ export const POSPage: React.FC = () => {
         )}
       </div>
 
-      {/* Mobile Floating Cart Summary Bar */}
+      {/* Mobile Floating Cart Summary Bar (When browsing Menu) */}
       {mobileView === 'menu' && cart.length > 0 && (
         <div className="lg:hidden fixed bottom-20 left-3 right-3 z-30 bg-gray-900/95 dark:bg-gray-800/95 text-white backdrop-blur-md rounded-2xl p-3 shadow-2xl flex items-center justify-between border border-gray-700/50 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <div className="flex items-center gap-3">
@@ -1098,6 +1098,67 @@ export const POSPage: React.FC = () => {
           >
             Review Order
           </Button>
+        </div>
+      )}
+
+      {/* Mobile Floating Actions Bar (When reviewing Cart - floats above bottom menu bar) */}
+      {mobileView === 'cart' && cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-20 left-3 right-3 z-30 bg-gray-900/95 dark:bg-gray-800/95 text-white backdrop-blur-md rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2 border border-gray-700/50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="min-w-0 flex-1 pr-2">
+            <p className="text-[11px] font-bold text-gray-300 truncate">
+              {selectedTable ? `Table ${selectedTable.number}` : 'Takeaway'} • {cartItemCount} item{cartItemCount > 1 ? 's' : ''}
+            </p>
+            <p className="text-base font-black text-white">{formatCurrency(total)}</p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isAlreadySentToKitchen ? (
+              <Button
+                size="sm"
+                variant="primary"
+                className="bg-emerald-600 hover:bg-emerald-500 font-black px-4 py-2 shadow-md text-white text-xs"
+                onClick={() => {
+                  if (orderType === 'dine-in' && !selectedTable) {
+                    setPendingTableAction('pay');
+                    setShowTableModal(true);
+                    return;
+                  }
+                  setShowPaymentModal(true);
+                }}
+                leftIcon={<CreditCard size={16} />}
+              >
+                Pay {formatCurrency(total)}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="bg-amber-600 hover:bg-amber-500 text-white border-none font-bold px-3 py-2 text-xs shadow-md"
+                  onClick={handleSendToKitchen}
+                  leftIcon={<ChefHat size={16} />}
+                >
+                  {loadedOrderId ? 'To Kitchen' : 'To Kitchen'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="bg-blue-600 hover:bg-blue-500 font-bold px-3 py-2 text-xs shadow-md text-white"
+                  onClick={() => {
+                    if (orderType === 'dine-in' && !selectedTable) {
+                      setPendingTableAction('pay');
+                      setShowTableModal(true);
+                      return;
+                    }
+                    setShowPaymentModal(true);
+                  }}
+                  leftIcon={<CreditCard size={16} />}
+                >
+                  Pay
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

@@ -67,6 +67,10 @@ import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 // Generic in-memory database store (no business data saved in browser storage for multi-user mode)
 const memoryStore = new Map<string, any>();
 
+// Global remap history for duplicate category and menu item IDs mapped to canonical IDs
+export const categoryRemapHistory = new Map<string, { id: string; name: string }>();
+export const menuItemRemapHistory = new Map<string, string>();
+
 /**
  * Auto-heals and sanitizes legacy orders that suffer from:
  * 1) Hardcoded USD sample prices (¥31 bills) where subtotal was 27.97 and total was 30.77
@@ -86,6 +90,10 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
       const repairedItems = newOrder.items.map((item) => {
         let itemChanged = false;
         const newItem = { ...item };
+        if (newItem.menuItemId && menuItemRemapHistory.has(newItem.menuItemId)) {
+          newItem.menuItemId = menuItemRemapHistory.get(newItem.menuItemId)!;
+          itemChanged = true;
+        }
         const unitPrice = Number(newItem.unitPrice) || 0;
         const qty = Number(newItem.quantity) || 1;
         const expectedTotal = unitPrice * qty;
@@ -99,6 +107,10 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
         if (itemChanged) orderChanged = true;
         return newItem;
       });
+
+      if (orderChanged) {
+        newOrder.items = repairedItems;
+      }
 
       const currentTotal = Number(newOrder.total) || 0;
       const currentSubtotal = Number(newOrder.subtotal) || 0;
@@ -200,9 +212,6 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
 
   return { tables: repairedTables, changed };
 }
-
-// Global remap history for duplicate category IDs mapped to canonical category { id, name }
-export const categoryRemapHistory = new Map<string, { id: string; name: string }>();
 
 /**
  * Auto-heals, deduplicates, and sorts categories.
@@ -362,6 +371,144 @@ export function sanitizeAndDeduplicateCategories(
   return { categories: cleanCategories, duplicateIds: allDuplicateIds, changed };
 }
 
+/**
+ * Auto-heals and deduplicates menu items.
+ * 1) Groups menu items by normalized name (trimmed, case-insensitive).
+ * 2) Identifies canonical menu item (prioritizing initialDbData IDs or items with active orders).
+ * 3) Preserves all rich attributes (imageUrl, description, preparationTime, ingredients, spiceLevel, isVeg, etc.).
+ * 4) Re-maps orderItems in existing orders from duplicate menu item IDs to the canonical ID.
+ * 5) Purges duplicate menu item documents from memory and Cloud Firestore.
+ */
+export function sanitizeAndDeduplicateMenuItems(
+  menuItems: MenuItem[]
+): { menuItems: MenuItem[]; duplicateIds: string[]; changed: boolean } {
+  if (!Array.isArray(menuItems) || menuItems.length === 0) {
+    return { menuItems: [], duplicateIds: [], changed: false };
+  }
+
+  const initialItemIds = new Set(
+    ((initialDbData && initialDbData.menuItems) || []).map((m: any) => m.id)
+  );
+
+  const rawOrders = memoryStore.get('orders');
+  const orders: Order[] = Array.isArray(rawOrders) ? rawOrders : [];
+  const orderedMenuItemIds = new Set<string>();
+  orders.forEach((o) => {
+    (o.items || []).forEach((it) => {
+      if (it.menuItemId) orderedMenuItemIds.add(it.menuItemId);
+    });
+  });
+
+  const groups = new Map<string, MenuItem[]>();
+  menuItems.forEach((item) => {
+    const key = (item.name || '').trim().toLowerCase();
+    const list = groups.get(key) || [];
+    list.push(item);
+    groups.set(key, list);
+  });
+
+  const cleanItems: MenuItem[] = [];
+  const allDuplicateIds: string[] = [];
+  let changed = false;
+  const remapIdMap = new Map<string, string>();
+
+  groups.forEach((group) => {
+    if (group.length === 1) {
+      cleanItems.push(group[0]);
+      return;
+    }
+
+    changed = true;
+    // Duplicates found! Score each item to find the best canonical one:
+    // 1. Matches initialDbData ID (e.g. item-1, item-2)
+    // 2. Referenced by orders
+    // 3. Has image or description
+    const sortedGroup = [...group].sort((a, b) => {
+      const aInInitial = initialItemIds.has(a.id) ? 1 : 0;
+      const bInInitial = initialItemIds.has(b.id) ? 1 : 0;
+      if (aInInitial !== bInInitial) return bInInitial - aInInitial;
+
+      const aInOrder = orderedMenuItemIds.has(a.id) ? 1 : 0;
+      const bInOrder = orderedMenuItemIds.has(b.id) ? 1 : 0;
+      if (aInOrder !== bInOrder) return bInOrder - aInOrder;
+
+      const aHasImg = a.imageUrl ? 1 : 0;
+      const bHasImg = b.imageUrl ? 1 : 0;
+      if (aHasImg !== bHasImg) return bHasImg - aHasImg;
+
+      return 0;
+    });
+
+    const canonical = { ...sortedGroup[0] };
+    for (let i = 1; i < sortedGroup.length; i++) {
+      const dup = sortedGroup[i];
+      if (!canonical.description && dup.description) canonical.description = dup.description;
+      if (!canonical.imageUrl && dup.imageUrl) canonical.imageUrl = dup.imageUrl;
+      if (!canonical.barcode && dup.barcode) canonical.barcode = dup.barcode;
+      if ((!canonical.ingredients || canonical.ingredients.length === 0) && dup.ingredients) {
+        canonical.ingredients = dup.ingredients;
+      }
+      if (canonical.allowsSpiceLevel === undefined && dup.allowsSpiceLevel !== undefined) {
+        canonical.allowsSpiceLevel = dup.allowsSpiceLevel;
+      }
+      if (canonical.includesDrink === undefined && dup.includesDrink !== undefined) {
+        canonical.includesDrink = dup.includesDrink;
+      }
+      allDuplicateIds.push(dup.id);
+      remapIdMap.set(dup.id, canonical.id);
+      menuItemRemapHistory.set(dup.id, canonical.id);
+    }
+
+    cleanItems.push(canonical);
+  });
+
+  // Remap order items in existing orders if any duplicate IDs were referenced
+  if (remapIdMap.size > 0 && orders.length > 0) {
+    let ordersChanged = false;
+    const updatedOrders = orders.map((ord) => {
+      let ordItemsChanged = false;
+      const updatedItems = (ord.items || []).map((it) => {
+        if (remapIdMap.has(it.menuItemId)) {
+          ordItemsChanged = true;
+          return { ...it, menuItemId: remapIdMap.get(it.menuItemId)! };
+        }
+        return it;
+      });
+      if (ordItemsChanged) {
+        ordersChanged = true;
+        return { ...ord, items: updatedItems };
+      }
+      return ord;
+    });
+
+    if (ordersChanged) {
+      memoryStore.set('orders', updatedOrders);
+      notifyDbListeners();
+      if (isFirebaseActive()) {
+        updatedOrders.forEach((o) => {
+          if (o.id) firebaseSync.pushDoc('orders', o.id, o).catch(() => {});
+        });
+      }
+    }
+  }
+
+  if (changed || cleanItems.length !== menuItems.length) {
+    changed = true;
+    memoryStore.set('menuItems', cleanItems);
+    notifyDbListeners();
+    if (isFirebaseActive()) {
+      allDuplicateIds.forEach((dupId) => {
+        firebaseSync.deleteDoc('menuItems', dupId).catch(() => {});
+      });
+      cleanItems.forEach((item) => {
+        firebaseSync.pushDoc('menuItems', item.id, item).catch(() => {});
+      });
+    }
+  }
+
+  return { menuItems: cleanItems, duplicateIds: allDuplicateIds, changed };
+}
+
 // Generic storage functions
 export function getCollection<T>(key: string): T[] {
   const data = memoryStore.get(key);
@@ -383,6 +530,14 @@ export function setCollection<T>(key: string, data: T[]): void {
     if (changed && isFirebaseActive()) {
       duplicateIds.forEach((dupId) => {
         firebaseSync.deleteDoc('categories', dupId).catch(() => {});
+      });
+    }
+  } else if (key === 'menuItems' && Array.isArray(data)) {
+    const { menuItems, duplicateIds, changed } = sanitizeAndDeduplicateMenuItems(data as unknown as MenuItem[]);
+    finalData = menuItems as unknown as T[];
+    if (changed && isFirebaseActive()) {
+      duplicateIds.forEach((dupId) => {
+        firebaseSync.deleteDoc('menuItems', dupId).catch(() => {});
       });
     }
   }
@@ -455,6 +610,17 @@ registerCloudUpdateHandler({
         });
         categories.forEach((cat) => {
           firebaseSync.pushDoc('categories', cat.id, cat).catch(() => {});
+        });
+      }
+    } else if (collName === 'menuItems' && Array.isArray(items)) {
+      const { menuItems, duplicateIds, changed } = sanitizeAndDeduplicateMenuItems(items as MenuItem[]);
+      finalItems = menuItems;
+      if (changed && isFirebaseActive()) {
+        duplicateIds.forEach((dupId) => {
+          firebaseSync.deleteDoc('menuItems', dupId).catch(() => {});
+        });
+        menuItems.forEach((item) => {
+          firebaseSync.pushDoc('menuItems', item.id, item).catch(() => {});
         });
       }
     }
@@ -943,7 +1109,24 @@ export const categoryDB = {
 // Menu Item Management
 export const menuItemDB = {
   getAll: (): MenuItem[] => {
-    const items = getCollection<MenuItem>('menuItems');
+    const raw = getCollection<MenuItem>('menuItems');
+    // Deduplicate if duplicate items exist by normalized name
+    const seen = new Set<string>();
+    let hasDuplicates = false;
+    for (const m of raw) {
+      const k = (m.name || '').trim().toLowerCase();
+      if (k && seen.has(k)) {
+        hasDuplicates = true;
+        break;
+      }
+      if (k) seen.add(k);
+    }
+    let items = raw;
+    if (hasDuplicates) {
+      const { menuItems } = sanitizeAndDeduplicateMenuItems(raw);
+      items = menuItems;
+    }
+
     if (categoryRemapHistory.size > 0) {
       let changed = false;
       const repaired = items.map((m) => {
@@ -968,7 +1151,8 @@ export const menuItemDB = {
   },
   
   getById: (id: string): MenuItem | undefined => {
-    return menuItemDB.getAll().find(m => m.id === id);
+    const canonicalId = menuItemRemapHistory.get(id) || id;
+    return menuItemDB.getAll().find(m => m.id === canonicalId);
   },
   
   getByCategory: (categoryId: string): MenuItem[] => {
@@ -980,7 +1164,7 @@ export const menuItemDB = {
     return menuItemDB.getAll().find(m => m.barcode === barcode);
   },
   
-  create: (item: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem => {
+  create: (item: Omit<MenuItem, 'id' | 'createdAt'> & { id?: string }): MenuItem => {
     let catId = item.categoryId;
     let catName = (item as any).categoryName;
     if (categoryRemapHistory.has(catId)) {
@@ -988,12 +1172,26 @@ export const menuItemDB = {
       catId = canonical.id;
       catName = canonical.name;
     }
+    const nameKey = (item.name || '').trim().toLowerCase();
     const items = menuItemDB.getAll();
+    const existingIndex = items.findIndex((m) => (m.name || '').trim().toLowerCase() === nameKey);
+    if (existingIndex !== -1) {
+      // Avoid duplicate insertion: update existing item and return it
+      items[existingIndex] = {
+        ...items[existingIndex],
+        ...item,
+        id: items[existingIndex].id,
+        categoryId: catId || items[existingIndex].categoryId,
+        categoryName: catName || items[existingIndex].categoryName,
+      };
+      setCollection('menuItems', items);
+      return items[existingIndex];
+    }
     const newItem: MenuItem = {
       ...item,
       categoryId: catId,
       categoryName: catName || (item as any).categoryName,
-      id: uuidv4(),
+      id: item.id || uuidv4(),
       createdAt: new Date().toISOString()
     };
     items.push(newItem);
@@ -1213,10 +1411,16 @@ export const orderDB = {
       targetTableId = existingTable.id;
     }
 
+    const sanitizedItems = (order.items || []).map((it) => ({
+      ...it,
+      menuItemId: menuItemRemapHistory.get(it.menuItemId) || it.menuItemId,
+    }));
+
     const newOrder: Order = {
       paymentStatus: 'pending',
       isPaid: false,
       ...order,
+      items: sanitizedItems,
       tableId: targetTableId,
       id: uuidv4(),
       orderNumber: (order as any).orderNumber || orderDB.generateOrderNumber(order.type, order.tableNumber),
@@ -1829,6 +2033,12 @@ export const initializeSampleData = (): void => {
   const currentCategories = getCollection<Category>('categories');
   if (currentCategories.length > 0) {
     sanitizeAndDeduplicateCategories(currentCategories);
+  }
+
+  // Deduplicate and sanitize menu items to clean up any past duplicates
+  const currentMenuItems = getCollection<MenuItem>('menuItems');
+  if (currentMenuItems.length > 0) {
+    sanitizeAndDeduplicateMenuItems(currentMenuItems);
   }
 
   // Purge any legacy sample data so database is clean
