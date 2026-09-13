@@ -308,27 +308,35 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
     const finalCustomerName = customerName.trim() || `Table ${tableNumber}`;
 
-    const orderItems: OrderItem[] = cart.map((item) => ({
-      id: item.id,
-      menuItemId: item.menuItemId,
-      menuItemName: item.menuItemName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      spiceLevel: item.spiceLevel,
-      selectedDrink: item.selectedDrink,
-      notes: item.notes,
-      status: 'pending',
-    }));
+    // Canonical price verification against database menu items
+    const orderItems: OrderItem[] = cart.map((item) => {
+      const canonicalMenu = menuItemDB.getById(item.menuItemId);
+      const verifiedUnitPrice = canonicalMenu && canonicalMenu.price > 0 ? canonicalMenu.price : item.unitPrice;
+      const verifiedQty = Math.max(1, Number(item.quantity) || 1);
+      return {
+        id: item.id,
+        menuItemId: item.menuItemId,
+        menuItemName: canonicalMenu ? canonicalMenu.name : item.menuItemName,
+        quantity: verifiedQty,
+        unitPrice: verifiedUnitPrice,
+        totalPrice: verifiedUnitPrice * verifiedQty,
+        spiceLevel: item.spiceLevel,
+        selectedDrink: item.selectedDrink,
+        notes: item.notes,
+        status: 'pending',
+      };
+    });
+
+    const canonicalCartSubtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const taxRate = typeof settings.taxPercentage === 'number' ? settings.taxPercentage / 100 : 0.10;
+    const canonicalCartTax = Math.round(canonicalCartSubtotal * taxRate);
+    const canonicalCartTotal = canonicalCartSubtotal + canonicalCartTax;
 
     // If this table already has an active order, ADD the new items into the existing active order!
     const existingActiveOrder = activeOrders[0];
 
     if (existingActiveOrder) {
       const updatedItems = [...existingActiveOrder.items, ...orderItems];
-      const newSubtotal = updatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
-      const newTax = (newSubtotal * settings.taxPercentage) / 100;
-      const newTotal = newSubtotal + newTax;
 
       const combinedNotes = [
         existingActiveOrder.notes,
@@ -337,16 +345,13 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
       const updated = orderDB.update(existingActiveOrder.id, {
         items: updatedItems,
-        subtotal: newSubtotal,
-        tax: newTax,
-        total: newTotal,
         notes: combinedNotes || undefined,
       });
 
       notificationDB.create({
         type: 'order',
         title: `➕ Table ${tableNumber} Added Items!`,
-        message: `Table ${tableNumber} added ${orderItems.length} item(s) to order ${existingActiveOrder.orderNumber} (+${formatCurrency(total)})`,
+        message: `Table ${tableNumber} added ${orderItems.length} item(s) to order ${existingActiveOrder.orderNumber} (+${formatCurrency(canonicalCartTotal)})`,
       });
 
       // Broadcast updated order to Kitchen Display & POS
@@ -361,11 +366,11 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
         tableNumber,
         type: 'dine-in',
         items: orderItems,
-        subtotal,
-        tax,
+        subtotal: canonicalCartSubtotal,
+        tax: canonicalCartTax,
         discount: 0,
         discountType: 'fixed',
-        total,
+        total: canonicalCartTotal,
         status: 'active',
         customerName: finalCustomerName,
         customerPhone: customerPhone.trim() || undefined,
@@ -378,7 +383,7 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
           id: `notif_${order.id}`,
           type: 'order',
           title: `📱 New QR Order (Table ${tableNumber})!`,
-          message: `Table ${tableNumber} placed order ${order.orderNumber} (${formatCurrency(total)})`,
+          message: `Table ${tableNumber} placed order ${order.orderNumber} (${formatCurrency(order.total)})`,
           createdAt: new Date().toISOString(),
           isRead: false,
         });

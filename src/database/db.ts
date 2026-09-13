@@ -77,9 +77,20 @@ export const menuItemRemapHistory = new Map<string, string>();
  * 1) Hardcoded USD sample prices (¥31 bills) where subtotal was 27.97 and total was 30.77
  * 2) Orders whose items have realistic JPY prices (e.g. 980, 780) but order total was recorded <= 50
  */
+/**
+ * Auto-heals, validates, and recalculates orders against canonical menu prices:
+ * 1) Canonical Price Verification: Verifies item prices against database menu items, repairing any tampered unit prices.
+ * 2) Mathematical Consistency: Recomputes item total, subtotal, tax, and total.
+ * 3) Detects and repairs legacy USD sample bugs.
+ */
 export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; changed: boolean } {
   let changed = false;
   if (!Array.isArray(orders)) return { orders: [], changed: false };
+
+  const menuItems = getCollection<MenuItem>('menuItems');
+  const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+  const settings = getItem<Settings>('settings');
+  const taxRate = settings && typeof settings.taxPercentage === 'number' ? settings.taxPercentage / 100 : 0.10;
 
   const repairedOrders = orders.map((order) => {
     if (!order) return order;
@@ -95,16 +106,28 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
           newItem.menuItemId = menuItemRemapHistory.get(newItem.menuItemId)!;
           itemChanged = true;
         }
-        const unitPrice = Number(newItem.unitPrice) || 0;
-        const qty = Number(newItem.quantity) || 1;
+
+        // Canonical Price Verification against database menu items
+        const canonicalItem = menuMap.get(newItem.menuItemId);
+        let unitPrice = Number(newItem.unitPrice) || 0;
+        if (canonicalItem && canonicalItem.price > 0 && Math.abs(unitPrice - canonicalItem.price) > 0.01) {
+          unitPrice = canonicalItem.price;
+          newItem.unitPrice = unitPrice;
+          newItem.menuItemName = canonicalItem.name;
+          itemChanged = true;
+        }
+
+        const qty = Math.max(1, Number(newItem.quantity) || 1);
         const expectedTotal = unitPrice * qty;
 
-        if (newItem.totalPrice === undefined || (expectedTotal > 0 && Math.abs(newItem.totalPrice - expectedTotal) > 0.01)) {
+        if (newItem.totalPrice === undefined || Math.abs(newItem.totalPrice - expectedTotal) > 0.01) {
           newItem.totalPrice = expectedTotal;
           itemChanged = true;
         }
 
-        computedItemSubtotal += (newItem.totalPrice || expectedTotal);
+        if (newItem.status !== 'cancelled') {
+          computedItemSubtotal += (newItem.totalPrice || expectedTotal);
+        }
         if (itemChanged) orderChanged = true;
         return newItem;
       });
@@ -115,14 +138,23 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
 
       const currentTotal = Number(newOrder.total) || 0;
       const currentSubtotal = Number(newOrder.subtotal) || 0;
+      const isStaffOrder = Boolean(newOrder.waiterId || (newOrder as any).cashierId || newOrder.type === 'pos');
+      const safeDiscount = isStaffOrder ? Math.min(computedItemSubtotal, Math.max(0, Number(newOrder.discount) || 0)) : 0;
+      const taxableSubtotal = Math.max(0, computedItemSubtotal - safeDiscount);
+      const expectedTax = Math.round(taxableSubtotal * taxRate);
+      const expectedTotal = Math.max(0, taxableSubtotal + expectedTax);
 
-      // Detect legacy USD sample order / 31 yen bug:
-      // total <= 50 (or subtotal <= 50) while items sum is >= 100
-      if ((currentTotal <= 50 || currentSubtotal <= 50) && computedItemSubtotal >= 100) {
+      // Detect legacy USD sample bug OR price tampering discrepancy
+      if (
+        ((currentTotal <= 50 || currentSubtotal <= 50) && computedItemSubtotal >= 100) ||
+        Math.abs(currentSubtotal - computedItemSubtotal) > 0.01 ||
+        Math.abs(currentTotal - expectedTotal) > 0.01 ||
+        newOrder.discount !== safeDiscount
+      ) {
         newOrder.subtotal = computedItemSubtotal;
-        newOrder.tax = Math.round(computedItemSubtotal * 0.10);
-        newOrder.discount = Number(newOrder.discount) || 0;
-        newOrder.total = newOrder.subtotal + newOrder.tax - newOrder.discount;
+        newOrder.discount = safeDiscount;
+        newOrder.tax = expectedTax;
+        newOrder.total = expectedTotal;
         newOrder.items = repairedItems;
         orderChanged = true;
       }
@@ -136,6 +168,77 @@ export function sanitizeAndRepairOrders(orders: Order[]): { orders: Order[]; cha
   });
 
   return { orders: repairedOrders, changed };
+}
+
+/**
+ * Recalculates and strictly verifies an order's pricing against canonical menu items and tax rate.
+ * Completely eliminates Client-Side Price & Total Trust (CWE-472).
+ */
+export function recalculateCanonicalOrderPricing(
+  items: OrderItem[],
+  discountInput: number = 0,
+  discountTypeInput: 'percentage' | 'fixed' = 'fixed',
+  isStaffOrder: boolean = false
+): {
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  discount: number;
+  discountType: 'percentage' | 'fixed';
+  total: number;
+} {
+  const menuItems = getCollection<MenuItem>('menuItems');
+  const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+  const settings = getItem<Settings>('settings');
+  const taxRate = settings && typeof settings.taxPercentage === 'number' ? settings.taxPercentage / 100 : 0.10;
+
+  let subtotal = 0;
+  const verifiedItems: OrderItem[] = (items || []).map((it) => {
+    const canonicalId = menuItemRemapHistory.get(it.menuItemId) || it.menuItemId;
+    const menuItem = menuMap.get(canonicalId);
+
+    // Canonical price verification: enforce database price if item exists
+    const unitPrice = menuItem && menuItem.price > 0 ? menuItem.price : Math.max(0, Number(it.unitPrice) || 0);
+    const quantity = Math.max(1, Number(it.quantity) || 1);
+    const totalPrice = unitPrice * quantity;
+
+    if (it.status !== 'cancelled') {
+      subtotal += totalPrice;
+    }
+
+    return {
+      ...it,
+      menuItemId: canonicalId,
+      menuItemName: menuItem ? menuItem.name : (it.menuItemName || 'Item'),
+      unitPrice,
+      quantity,
+      totalPrice,
+    };
+  });
+
+  // Only staff can apply discounts; non-staff (e.g. customer QR orders) cannot tamper with discounts
+  let discount = 0;
+  if (isStaffOrder) {
+    if (discountTypeInput === 'percentage') {
+      const pct = Math.min(100, Math.max(0, Number(discountInput) || 0));
+      discount = Math.round((subtotal * pct) / 100);
+    } else {
+      discount = Math.min(subtotal, Math.max(0, Number(discountInput) || 0));
+    }
+  }
+
+  const taxableAmount = Math.max(0, subtotal - discount);
+  const tax = Math.round(taxableAmount * taxRate);
+  const total = Math.max(0, taxableAmount + tax);
+
+  return {
+    items: verifiedItems,
+    subtotal,
+    tax,
+    discount,
+    discountType: isStaffOrder ? discountTypeInput : 'fixed',
+    total,
+  };
 }
 
 /**
@@ -1671,17 +1774,25 @@ export const orderDB = {
       targetTableId = existingTable.id;
     }
 
-    const sanitizedItems = (order.items || []).map((it) => ({
-      ...it,
-      menuItemId: menuItemRemapHistory.get(it.menuItemId) || it.menuItemId,
-    }));
+    const isStaffOrder = Boolean(order.waiterId || (order as any).cashierId || order.type === 'pos');
+    const pricing = recalculateCanonicalOrderPricing(
+      order.items || [],
+      order.discount || 0,
+      order.discountType || 'fixed',
+      isStaffOrder
+    );
 
     const now = new Date().toISOString();
     const newOrder: Order = {
       paymentStatus: 'pending',
       isPaid: false,
       ...order,
-      items: sanitizedItems,
+      items: pricing.items,
+      subtotal: pricing.subtotal,
+      tax: pricing.tax,
+      discount: pricing.discount,
+      discountType: pricing.discountType,
+      total: pricing.total,
       tableId: targetTableId,
       id: uuidv4(),
       orderNumber: (order as any).orderNumber || orderDB.generateOrderNumber(order.type, order.tableNumber),
@@ -1719,10 +1830,48 @@ export const orderDB = {
     if (index === -1) return null;
     
     const existing = orders[index];
+    const isStaffOrder = Boolean(
+      updates.waiterId ||
+      existing.waiterId ||
+      (updates as any).cashierId ||
+      (existing as any).cashierId ||
+      updates.type === 'pos' ||
+      existing.type === 'pos'
+    );
+
+    let computedPricing: Partial<Order> = {};
+    if (
+      updates.items !== undefined ||
+      updates.discount !== undefined ||
+      updates.discountType !== undefined ||
+      updates.subtotal !== undefined ||
+      updates.tax !== undefined ||
+      updates.total !== undefined
+    ) {
+      const targetItems = updates.items !== undefined ? updates.items : existing.items;
+      const targetDiscount = updates.discount !== undefined ? updates.discount : (existing.discount || 0);
+      const targetDiscountType = updates.discountType !== undefined ? updates.discountType : (existing.discountType || 'fixed');
+      const pricing = recalculateCanonicalOrderPricing(
+        targetItems || [],
+        targetDiscount,
+        targetDiscountType,
+        isStaffOrder
+      );
+      computedPricing = {
+        items: pricing.items,
+        subtotal: pricing.subtotal,
+        tax: pricing.tax,
+        discount: pricing.discount,
+        discountType: pricing.discountType,
+        total: pricing.total,
+      };
+    }
+
     const nextRev = (typeof existing._rev === 'number' ? existing._rev : 1) + 1;
     orders[index] = {
       ...existing,
       ...updates,
+      ...computedPricing,
       _rev: nextRev,
       updatedAt: new Date().toISOString(),
     };
