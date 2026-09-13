@@ -300,17 +300,7 @@ function AppShell() {
 
   // ─── Customer QR Ordering Mode (no login required) ────────────
   if (customerTable !== null) {
-    return (
-      <CustomerOrderPage
-        tableNumber={customerTable}
-        onExit={() => {
-          // Clear both query param and hash, navigate to clean URL
-          const cleanUrl = window.location.origin + window.location.pathname;
-          window.history.replaceState({}, '', cleanUrl);
-          setCustomerTable(null);
-        }}
-      />
-    );
+    return <CustomerOrderPage tableNumber={customerTable} />;
   }
 
   // ─── Staff / Admin Mode (login required) ──────────────────────

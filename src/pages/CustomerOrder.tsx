@@ -36,7 +36,6 @@ interface CartItem extends OrderItem {
 
 interface CustomerOrderPageProps {
   tableNumber: number;
-  onExit?: () => void;
 }
 
 export const SPICE_LEVELS: Array<{ id: NonNullable<OrderItem['spiceLevel']>; label: string; icon: string; desc: string }> = [
@@ -57,7 +56,7 @@ export const DRINK_OPTIONS = [
   'Orange Juice (オレンジジュース)',
 ];
 
-export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProps) {
+export function CustomerOrderPage({ tableNumber }: CustomerOrderPageProps) {
   // Subscribe to DB updates & real-time sync for customer view
   const dbTick = useDbUpdate();
 
@@ -438,17 +437,9 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
           <p className="text-base text-gray-600 dark:text-gray-300 mb-6 font-medium">
             Invalid Table. Please ask your server for assistance.
           </p>
-          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 mb-6 text-sm text-gray-500 dark:text-gray-400">
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 text-sm text-gray-500 dark:text-gray-400">
             Table #{tableNumber} was not found in our restaurant floor plan.
           </div>
-          {onExit && (
-            <button
-              onClick={onExit}
-              className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-xl transition duration-200 shadow"
-            >
-              Back to Home
-            </button>
-          )}
         </div>
       </div>
     );
