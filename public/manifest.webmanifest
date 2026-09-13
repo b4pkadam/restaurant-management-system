@@ -1,6 +1,6 @@
 {
-  "name": "Restaurant Management System — Waiter Lite",
-  "short_name": "RMS Waiter",
+  "name": "Restaurant Management System — Mobile Lite",
+  "short_name": "RMS Mobile",
   "description": "Fast mobile ordering, table service, and POS billing for restaurant staff.",
   "start_url": "./",
   "scope": "./",

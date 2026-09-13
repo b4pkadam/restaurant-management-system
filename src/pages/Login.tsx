@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   UtensilsCrossed,
   Eye,
@@ -7,26 +7,14 @@ import {
   Lock,
   ShieldCheck,
   AlertTriangle,
-  Cloud,
-  Save,
-  RefreshCw,
-  Trash2,
-  Settings,
-  Share2,
-  QrCode,
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { settingsDB, userDB, setInMemoryCollection, setInMemoryItem } from '../database/db';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import {
-  initFirebase,
-  testFirebaseConnection,
-  resetFirebaseApp,
   getFirebaseDb,
   checkFirebaseHealth,
   getFirebaseConnectionState,
@@ -34,14 +22,8 @@ import {
   type FirebaseConnectionState,
 } from '../services/firebase';
 import {
-  getStoredFirebaseConfig,
-  saveStoredFirebaseConfig,
   hasStoredFirebaseConfig,
-  parseFirebaseConfigSnippet,
-  getShareableConnectionUrl,
-  type FirebaseConfig,
 } from '../services/firebaseConfig';
-import { firebaseSync } from '../services/firebaseSync';
 import { collection, getDocs } from 'firebase/firestore';
 import { validateUsername, validatePassword, USERNAME_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '../utils/security';
 
@@ -53,30 +35,6 @@ export const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingCloud, setIsCheckingCloud] = useState(true);
   const [cloudState, setCloudState] = useState<FirebaseConnectionState>(() => getFirebaseConnectionState());
-
-  // 4-Corner Clockwise Gesture State (1: Top-Left -> 2: Top-Right -> 3: Bottom-Right -> 4: Bottom-Left)
-  const [cornerClicks, setCornerClicks] = useState<number[]>([]);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const cornerTimeoutRef = useRef<any>(null);
-
-  // Cloud Config Modal State
-  const [modalConfig, setModalConfig] = useState<FirebaseConfig>(() => {
-    return (
-      getStoredFirebaseConfig() || {
-        apiKey: '',
-        authDomain: '',
-        projectId: '',
-        appId: '',
-        storageBucket: '',
-        messagingSenderId: '',
-        databaseURL: '',
-      }
-    );
-  });
-  const [modalRawJson, setModalRawJson] = useState('');
-  const [isModalTesting, setIsModalTesting] = useState(false);
-  const [isModalSaving, setIsModalSaving] = useState(false);
-  const [showPairingQR, setShowPairingQR] = useState(false);
 
   const { login } = useAuth();
   const { error, success, info } = useToast();
@@ -129,175 +87,6 @@ export const LoginPage: React.FC = () => {
     return () => unsub();
   }, []);
 
-  // Handle clockwise 4-corner clicks (1: Top-Left, 2: Top-Right, 3: Bottom-Right, 4: Bottom-Left)
-  const handleCornerClick = (corner: 1 | 2 | 3 | 4) => {
-    if (cornerTimeoutRef.current) {
-      clearTimeout(cornerTimeoutRef.current);
-    }
-
-    setCornerClicks((prev) => {
-      const nextExpected = prev.length + 1;
-      let newClicks: number[] = [];
-
-      if (corner === nextExpected) {
-        newClicks = [...prev, corner];
-        if (newClicks.length === 4) {
-          // Clockwise sequence 1 -> 2 -> 3 -> 4 matched!
-          setShowConfigModal(true);
-          const current = getStoredFirebaseConfig();
-          if (current) setModalConfig(current);
-          info('🔓 Cloud Configuration opened (Clockwise sequence verified).');
-          return [];
-        }
-      } else if (corner === 1) {
-        // Restart at Top-Left
-        newClicks = [1];
-      } else {
-        newClicks = [];
-      }
-
-      cornerTimeoutRef.current = setTimeout(() => {
-        setCornerClicks([]);
-      }, 5000);
-
-      return newClicks;
-    });
-  };
-
-  const handlePasteModalJson = (jsonString: string) => {
-    setModalRawJson(jsonString);
-    if (!jsonString.trim()) return;
-
-    const extracted = parseFirebaseConfigSnippet(jsonString);
-    if (extracted.apiKey || extracted.projectId) {
-      setModalConfig((prev) => ({
-        apiKey: extracted.apiKey || prev.apiKey,
-        authDomain: extracted.authDomain || prev.authDomain,
-        projectId: extracted.projectId || prev.projectId,
-        appId: extracted.appId || prev.appId,
-        storageBucket: extracted.storageBucket || prev.storageBucket,
-        messagingSenderId: extracted.messagingSenderId || prev.messagingSenderId,
-        databaseURL: extracted.databaseURL || prev.databaseURL,
-      }));
-      success('✓ Extracted Firebase keys successfully from pasted snippet!');
-    }
-  };
-
-  const handleModalTest = async () => {
-    let current = { ...modalConfig };
-    if (modalRawJson.trim()) {
-      const extracted = parseFirebaseConfigSnippet(modalRawJson);
-      current = {
-        apiKey: (extracted.apiKey || current.apiKey || '').trim(),
-        authDomain: (extracted.authDomain || current.authDomain || '').trim(),
-        projectId: (extracted.projectId || current.projectId || '').trim(),
-        appId: (extracted.appId || current.appId || '').trim(),
-        storageBucket: (extracted.storageBucket || current.storageBucket || '').trim(),
-        messagingSenderId: (extracted.messagingSenderId || current.messagingSenderId || '').trim(),
-        databaseURL: (extracted.databaseURL || current.databaseURL || '').trim(),
-      };
-    }
-
-    if (!current.apiKey.trim() || !current.projectId.trim()) {
-      error('Please enter at least your Firebase API Key and Project ID to test.');
-      return;
-    }
-
-    setIsModalTesting(true);
-    try {
-      const configToTest: FirebaseConfig = {
-        apiKey: current.apiKey.trim(),
-        authDomain: current.authDomain.trim() || `${current.projectId.trim()}.firebaseapp.com`,
-        projectId: current.projectId.trim(),
-        appId: current.appId.trim(),
-        storageBucket: current.storageBucket?.trim() || `${current.projectId.trim()}.appspot.com`,
-        messagingSenderId: current.messagingSenderId?.trim() || '',
-        databaseURL: current.databaseURL?.trim() || '',
-      };
-
-      const testResult = await testFirebaseConnection(configToTest);
-      if (testResult.success) {
-        success(testResult.message);
-      } else {
-        error(testResult.message);
-      }
-    } catch (err: any) {
-      error(err?.message || 'Connection test failed.');
-    } finally {
-      setIsModalTesting(false);
-    }
-  };
-
-  const handleModalSave = async () => {
-    let current = { ...modalConfig };
-    if (modalRawJson.trim()) {
-      const extracted = parseFirebaseConfigSnippet(modalRawJson);
-      current = {
-        apiKey: (extracted.apiKey || current.apiKey || '').trim(),
-        authDomain: (extracted.authDomain || current.authDomain || '').trim(),
-        projectId: (extracted.projectId || current.projectId || '').trim(),
-        appId: (extracted.appId || current.appId || '').trim(),
-        storageBucket: (extracted.storageBucket || current.storageBucket || '').trim(),
-        messagingSenderId: (extracted.messagingSenderId || current.messagingSenderId || '').trim(),
-        databaseURL: (extracted.databaseURL || current.databaseURL || '').trim(),
-      };
-      setModalConfig(current);
-    }
-
-    if (!current.apiKey.trim() || !current.projectId.trim()) {
-      error('Please enter at least your Firebase API Key and Project ID.');
-      return;
-    }
-
-    setIsModalSaving(true);
-    try {
-      const configToSave: FirebaseConfig = {
-        apiKey: current.apiKey.trim(),
-        authDomain: current.authDomain.trim() || `${current.projectId.trim()}.firebaseapp.com`,
-        projectId: current.projectId.trim(),
-        appId: current.appId.trim(),
-        storageBucket: current.storageBucket?.trim() || `${current.projectId.trim()}.appspot.com`,
-        messagingSenderId: current.messagingSenderId?.trim() || '',
-        databaseURL: current.databaseURL?.trim() || '',
-      };
-
-      const testResult = await testFirebaseConnection(configToSave);
-      if (testResult.success) {
-        // Saved in non-textual masked byte vector format
-        saveStoredFirebaseConfig(configToSave);
-        initFirebase(configToSave);
-        firebaseSync.start();
-        success('🎉 Firebase credentials saved securely in non-textual format and verified!');
-        setShowConfigModal(false);
-        await fetchCloudData();
-      } else {
-        error(testResult.message);
-      }
-    } catch (err: any) {
-      error(err?.message || 'Failed to connect to Firebase.');
-    } finally {
-      setIsModalSaving(false);
-    }
-  };
-
-  const handleModalDisconnect = async () => {
-    saveStoredFirebaseConfig(null);
-    await resetFirebaseApp();
-    firebaseSync.stop();
-    setModalConfig({
-      apiKey: '',
-      authDomain: '',
-      projectId: '',
-      appId: '',
-      storageBucket: '',
-      messagingSenderId: '',
-      databaseURL: '',
-    });
-    setModalRawJson('');
-    setShowConfigModal(false);
-    info('Firebase disconnected. System reverted to local offline mode.');
-  };
-
   const users = userDB.getAll();
   const isFirstTimeSetup = users.length === 0;
   const isFirebaseConnected = cloudState.status === 'connected';
@@ -309,7 +98,7 @@ export const LoginPage: React.FC = () => {
     if (!isFirebaseConnected) {
       error(
         cloudState.errorMessage ||
-          'Firebase is not connected. Cloud backend connection is required to authenticate accounts. (Click 4 corners clockwise to open cloud settings).'
+          'Firebase is not connected. Cloud backend connection is required to authenticate accounts.'
       );
       return;
     }
@@ -374,33 +163,7 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4 select-none">
-      {/* 4-Corner Clockwise Invisible Click Triggers */}
-      {/* Corner 1: Top-Left */}
-      <div
-        onClick={() => handleCornerClick(1)}
-        className="fixed top-0 left-0 w-24 h-24 z-40 cursor-pointer"
-        title="Corner 1 (Top-Left)"
-      />
-      {/* Corner 2: Top-Right */}
-      <div
-        onClick={() => handleCornerClick(2)}
-        className="fixed top-0 right-0 w-24 h-24 z-40 cursor-pointer"
-        title="Corner 2 (Top-Right)"
-      />
-      {/* Corner 3: Bottom-Right */}
-      <div
-        onClick={() => handleCornerClick(3)}
-        className="fixed bottom-0 right-0 w-24 h-24 z-40 cursor-pointer"
-        title="Corner 3 (Bottom-Right)"
-      />
-      {/* Corner 4: Bottom-Left */}
-      <div
-        onClick={() => handleCornerClick(4)}
-        className="fixed bottom-0 left-0 w-24 h-24 z-40 cursor-pointer"
-        title="Corner 4 (Bottom-Left)"
-      />
-
+    <div className="relative min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo and Title */}
         <div className="text-center mb-8">
@@ -547,175 +310,6 @@ export const LoginPage: React.FC = () => {
           © {new Date().getFullYear()} {settings.restaurantName}. All rights reserved.
         </p>
       </div>
-
-      {/* Secret Cloud Configuration Modal (Unlocked via 4-corner clockwise click sequence) */}
-      <Modal
-        isOpen={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
-        title="Firebase Cloud Backend Settings"
-        size="xl"
-        footer={
-          <div className="flex flex-wrap items-center justify-between gap-3 w-full">
-            <div className="flex flex-wrap gap-2.5">
-              <Button
-                variant="primary"
-                className="bg-blue-600 hover:bg-blue-700 font-bold"
-                onClick={handleModalSave}
-                isLoading={isModalSaving}
-                leftIcon={<Save size={16} />}
-              >
-                Save & Connect Cloud
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleModalTest}
-                isLoading={isModalTesting}
-                leftIcon={<RefreshCw size={16} />}
-              >
-                Test Connection
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              {hasStoredFirebaseConfig() && (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={handleModalDisconnect}
-                  leftIcon={<Trash2 size={14} />}
-                >
-                  Disconnect Cloud
-                </Button>
-              )}
-              <Button variant="ghost" onClick={() => setShowConfigModal(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-xs">
-              <Cloud size={20} />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-gray-900 dark:text-white">
-                Google Firebase Cloud Configuration
-              </h4>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Credentials are automatically encoded into secure non-textual masked byte vectors in storage.
-              </p>
-            </div>
-          </div>
-
-          {/* 1-Click New Device Pairing (Shareable Link & QR) */}
-          {hasStoredFirebaseConfig() && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 dark:border-emerald-900/50 dark:bg-emerald-950/30">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                    📱 1-Click New Device Pairing
-                  </h4>
-                  <p className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-400">
-                    Connect any new phone, tablet, or device instantly without typing credentials.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-emerald-300 text-emerald-800 dark:border-emerald-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
-                    onClick={() => {
-                      const url = getShareableConnectionUrl();
-                      if (url) {
-                        navigator.clipboard.writeText(url);
-                        success('✓ 1-Click pairing link copied to clipboard! Open it on any new device to connect.');
-                      } else {
-                        error('Could not generate pairing link.');
-                      }
-                    }}
-                    leftIcon={<Share2 size={13} />}
-                  >
-                    Copy Link
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-emerald-300 text-emerald-800 dark:border-emerald-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
-                    onClick={() => setShowPairingQR((prev) => !prev)}
-                    leftIcon={<QrCode size={13} />}
-                  >
-                    {showPairingQR ? 'Hide QR' : 'Show QR'}
-                  </Button>
-                </div>
-              </div>
-
-              {showPairingQR && getShareableConnectionUrl() && (
-                <div className="mt-3 flex flex-col items-center justify-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-emerald-100 dark:border-emerald-900/40 shadow-xs">
-                  <QRCodeSVG value={getShareableConnectionUrl()!} size={160} level="M" includeMargin />
-                  <p className="mt-2 text-xs font-medium text-gray-600 dark:text-gray-400 text-center">
-                    Point any new device camera at this QR code to connect it immediately.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Quick Paste JSON / Snippet Box */}
-          <div className="space-y-1.5 rounded-xl bg-gray-50 p-3.5 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-              Paste Firebase Web SDK Config (JSON or Code Snippet)
-            </label>
-            <textarea
-              rows={3}
-              value={modalRawJson}
-              onChange={(e) => handlePasteModalJson(e.target.value)}
-              placeholder={`Paste your firebaseConfig snippet here, e.g.:\n{\n  apiKey: "AIzaSy...",\n  projectId: "your-restaurant-app",\n  appId: "1:..."\n}`}
-              className="w-full rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-            />
-          </div>
-
-          {/* Form Inputs */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input
-              label="API Key (apiKey)"
-              value={modalConfig.apiKey}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
-              placeholder="AIzaSy..."
-            />
-            <Input
-              label="Project ID (projectId)"
-              value={modalConfig.projectId}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, projectId: e.target.value }))}
-              placeholder="your-app-id"
-            />
-            <Input
-              label="Auth Domain (authDomain)"
-              value={modalConfig.authDomain}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, authDomain: e.target.value }))}
-              placeholder="your-app.firebaseapp.com"
-            />
-            <Input
-              label="App ID (appId)"
-              value={modalConfig.appId}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, appId: e.target.value }))}
-              placeholder="1:123456789:web:abcdef"
-            />
-            <Input
-              label="Storage Bucket (storageBucket)"
-              value={modalConfig.storageBucket || ''}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, storageBucket: e.target.value }))}
-              placeholder="your-app.appspot.com"
-            />
-            <Input
-              label="Database URL (Optional for RTDB)"
-              value={modalConfig.databaseURL || ''}
-              onChange={(e) => setModalConfig((prev) => ({ ...prev, databaseURL: e.target.value }))}
-              placeholder="https://your-app-default-rtdb.firebaseio.com"
-            />
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };

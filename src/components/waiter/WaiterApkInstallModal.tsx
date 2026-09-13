@@ -20,7 +20,7 @@ export const WaiterApkInstallModal: React.FC<WaiterApkInstallModalProps> = ({
   const [isPwaInstalled, setIsPwaInstalled] = useState(false);
 
   const settings = settingsDB.get();
-  const rawApkUrl = settings.waiterApkUrl || './restaurant-waiter-lite.apk';
+  const rawApkUrl = settings.waiterApkUrl || './restaurant-lite.apk';
 
   // Compute absolute URL for easy sharing/downloading
   const absoluteApkUrl = React.useMemo(() => {
@@ -144,7 +144,7 @@ export const WaiterApkInstallModal: React.FC<WaiterApkInstallModalProps> = ({
           <div className="space-y-2">
             <a
               href={absoluteApkUrl}
-              download="restaurant-waiter-lite.apk"
+              download="restaurant-lite.apk"
               onClick={() => {
                 onInstallStarted?.();
               }}

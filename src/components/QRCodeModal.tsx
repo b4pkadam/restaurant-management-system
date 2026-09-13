@@ -20,45 +20,112 @@ export function QRCodeModal({ isOpen, onClose, tableNumber }: QRCodeModalProps) 
   const orderUrl = `${window.location.origin}${basePath}?table=${tableNumber}`;
 
   const printQR = () => {
+    const svgElement = document.getElementById('qr-code-svg');
+    const svgString = svgElement ? new XMLSerializer().serializeToString(svgElement) : '';
+
     const printWindow = window.open('', '_blank', 'width=500,height=700');
     if (!printWindow) return;
 
+    const escapedName = (settings.restaurantName || 'Restaurant')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const escapedLogo = settings.restaurantLogo ? settings.restaurantLogo.replace(/"/g, '&quot;') : '';
+
     printWindow.document.write(`
+      <!doctype html>
       <html>
-        <head><title>Table ${tableNumber} QR Code</title></head>
-        <body style="font-family:Arial,sans-serif;text-align:center;padding:40px;">
-          <div style="max-width:400px;margin:0 auto;border:3px solid #111;border-radius:24px;padding:40px 32px;">
-            ${settings.restaurantLogo ? `<img src="${settings.restaurantLogo}" alt="Logo" style="width:64px;height:64px;object-fit:cover;border-radius:14px;margin-bottom:12px;" />` : ''}
-            <h1 style="margin:0 0 8px;font-size:24px;">${settings.restaurantName}</h1>
-            <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Scan to order from your phone</p>
-            <div style="display:flex;justify-content:center;margin-bottom:24px;" id="qr-container"></div>
-            <div style="background:#f3f4f6;border-radius:16px;padding:16px;margin-bottom:16px;">
-              <p style="margin:0;font-size:48px;font-weight:900;color:#111827;">Table ${tableNumber}</p>
+        <head>
+          <meta charset="utf-8" />
+          <title>Table ${tableNumber} QR Code</title>
+          <style>
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
+            body {
+              font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              text-align: center;
+              padding: 32px 16px;
+              margin: 0;
+              background: #ffffff;
+              color: #111827;
+            }
+            .card {
+              max-width: 380px;
+              margin: 0 auto;
+              border: 2px solid #1f2937;
+              border-radius: 24px;
+              padding: 36px 24px;
+            }
+            .logo {
+              width: 60px;
+              height: 60px;
+              object-fit: cover;
+              border-radius: 12px;
+              margin-bottom: 12px;
+            }
+            .title {
+              margin: 0 0 6px;
+              font-size: 22px;
+              font-weight: 800;
+            }
+            .subtitle {
+              margin: 0 0 20px;
+              color: #4b5563;
+              font-size: 14px;
+            }
+            .qr-wrapper {
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              margin: 0 auto 20px;
+              padding: 12px;
+              background: #ffffff;
+              border-radius: 16px;
+            }
+            .qr-wrapper svg {
+              width: 220px;
+              height: 220px;
+              display: block;
+            }
+            .table-badge {
+              background: #f3f4f6;
+              border-radius: 14px;
+              padding: 12px;
+              margin-bottom: 14px;
+            }
+            .table-num {
+              margin: 0;
+              font-size: 40px;
+              font-weight: 900;
+              letter-spacing: -0.02em;
+            }
+            .instructions {
+              margin: 0;
+              font-size: 12px;
+              color: #6b7280;
+              line-height: 1.4;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            ${escapedLogo ? `<img src="${escapedLogo}" alt="Logo" class="logo" />` : ''}
+            <h1 class="title">${escapedName}</h1>
+            <p class="subtitle">Scan to order from your phone</p>
+            <div class="qr-wrapper">
+              ${svgString}
             </div>
-            <p style="margin:0;font-size:13px;color:#9ca3af;">Point your phone camera at the QR code to open our digital menu and place your order directly.</p>
+            <div class="table-badge">
+              <p class="table-num">Table ${tableNumber}</p>
+            </div>
+            <p class="instructions">Point your smartphone camera at this QR code to view our digital menu and order instantly.</p>
           </div>
           <script>
-            // Render QR as an image for printing
-            const canvas = document.createElement('canvas');
-            const size = 220;
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
-            
-            // Simple fallback: show the URL text and a styled placeholder
-            const container = document.getElementById('qr-container');
-            const img = new Image();
-            img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent('${orderUrl}');
-            img.width = 220;
-            img.height = 220;
-            img.style.borderRadius = '12px';
-            container.appendChild(img);
-            
-            img.onload = () => window.print();
-            img.onerror = () => {
-              container.innerHTML = '<p style="padding:20px;background:#f3f4f6;border-radius:12px;word-break:break-all;font-size:12px;">${orderUrl}</p>';
-              window.print();
-            };
+            window.addEventListener('load', () => {
+              window.focus();
+              setTimeout(() => window.print(), 200);
+            });
           </script>
         </body>
       </html>

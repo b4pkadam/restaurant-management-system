@@ -3799,13 +3799,13 @@ export function SettingsPage() {
             />
             <div className="md:col-span-2">
               <Input
-                label="Waiter Lite APK Download URL"
-                placeholder="./restaurant-waiter-lite.apk or https://..."
+                label="Restaurant Mobile Lite APK Download URL"
+                placeholder="./restaurant-lite.apk or https://..."
                 value={form.waiterApkUrl || ''}
                 onChange={(e) => setForm((prev) => ({ ...prev, waiterApkUrl: e.target.value }))}
               />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Direct URL to the Lite APK file or install package for waiter mobile devices. Defaults to bundled Lite APK.
+                Direct URL to the Lite APK file or install package for staff mobile devices. Defaults to bundled Lite APK.
               </p>
             </div>
           </div>

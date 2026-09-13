@@ -1921,7 +1921,7 @@ export const settingsDB = {
       language: 'en',
       autoBackup: true,
       backupInterval: 24,
-      waiterApkUrl: './restaurant-waiter-lite.apk',
+      waiterApkUrl: './restaurant-lite.apk',
     };
     
     const stored = getItem<AppSettings>('settings');
@@ -1929,7 +1929,9 @@ export const settingsDB = {
     return {
       ...defaultSettings,
       ...stored,
-      waiterApkUrl: stored.waiterApkUrl || defaultSettings.waiterApkUrl,
+      waiterApkUrl: (!stored.waiterApkUrl || stored.waiterApkUrl === './restaurant-waiter-lite.apk')
+        ? defaultSettings.waiterApkUrl
+        : stored.waiterApkUrl,
     };
   },
   
