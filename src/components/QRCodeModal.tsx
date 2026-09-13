@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { settingsDB } from '../database/db';
+import { escapeHtml, sanitizeUrl } from '../utils/security';
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -21,23 +22,23 @@ export function QRCodeModal({ isOpen, onClose, tableNumber }: QRCodeModalProps) 
 
   const printQR = () => {
     const svgElement = document.getElementById('qr-code-svg');
-    const svgString = svgElement ? new XMLSerializer().serializeToString(svgElement) : '';
+    const svgString = svgElement && svgElement.tagName.toLowerCase() === 'svg'
+      ? new XMLSerializer().serializeToString(svgElement)
+      : '';
 
     const printWindow = window.open('', '_blank', 'width=500,height=700');
     if (!printWindow) return;
 
-    const escapedName = (settings.restaurantName || 'Restaurant')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    const escapedLogo = settings.restaurantLogo ? settings.restaurantLogo.replace(/"/g, '&quot;') : '';
+    const escapedName = escapeHtml(settings.restaurantName || 'Restaurant');
+    const safeLogo = sanitizeUrl(settings.restaurantLogo);
+    const safeTableNum = Number(tableNumber) || 0;
 
     printWindow.document.write(`
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Table ${tableNumber} QR Code</title>
+          <title>Table ${safeTableNum} QR Code</title>
           <style>
             @media print {
               body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -110,14 +111,14 @@ export function QRCodeModal({ isOpen, onClose, tableNumber }: QRCodeModalProps) 
         </head>
         <body>
           <div class="card">
-            ${escapedLogo ? `<img src="${escapedLogo}" alt="Logo" class="logo" />` : ''}
+            ${safeLogo ? `<img src="${safeLogo}" alt="Logo" class="logo" />` : ''}
             <h1 class="title">${escapedName}</h1>
             <p class="subtitle">Scan to order from your phone</p>
             <div class="qr-wrapper">
               ${svgString}
             </div>
             <div class="table-badge">
-              <p class="table-num">Table ${tableNumber}</p>
+              <p class="table-num">Table ${safeTableNum}</p>
             </div>
             <p class="instructions">Point your smartphone camera at this QR code to view our digital menu and order instantly.</p>
           </div>

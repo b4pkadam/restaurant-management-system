@@ -121,3 +121,32 @@ export function validatePassword(password: unknown): ValidationResult {
 
   return { isValid: true, cleanValue: clean };
 }
+
+/**
+ * Escapes HTML entities to prevent Cross-Site Scripting (XSS) (CWE-79).
+ */
+export function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"'/]/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+    '/': '&#x2F;',
+  }[m]!));
+}
+
+/**
+ * Validates and sanitizes URLs (e.g. logos or external links) to prevent javascript: pseudo-protocol XSS.
+ */
+export function sanitizeUrl(url: unknown): string {
+  if (typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  // Only permit safe protocols: http, https, or data:image
+  if (/^(https?:\/\/|data:image\/)/i.test(trimmed)) {
+    return escapeHtml(trimmed);
+  }
+  return '';
+}

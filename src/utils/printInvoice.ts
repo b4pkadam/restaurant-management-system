@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { settingsDB, paymentDB } from '../database/db';
 import type { Order, Payment } from '../types';
 import { formatCurrency } from './formatCurrency';
+import { escapeHtml, sanitizeUrl } from './security';
 
 /**
  * Universal print invoice / receipt utility for all dashboards
@@ -11,15 +12,16 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
   const settings = settingsDB.get();
   const payment = explicitPayment || paymentDB.getByOrder(order.id);
   const isPaid = Boolean(payment || order.paymentStatus === 'paid' || order.isPaid);
+  const safeLogo = sanitizeUrl(settings.restaurantLogo);
 
   const invoiceWindow = window.open('', '_blank', 'width=850,height=750');
   if (!invoiceWindow) return;
 
   const rows = order.items
     .map((item) => {
-      const displaySpice = item.spiceLevel;
-      const displayDrink = item.selectedDrink;
-      const displayNotes = item.notes;
+      const displaySpice = item.spiceLevel ? escapeHtml(item.spiceLevel) : '';
+      const displayDrink = item.selectedDrink ? escapeHtml(item.selectedDrink) : '';
+      const displayNotes = item.notes ? escapeHtml(item.notes) : '';
 
       const extras = [
         displaySpice ? `🌶️ Spice: ${displaySpice}` : '',
@@ -32,10 +34,10 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
       return `
         <tr>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
-            <div style="font-weight:600;font-size:14px;color:#111827;">${item.menuItemName}</div>
+            <div style="font-weight:600;font-size:14px;color:#111827;">${escapeHtml(item.menuItemName)}</div>
             ${extras ? `<div style="font-size:11px;color:#d97706;margin-top:3px;font-weight:500;">${extras}</div>` : ''}
           </td>
-          <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:bold;font-size:14px;">${item.quantity}</td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:bold;font-size:14px;">${Number(item.quantity) || 1}</td>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:13px;color:#4b5563;">${formatCurrency(item.unitPrice)}</td>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600;font-size:14px;color:#111827;">${formatCurrency(item.totalPrice)}</td>
         </tr>
@@ -48,7 +50,7 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Receipt - Order #${order.orderNumber}</title>
+        <title>Receipt - Order #${escapeHtml(order.orderNumber)}</title>
         <style>
           @media print {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -73,18 +75,18 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
         <div class="container">
           <div class="header">
             <div style="display:flex;align-items:center;gap:14px;">
-              ${settings.restaurantLogo ? `<img src="${settings.restaurantLogo}" alt="Logo" style="width:58px;height:58px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />` : ''}
+              ${safeLogo ? `<img src="${safeLogo}" alt="Logo" style="width:58px;height:58px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />` : ''}
               <div>
-                <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">${settings.restaurantName}</h1>
-                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${settings.restaurantAddress || ''}</p>
-                <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${settings.restaurantPhone || 'N/A'}${settings.gstNumber ? ` | GST: ${settings.gstNumber}` : ''}</p>
+                <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">${escapeHtml(settings.restaurantName)}</h1>
+                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${escapeHtml(settings.restaurantAddress || '')}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${escapeHtml(settings.restaurantPhone || 'N/A')}${settings.gstNumber ? ` | GST: ${escapeHtml(settings.gstNumber)}` : ''}</p>
               </div>
             </div>
             <div style="text-align:right;">
               <div style="margin-bottom:6px;">
-                ${isPaid ? `<span class="badge-paid">✓ PAID (${(payment?.method || 'COMPLETED').toUpperCase()})</span>` : `<span class="badge-unpaid">⏳ PAYMENT PENDING</span>`}
+                ${isPaid ? `<span class="badge-paid">✓ PAID (${escapeHtml((payment?.method || 'COMPLETED').toUpperCase())})</span>` : `<span class="badge-unpaid">⏳ PAYMENT PENDING</span>`}
               </div>
-              <h2 style="margin:0;font-size:16px;color:#1e40af;font-weight:bold;">Order #${order.orderNumber}</h2>
+              <h2 style="margin:0;font-size:16px;color:#1e40af;font-weight:bold;">Order #${escapeHtml(order.orderNumber)}</h2>
               <p style="margin:3px 0 0;font-size:11px;color:#6b7280;">${format(new Date(order.createdAt), 'PPpp')}</p>
             </div>
           </div>
@@ -92,19 +94,19 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
           <div class="meta-grid">
             <div class="meta-box">
               <span style="font-size:11px;font-weight:bold;text-transform:uppercase;color:#6b7280;">Customer Info</span>
-              <p style="margin:4px 0 0;font-weight:600;font-size:13px;">${order.customerName || 'Walk-in Customer'}</p>
-              <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${order.customerPhone || 'Phone: Not specified'}</p>
+              <p style="margin:4px 0 0;font-weight:600;font-size:13px;">${escapeHtml(order.customerName || 'Walk-in Customer')}</p>
+              <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">${escapeHtml(order.customerPhone || 'Phone: Not specified')}</p>
             </div>
             <div class="meta-box">
               <span style="font-size:11px;font-weight:bold;text-transform:uppercase;color:#6b7280;">Service Details</span>
-              <p style="margin:4px 0 0;font-weight:600;font-size:13px;">${order.type === 'dine-in' ? `Table #${order.tableNumber || 'N/A'} (Dine-in)` : 'Takeaway Order'}</p>
-              <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Staff: ${order.waiterName || payment?.receivedBy || 'Staff'}</p>
+              <p style="margin:4px 0 0;font-weight:600;font-size:13px;">${order.type === 'dine-in' ? `Table #${escapeHtml(order.tableNumber || 'N/A')} (Dine-in)` : 'Takeaway Order'}</p>
+              <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Staff: ${escapeHtml(order.waiterName || payment?.receivedBy || 'Staff')}</p>
             </div>
           </div>
 
           ${order.notes ? `
             <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:#92400e;">
-              <strong>📝 Order Instructions:</strong> ${order.notes}
+              <strong>📝 Order Instructions:</strong> ${escapeHtml(order.notes)}
             </div>
           ` : ''}
 
@@ -143,7 +145,7 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
 
           <div class="footer">
             <p style="margin:0;font-weight:600;">Thank you for dining with us!</p>
-            <p style="margin:4px 0 0;">Please visit us again • Powered by ${settings.restaurantName}</p>
+            <p style="margin:4px 0 0;">Please visit us again • Powered by ${escapeHtml(settings.restaurantName)}</p>
           </div>
         </div>
         <script>
