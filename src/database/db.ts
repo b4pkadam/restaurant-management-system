@@ -63,6 +63,7 @@ export function notifyDbListeners(): void {
 import { firebaseSync, registerCloudUpdateHandler, mergeEntities } from '../services/firebaseSync';
 import { isFirebaseActive, checkFirebaseHealth, resetFirebaseApp } from '../services/firebase';
 import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
+import { sanitizeBackupForExport, validateBackupPayload } from '../services/backupValidation';
 
 // Generic in-memory database store (no business data saved in browser storage for multi-user mode)
 const memoryStore = new Map<string, any>();
@@ -2141,14 +2142,8 @@ export const analyticsDB = {
 // Backup & Restore
 export const backupDB = {
   export: (): string => {
-    const rawUsers = userDB.getAll();
-    const sanitizedUsers = rawUsers.map((u) => ({
-      ...u,
-      password: safeHashPassword(u.password),
-    }));
-
-    const data = {
-      users: sanitizedUsers,
+    const rawData = {
+      users: userDB.getAll(),
       employees: employeeDB.getAll(),
       categories: categoryDB.getAll(),
       menuItems: menuItemDB.getAll(),
@@ -2160,15 +2155,31 @@ export const backupDB = {
       purchases: purchaseDB.getAll(),
       notifications: notificationDB.getAll(),
       settings: settingsDB.get(),
-      exportedAt: new Date().toISOString()
     };
-    return JSON.stringify(data, null, 2);
+
+    const sanitizedExport = sanitizeBackupForExport(rawData);
+    return JSON.stringify(sanitizedExport, null, 2);
   },
   
-  import: (jsonData: string): boolean => {
+  import: (jsonData: string): { success: boolean; error?: string } => {
     try {
-      const data = JSON.parse(jsonData);
-      
+      const existingUsers = userDB.getAll();
+      const existingEmployees = employeeDB.getAll();
+
+      const validation = validateBackupPayload(jsonData, {
+        existingUsers,
+        existingEmployees,
+      });
+
+      if (!validation.valid || !validation.data) {
+        return {
+          success: false,
+          error: validation.error || 'Backup validation failed.',
+        };
+      }
+
+      const { data } = validation;
+
       if (data.users) setCollection('users', data.users);
       if (data.employees) setCollection('employees', data.employees);
       if (data.categories) setCollection('categories', data.categories);
@@ -2181,11 +2192,11 @@ export const backupDB = {
       if (data.purchases) setCollection('purchases', data.purchases);
       if (data.notifications) setCollection('notifications', data.notifications);
       if (data.settings) setItem('settings', data.settings);
-      
-      return true;
-    } catch (error) {
+
+      return { success: true };
+    } catch (error: any) {
       console.error('Failed to import backup:', error);
-      return false;
+      return { success: false, error: error?.message || 'Failed to parse and restore backup.' };
     }
   },
   

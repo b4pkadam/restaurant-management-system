@@ -3660,9 +3660,11 @@ export function SettingsPage() {
     setIsImporting(true);
     try {
       const content = await file.text();
-      const restored = backupDB.import(content);
-      if (!restored) {
-        error('Backup restore failed.');
+      const res = backupDB.import(content);
+      const isSuccess = typeof res === 'boolean' ? res : res.success;
+      if (!isSuccess) {
+        const errorMsg = typeof res === 'object' && res.error ? res.error : 'Backup restore failed.';
+        error(errorMsg);
         return;
       }
       success('Backup restored successfully. Reloading application...');
