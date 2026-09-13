@@ -69,6 +69,8 @@ export interface Table {
     reservationTime: string;
     partySize: number;
   };
+  updatedAt?: string;
+  _rev?: number;
 }
 
 export interface OrderItem {
@@ -106,6 +108,8 @@ export interface Order {
   createdAt: string;
   completedAt?: string;
   notes?: string;
+  updatedAt?: string;
+  _rev?: number;
 }
 
 export interface Payment {

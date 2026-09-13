@@ -60,7 +60,7 @@ export function notifyDbListeners(): void {
   }
 }
 
-import { firebaseSync, registerCloudUpdateHandler } from '../services/firebaseSync';
+import { firebaseSync, registerCloudUpdateHandler, mergeEntities } from '../services/firebaseSync';
 import { isFirebaseActive, checkFirebaseHealth, resetFirebaseApp } from '../services/firebase';
 import { hasStoredFirebaseConfig } from '../services/firebaseConfig';
 
@@ -541,15 +541,32 @@ export function setCollection<T>(key: string, data: T[]): void {
       });
     }
   }
+
+  // Track previous items by ID to avoid re-pushing unmodified documents to Firestore
+  const previousList = (memoryStore.get(key) as any[]) || [];
+  const previousMap = new Map<string, any>();
+  previousList.forEach((it: any) => {
+    const docId =
+      key === 'tables' && it.number
+        ? `table_${it.number}`
+        : it.id || (it.number !== undefined ? String(it.number) : undefined);
+    if (docId) previousMap.set(docId, it);
+  });
+
   memoryStore.set(key, finalData);
   notifyDbListeners();
+
+  // Push ONLY documents that are new or whose serialized content has changed
   if (isFirebaseActive() && Array.isArray(finalData)) {
     finalData.forEach((item: any) => {
       const docId =
         key === 'tables' && item.number
           ? `table_${item.number}`
           : item.id || (item.number !== undefined ? String(item.number) : undefined);
-      if (docId) {
+      if (!docId) return;
+
+      const prev = previousMap.get(docId);
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
         firebaseSync.pushDoc(key, docId, item).catch(() => {});
       }
     });
@@ -580,7 +597,7 @@ export function setInMemoryItem<T>(key: string, data: T): void {
   notifyDbListeners();
 }
 
-// Connect firebaseSync to in-memory store
+// Connect firebaseSync to in-memory store with granular change processing
 registerCloudUpdateHandler({
   setCollection: (collName, items) => {
     let finalItems = items;
@@ -588,8 +605,11 @@ registerCloudUpdateHandler({
       const { orders, changed } = sanitizeAndRepairOrders(items as Order[]);
       finalItems = orders;
       if (changed && isFirebaseActive()) {
-        orders.forEach((o) => {
-          if (o.id) firebaseSync.pushDoc('orders', o.id, o).catch(() => {});
+        orders.forEach((o, idx) => {
+          const original = items[idx];
+          if (o.id && (!original || JSON.stringify(original) !== JSON.stringify(o))) {
+            firebaseSync.pushDoc('orders', o.id, o).catch(() => {});
+          }
         });
       }
     } else if (collName === 'tables' && Array.isArray(items)) {
@@ -597,8 +617,11 @@ registerCloudUpdateHandler({
       const { tables, changed } = sanitizeAndRepairTables(items as Table[], orders);
       finalItems = tables;
       if (changed && isFirebaseActive()) {
-        tables.forEach((t) => {
-          firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+        tables.forEach((t, idx) => {
+          const original = items[idx];
+          if (!original || JSON.stringify(original) !== JSON.stringify(t)) {
+            firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+          }
         });
       }
     } else if (collName === 'categories' && Array.isArray(items)) {
@@ -608,8 +631,11 @@ registerCloudUpdateHandler({
         duplicateIds.forEach((dupId) => {
           firebaseSync.deleteDoc('categories', dupId).catch(() => {});
         });
-        categories.forEach((cat) => {
-          firebaseSync.pushDoc('categories', cat.id, cat).catch(() => {});
+        categories.forEach((cat, idx) => {
+          const original = items[idx];
+          if (!original || JSON.stringify(original) !== JSON.stringify(cat)) {
+            firebaseSync.pushDoc('categories', cat.id, cat).catch(() => {});
+          }
         });
       }
     } else if (collName === 'menuItems' && Array.isArray(items)) {
@@ -619,12 +645,88 @@ registerCloudUpdateHandler({
         duplicateIds.forEach((dupId) => {
           firebaseSync.deleteDoc('menuItems', dupId).catch(() => {});
         });
-        menuItems.forEach((item) => {
-          firebaseSync.pushDoc('menuItems', item.id, item).catch(() => {});
+        menuItems.forEach((item, idx) => {
+          const original = items[idx];
+          if (!original || JSON.stringify(original) !== JSON.stringify(item)) {
+            firebaseSync.pushDoc('menuItems', item.id, item).catch(() => {});
+          }
         });
       }
     }
     memoryStore.set(collName, finalItems);
+    notifyDbListeners();
+  },
+  updateDoc: (collName, docId, data) => {
+    if (collName === 'settings') {
+      memoryStore.set('settings', data);
+      notifyDbListeners();
+      return;
+    }
+
+    const items = [...((memoryStore.get(collName) as any[]) || [])];
+    const index = items.findIndex((it: any) => {
+      if (collName === 'tables') {
+        const num = data?.number;
+        return (
+          it.id === docId ||
+          (num !== undefined && it.number === num) ||
+          `table_${it.number}` === docId ||
+          String(it.number) === docId
+        );
+      }
+      return it.id === docId;
+    });
+
+    if (index === -1) {
+      let sanitizedItem = data;
+      if (collName === 'orders') {
+        const { orders } = sanitizeAndRepairOrders([data]);
+        sanitizedItem = orders[0] || data;
+      } else if (collName === 'tables') {
+        sanitizedItem = {
+          ...data,
+          id: data.id || `table_${data.number}`,
+        };
+      }
+      items.push(sanitizedItem);
+    } else {
+      const existing = items[index];
+      const merged = mergeEntities(collName, existing, data, false);
+      items[index] = merged;
+    }
+
+    if (collName === 'tables') {
+      // Keep sorted and unique by table number
+      const uniqueMap = new Map<number, any>();
+      items.forEach((t: any) => {
+        if (t.number) {
+          const ex = uniqueMap.get(t.number);
+          if (!ex || (!ex.currentOrderId && t.currentOrderId)) {
+            uniqueMap.set(t.number, t);
+          }
+        }
+      });
+      const cleanTables = Array.from(uniqueMap.values()).sort((a: any, b: any) => a.number - b.number);
+      memoryStore.set('tables', cleanTables);
+    } else {
+      memoryStore.set(collName, items);
+    }
+
+    notifyDbListeners();
+  },
+  removeDoc: (collName, docId) => {
+    const items = (memoryStore.get(collName) as any[]) || [];
+    const filtered = items.filter((it: any) => {
+      if (collName === 'tables') {
+        return (
+          it.id !== docId &&
+          `table_${it.number}` !== docId &&
+          String(it.number) !== docId
+        );
+      }
+      return it.id !== docId;
+    });
+    memoryStore.set(collName, filtered);
     notifyDbListeners();
   },
   setItem: (collName, data) => {
@@ -1384,8 +1486,11 @@ export const tableDB = {
       memoryStore.set('tables', tables);
       notifyDbListeners();
       if (isFirebaseActive()) {
-        tables.forEach((t) => {
-          firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+        tables.forEach((t, idx) => {
+          const original = raw[idx];
+          if (!original || JSON.stringify(original) !== JSON.stringify(t)) {
+            firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
+          }
         });
       }
     }
@@ -1410,9 +1515,12 @@ export const tableDB = {
   
   create: (table: Omit<Table, 'id'>): Table => {
     const tables = tableDB.getAll().filter(t => t.number !== table.number);
+    const now = new Date().toISOString();
     const newTable: Table = {
       ...table,
-      id: `table_${table.number}`
+      id: `table_${table.number}`,
+      updatedAt: now,
+      _rev: 1,
     };
     tables.push(newTable);
     setCollection('tables', tables);
@@ -1424,7 +1532,14 @@ export const tableDB = {
     const index = tables.findIndex(t => t.id === id || String(t.number) === id || `table_${t.number}` === id);
     if (index === -1) return null;
     
-    tables[index] = { ...tables[index], ...updates };
+    const existing = tables[index];
+    const nextRev = (typeof existing._rev === 'number' ? existing._rev : 1) + 1;
+    tables[index] = {
+      ...existing,
+      ...updates,
+      _rev: nextRev,
+      updatedAt: new Date().toISOString(),
+    };
     setCollection('tables', tables);
     return tables[index];
   },
@@ -1457,8 +1572,9 @@ export const orderDB = {
       memoryStore.set('orders', orders);
       notifyDbListeners();
       if (isFirebaseActive()) {
-        orders.forEach((ord) => {
-          if (ord.id) {
+        orders.forEach((ord, idx) => {
+          const original = raw[idx];
+          if (ord.id && (!original || JSON.stringify(original) !== JSON.stringify(ord))) {
             firebaseSync.pushDoc('orders', ord.id, ord).catch(() => {});
           }
         });
@@ -1480,8 +1596,9 @@ export const orderDB = {
         memoryStore.set('payments', repairedPayments);
         notifyDbListeners();
         if (isFirebaseActive()) {
-          repairedPayments.forEach((p) => {
-            if (p.id) {
+          repairedPayments.forEach((p, idx) => {
+            const originalP = payments[idx];
+            if (p.id && (!originalP || JSON.stringify(originalP) !== JSON.stringify(p))) {
               firebaseSync.pushDoc('payments', p.id, p).catch(() => {});
             }
           });
@@ -1558,6 +1675,7 @@ export const orderDB = {
       menuItemId: menuItemRemapHistory.get(it.menuItemId) || it.menuItemId,
     }));
 
+    const now = new Date().toISOString();
     const newOrder: Order = {
       paymentStatus: 'pending',
       isPaid: false,
@@ -1566,7 +1684,9 @@ export const orderDB = {
       tableId: targetTableId,
       id: uuidv4(),
       orderNumber: (order as any).orderNumber || orderDB.generateOrderNumber(order.type, order.tableNumber),
-      createdAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now,
+      _rev: 1,
     };
     orders.push(newOrder);
     setCollection('orders', orders);
@@ -1597,7 +1717,14 @@ export const orderDB = {
     const index = orders.findIndex(o => o.id === id);
     if (index === -1) return null;
     
-    orders[index] = { ...orders[index], ...updates };
+    const existing = orders[index];
+    const nextRev = (typeof existing._rev === 'number' ? existing._rev : 1) + 1;
+    orders[index] = {
+      ...existing,
+      ...updates,
+      _rev: nextRev,
+      updatedAt: new Date().toISOString(),
+    };
     setCollection('orders', orders);
 
     // Free up table automatically if order is completed or cancelled
