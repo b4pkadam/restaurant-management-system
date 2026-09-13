@@ -35,16 +35,18 @@ service cloud.firestore {
     }
 
     // 4. Orders & Kitchen Tickets
-    // Customers can create new orders via digital QR menu; staff can update/manage
+    // Authenticated staff have full access; unauthenticated customers can only create orders
+    // and read active dining orders (completed/cancelled history and global dumps are blocked)
     match /orders/{orderId} {
-      allow read, create: if true;
+      allow create: if true;
       allow update, delete: if isAuthenticated();
+      allow get: if isAuthenticated() || (resource.data.status in ['active', 'preparing', 'ready', 'served']);
+      allow list: if isAuthenticated() || (resource.data.status in ['active', 'preparing', 'ready', 'served']);
     }
 
-    // 5. Payments & Invoices
+    // 5. Payments & Invoices (Staff & Admin Only - Financial Protection)
     match /payments/{paymentId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if isAuthenticated();
     }
 
     // 6. Inventory, Suppliers & Purchase Orders (Staff & Admin Only)
