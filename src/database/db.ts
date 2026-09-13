@@ -1762,16 +1762,10 @@ export const orderDB = {
     let targetTableId = order.tableId;
 
     if (!targetTableId && order.tableNumber) {
-      let existingTable = tableDB.getByNumber(order.tableNumber);
-      if (!existingTable) {
-        existingTable = tableDB.create({
-          number: order.tableNumber,
-          capacity: 4,
-          status: 'occupied',
-          qrCode: `?table=${order.tableNumber}`,
-        });
+      const existingTable = tableDB.getByNumber(order.tableNumber);
+      if (existingTable) {
+        targetTableId = existingTable.id;
       }
-      targetTableId = existingTable.id;
     }
 
     const isStaffOrder = Boolean(order.waiterId || (order as any).cashierId || order.type === 'pos');

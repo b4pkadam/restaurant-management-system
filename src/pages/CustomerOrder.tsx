@@ -69,18 +69,9 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
 
   const settings = settingsDB.get();
   
-  // Ensure table exists in database
+  // Look up table in database (do NOT auto-create phantom tables on QR scan)
   const table = useMemo(() => {
-    let t = tableDB.getAll().find((tbl) => tbl.number === tableNumber);
-    if (!t) {
-      t = tableDB.create({
-        number: tableNumber,
-        capacity: 4,
-        status: 'occupied',
-        qrCode: `?table=${tableNumber}`,
-      });
-    }
-    return t;
+    return tableDB.getAll().find((tbl) => tbl.number === tableNumber) || null;
   }, [tableNumber, dbTick]);
 
   const categories = useMemo(
@@ -433,6 +424,35 @@ export function CustomerOrderPage({ tableNumber, onExit }: CustomerOrderPageProp
         );
     }
   };
+
+  if (!table) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 text-center border border-gray-200 dark:border-gray-700">
+          <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
+            <UtensilsCrossed className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            Invalid Table
+          </h1>
+          <p className="text-base text-gray-600 dark:text-gray-300 mb-6 font-medium">
+            Invalid Table. Please ask your server for assistance.
+          </p>
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 mb-6 text-sm text-gray-500 dark:text-gray-400">
+            Table #{tableNumber} was not found in our restaurant floor plan.
+          </div>
+          {onExit && (
+            <button
+              onClick={onExit}
+              className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-xl transition duration-200 shadow"
+            >
+              Back to Home
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 pb-24">

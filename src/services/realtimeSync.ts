@@ -117,15 +117,8 @@ class RealtimeSyncService {
           setCollection('orders', orders);
 
           if (order.tableNumber) {
-            let t = tableDB.getByNumber(order.tableNumber);
-            if (!t) {
-              t = tableDB.create({
-                number: order.tableNumber,
-                capacity: 4,
-                status: 'occupied',
-                qrCode: `?table=${order.tableNumber}`,
-              });
-            } else {
+            const t = tableDB.getByNumber(order.tableNumber);
+            if (t) {
               tableDB.update(t.id, { status: 'occupied', currentOrderId: order.id });
             }
           }
