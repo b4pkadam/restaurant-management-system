@@ -26,6 +26,7 @@ import {
 } from '../services/firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 import { validateUsername, validatePassword, USERNAME_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '../utils/security';
+import { hydrateUserFromCloud } from '../utils/cloudCredentials';
 
 export const LoginPage: React.FC = () => {
   useDbUpdate();
@@ -55,7 +56,12 @@ export const LoginPage: React.FC = () => {
           // 1. Sync accounts from Firestore users collection
           const usersSnap = await getDocs(collection(db, 'users'));
           if (!usersSnap.empty) {
-            const cloudUsers = usersSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
+            const existingUsers = userDB.getAll();
+            const existingMap = new Map(existingUsers.map((u) => [u.id, u]));
+            const cloudUsers = usersSnap.docs
+              .map((d) => ({ ...d.data(), id: d.id }))
+              .filter((u: any) => !u.isDeleted)
+              .map((d: any) => hydrateUserFromCloud(d, existingMap.get(d.id)));
             setInMemoryCollection('users', cloudUsers);
             window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
           }

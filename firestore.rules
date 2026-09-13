@@ -67,9 +67,34 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
-    // 8. User Accounts (Admin & Staff)
+    // 8. User Accounts (Admin & Staff) - Observation #1 Security Fix
+    // Protect user records against password hash exfiltration, account deletion, and privilege escalation
     match /users/{userId} {
-      allow read, write: if true;
+      // 1. Safe profile reads (documents do NOT contain 'password' field)
+      allow read: if true;
+
+      // 2. Direct document deletion is restricted to authenticated users
+      allow delete: if isAuthenticated();
+
+      // 3. Document creation:
+      // - Plaintext/bcrypt 'password' field is strictly prohibited from Cloud Firestore
+      // - Must specify valid username, role, and isActive boolean
+      allow create: if !('password' in request.resource.data) &&
+                       request.resource.data.role in ['admin', 'manager', 'waiter', 'chef', 'cashier'] &&
+                       request.resource.data.username is string &&
+                       request.resource.data.isActive is bool;
+
+      // 4. Document update:
+      // - Plaintext/bcrypt 'password' field is strictly prohibited from Cloud Firestore
+      // - Must specify valid role
+      // - Prevent unauthenticated privilege escalation to admin role
+      // - Admin accounts cannot be deactivated or deleted by unauthenticated requests
+      allow update: if !('password' in request.resource.data) &&
+                       request.resource.data.role in ['admin', 'manager', 'waiter', 'chef', 'cashier'] &&
+                       (isAuthenticated() || (
+                         (resource.data.role == request.resource.data.role || request.resource.data.role != 'admin') &&
+                         (resource.data.role != 'admin' || (request.resource.data.isActive == true && (!('isDeleted' in request.resource.data) || request.resource.data.isDeleted == false)))
+                       ));
     }
 
     // 9. Notifications

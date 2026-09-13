@@ -5,7 +5,8 @@ export type UserRole = 'admin' | 'manager' | 'waiter' | 'chef' | 'cashier';
 export interface User {
   id: string;
   username: string;
-  password: string; // hashed
+  password: string; // hashed in memory, scrubbed before cloud push
+  encCredential?: string; // authenticated encrypted credential for cloud sync
   role: UserRole;
   employeeId?: string;
   isActive: boolean;

@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { getFirebaseDb, isFirebaseActive, setFirebaseConnectionStatus } from './firebase';
 import { hasStoredFirebaseConfig } from './firebaseConfig';
+import { scrubUserForCloud, hydrateUserFromCloud } from '../utils/cloudCredentials';
 
 export const SYNC_COLLECTIONS = [
   'users',
@@ -257,6 +258,13 @@ export function mergeEntities(
     return mergeTables(base, incoming);
   }
 
+  if (collName === 'users') {
+    if (isOutgoingWrite) {
+      return scrubUserForCloud({ ...base, ...incoming });
+    }
+    return hydrateUserFromCloud({ ...base, ...incoming }, base);
+  }
+
   // Generic entity field-level merge
   const baseRev = typeof base._rev === 'number' ? base._rev : 0;
   const incRev = typeof incoming._rev === 'number' ? incoming._rev : 0;
@@ -349,6 +357,17 @@ export const firebaseSync = {
                     cloudUpdateHandler.setCollection('tables', cleanTables);
                   }
                   window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'tables' } }));
+                } else if (collName === 'users') {
+                  const existingUsers = cloudUpdateHandler?.getCollection('users') || [];
+                  const existingMap = new Map(existingUsers.map((u: any) => [u.id, u]));
+                  const items = snapshot.docs
+                    .map((d) => ({ ...d.data(), id: d.id }))
+                    .filter((u: any) => !u.isDeleted)
+                    .map((d: any) => hydrateUserFromCloud(d, existingMap.get(d.id)));
+                  if (cloudUpdateHandler) {
+                    cloudUpdateHandler.setCollection('users', items);
+                  }
+                  window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
                 } else {
                   const items = snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
                   if (cloudUpdateHandler) {
@@ -363,20 +382,27 @@ export const firebaseSync = {
                   docChanges.forEach((change) => {
                     const docId = change.doc.id;
                     const data = change.doc.data();
-                    if (change.type === 'removed') {
+                    if (change.type === 'removed' || (collName === 'users' && data?.isDeleted)) {
                       if (cloudUpdateHandler?.removeDoc) {
                         cloudUpdateHandler.removeDoc(collName, docId);
                       }
                     } else {
                       // 'added' or 'modified'
+                      const existingUser = collName === 'users'
+                        ? cloudUpdateHandler?.getCollection('users')?.find((u: any) => u.id === docId)
+                        : undefined;
+                      const hydratedData = collName === 'users'
+                        ? hydrateUserFromCloud({ ...data, id: docId }, existingUser)
+                        : { ...data, id: docId };
+
                       if (cloudUpdateHandler?.updateDoc) {
-                        cloudUpdateHandler.updateDoc(collName, docId, { ...data, id: docId });
+                        cloudUpdateHandler.updateDoc(collName, docId, hydratedData);
                       } else {
                         // Fallback if updateDoc not present
                         const existing = cloudUpdateHandler.getCollection(collName);
                         const idx = existing.findIndex((it: any) => it.id === docId);
-                        if (idx >= 0) existing[idx] = { ...data, id: docId };
-                        else existing.push({ ...data, id: docId });
+                        if (idx >= 0) existing[idx] = hydratedData;
+                        else existing.push(hydratedData);
                         cloudUpdateHandler.setCollection(collName, existing);
                       }
                     }
@@ -442,6 +468,7 @@ export const firebaseSync = {
 
     try {
       const cleanDocId = collName === 'tables' && data?.number ? `table_${data.number}` : docId;
+      const cleanData = collName === 'users' ? scrubUserForCloud(data) : data;
       const docRef = doc(db, collName, cleanDocId);
       const now = new Date().toISOString();
 
@@ -452,10 +479,10 @@ export const firebaseSync = {
           if (!snapshot.exists()) {
             // New document: initialize revision metadata
             const payload = {
-              ...data,
+              ...cleanData,
               id: cleanDocId,
-              _rev: typeof data._rev === 'number' && data._rev > 0 ? data._rev : 1,
-              updatedAt: data.updatedAt || now,
+              _rev: typeof cleanData._rev === 'number' && cleanData._rev > 0 ? cleanData._rev : 1,
+              updatedAt: cleanData.updatedAt || now,
             };
             transaction.set(docRef, payload);
             return;
@@ -463,10 +490,10 @@ export const firebaseSync = {
 
           // Existing document: perform optimistic concurrency checking & field-level merge
           const cloudData = snapshot.data();
-          const merged = mergeEntities(collName, cloudData, data, true);
+          const merged = mergeEntities(collName, cloudData, cleanData, true);
 
           const cloudRev = typeof cloudData._rev === 'number' ? cloudData._rev : 0;
-          const localRev = typeof data._rev === 'number' ? data._rev : 0;
+          const localRev = typeof cleanData._rev === 'number' ? cleanData._rev : 0;
           const nextRev = Math.max(cloudRev, localRev) + 1;
 
           const updatedPayload = {
@@ -485,14 +512,14 @@ export const firebaseSync = {
           `[Cloud Sync] Transaction for ${collName}/${cleanDocId} failed, using optimistic merge fallback:`,
           txError
         );
-        const nextRev = (typeof data._rev === 'number' ? data._rev : 0) + 1;
+        const nextRev = (typeof cleanData._rev === 'number' ? cleanData._rev : 0) + 1;
         await setDoc(
           docRef,
           {
-            ...data,
+            ...cleanData,
             id: cleanDocId,
             _rev: nextRev,
-            updatedAt: data.updatedAt || now,
+            updatedAt: cleanData.updatedAt || now,
           },
           { merge: true }
         );

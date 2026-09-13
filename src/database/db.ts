@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import initialDbData from './initialDbData.json';
 import { validateUsername, validatePassword } from '../utils/security';
+import { scrubUserForCloud } from '../utils/cloudCredentials';
 const DB_PREFIX = 'restaurant_db_';
 
 function broadcastSync(action: (sync: typeof import('../services/realtimeSync').realtimeSync) => void) {
@@ -1210,7 +1211,7 @@ export const userDB = {
     setCollection('users', users);
     authRateLimiter.resetAttempts(newUser.username);
     if (isFirebaseActive()) {
-      firebaseSync.pushDoc('users', newUser.id, newUser).catch(() => {});
+      firebaseSync.pushDoc('users', newUser.id, scrubUserForCloud(newUser)).catch(() => {});
     }
     return newUser;
   },
@@ -1240,7 +1241,7 @@ export const userDB = {
     setCollection('users', users);
     authRateLimiter.resetAttempts(users[index].username);
     if (isFirebaseActive()) {
-      firebaseSync.pushDoc('users', users[index].id, users[index]).catch(() => {});
+      firebaseSync.pushDoc('users', users[index].id, scrubUserForCloud(users[index])).catch(() => {});
     }
     return users[index];
   },
@@ -1253,6 +1254,7 @@ export const userDB = {
     setCollection('users', filtered);
     if (isFirebaseActive()) {
       if (target) {
+        firebaseSync.pushDoc('users', target.id, scrubUserForCloud({ ...target, isDeleted: true, isActive: false })).catch(() => {});
         firebaseSync.deleteDoc('users', target.id).catch(() => {});
         if (target.username) {
           firebaseSync.deleteDoc('users', target.username).catch(() => {});
