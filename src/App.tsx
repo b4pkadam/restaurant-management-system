@@ -19,6 +19,7 @@ import {
 import { CustomerOrderPage } from './pages/CustomerOrder';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { ToastProvider } from './components/ui/Toast';
 import { initializeSampleData, inventoryDB, notificationDB, settingsDB, clearBrowserDataStorage } from './database/db';
@@ -92,6 +93,7 @@ function AppShell() {
   useDbUpdate();
   const { isAuthenticated, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showProfilePopup, setShowProfilePopup] = useState(false);
@@ -220,26 +222,26 @@ function AppShell() {
 
   const pageTitle = useMemo(() => {
     const titles: Record<Page, string> = {
-      dashboard: 'Restaurant Dashboard',
-      menu: 'Menu Management',
-      orders: 'Order Management',
-      tables: 'Table Management',
-      pos: 'Billing & POS',
-      inventory: 'Inventory Management',
-      employees: 'Employee Management',
-      reports: 'Reports & Analytics',
-      kitchen: 'Kitchen Display',
-      suppliers: 'Supplier Management',
-      settings: 'Application Settings',
-      users: 'User Management',
+      dashboard: t('dashboard', 'Restaurant Dashboard'),
+      menu: t('menu', 'Menu Management'),
+      orders: t('orders', 'Order Management'),
+      tables: t('tables', 'Table Management'),
+      pos: t('pos', 'Billing & POS'),
+      inventory: t('inventory', 'Inventory Management'),
+      employees: t('employees', 'Employee Management'),
+      reports: t('reports', 'Reports & Analytics'),
+      kitchen: t('kitchen', 'Kitchen Display'),
+      suppliers: t('suppliers', 'Supplier Management'),
+      settings: t('settings', 'Settings'),
+      users: t('users', 'User Management'),
     };
-    return titles[currentPage];
-  }, [currentPage]);
+    return titles[currentPage] || currentPage;
+  }, [currentPage, t]);
 
   const bottomNavItems = useMemo(() => {
     const profileItem = {
       id: 'profile' as const,
-      label: user?.username ? (user.username.length > 8 ? `${user.username.slice(0, 7)}…` : user.username) : 'Profile',
+      label: user?.username ? (user.username.length > 8 ? `${user.username.slice(0, 7)}…` : user.username) : t('profile', 'Profile'),
       icon: (
         <div className="w-5 h-5 rounded-full bg-blue-600 dark:bg-blue-500 text-white font-black text-[11px] flex items-center justify-center shadow-xs ring-1 ring-white/50">
           {(user?.username || 'U').charAt(0).toUpperCase()}
@@ -251,7 +253,7 @@ function AppShell() {
     const role = user?.role;
     if (!role) {
       return [
-        { id: 'dashboard' as const, label: 'Dashboard', icon: <LayoutDashboard size={20} />, isProfile: false },
+        { id: 'dashboard' as const, label: t('dashboard', 'Dashboard'), icon: <LayoutDashboard size={20} />, isProfile: false },
         profileItem,
       ];
     }
@@ -260,13 +262,13 @@ function AppShell() {
     const allowedPages = PAGE_ACCESS[role] || ['dashboard'];
     const pageItems = allowedPages.map((pageId) => ({
       id: pageId,
-      label: PAGE_NAV_CONFIG[pageId]?.label || pageId,
+      label: t(pageId, PAGE_NAV_CONFIG[pageId]?.label || pageId),
       icon: PAGE_NAV_CONFIG[pageId]?.icon || <LayoutDashboard size={20} />,
       isProfile: false,
     }));
 
     return [...pageItems, profileItem];
-  }, [user?.role, user?.username]);
+  }, [user?.role, user?.username, t]);
 
   if (!bootstrapped) {
     // Show appropriate loading screen based on mode
@@ -538,13 +540,15 @@ function AppShell() {
 export function App() {
   return (
     <ThemeProvider>
-      <ToastProvider>
-        <NotificationProvider>
-          <AuthProvider>
-            <AppShell />
-          </AuthProvider>
-        </NotificationProvider>
-      </ToastProvider>
+      <LanguageProvider>
+        <ToastProvider>
+          <NotificationProvider>
+            <AuthProvider>
+              <AppShell />
+            </AuthProvider>
+          </NotificationProvider>
+        </ToastProvider>
+      </LanguageProvider>
     </ThemeProvider>
   );
 }

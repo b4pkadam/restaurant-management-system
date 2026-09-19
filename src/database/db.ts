@@ -2344,7 +2344,7 @@ export const settingsDB = {
     
     const stored = getItem<AppSettings>('settings');
     if (!stored) return defaultSettings;
-    return {
+    const res: AppSettings = {
       ...defaultSettings,
       ...stored,
       waiterCallSound: stored.waiterCallSound || 'chime',
@@ -2353,11 +2353,23 @@ export const settingsDB = {
         ? defaultSettings.waiterApkUrl
         : stored.waiterApkUrl,
     };
+    if (stored.restaurantLogo) {
+      res.restaurantLogo = stored.restaurantLogo;
+    }
+    return res;
   },
   
   update: (updates: Partial<AppSettings>): AppSettings => {
     const current = settingsDB.get();
-    const updated = { ...current, ...updates };
+    const updated: AppSettings = {
+      ...current,
+      ...updates,
+      _rev: (typeof (current as any)._rev === 'number' ? (current as any)._rev : 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    if (updates.restaurantLogo === undefined && 'restaurantLogo' in updates) {
+      delete updated.restaurantLogo;
+    }
     setItem('settings', updated);
     broadcastSync((s) => s.broadcastSettingsUpdated(updated));
     return updated;

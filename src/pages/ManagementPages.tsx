@@ -37,6 +37,9 @@ import {
   Cloud,
   Database,
   Check,
+  Sun,
+  Moon,
+  Settings,
 } from 'lucide-react';
 import {
   getStoredFirebaseConfig,
@@ -85,6 +88,7 @@ import { useToast } from '../components/ui/Toast';
 import { QRCodeModal } from '../components/QRCodeModal';
 import { useNotifications } from '../context/NotificationContext';
 import { useTheme } from '../context/ThemeContext';
+import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -3438,11 +3442,21 @@ export function ReportsPage() {
 }
 
 export function SettingsPage() {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { success, error, info } = useToast();
-  const { setTheme } = useTheme();
-  const [form, setForm] = useState<AppSettings>(settingsDB.get());
+  const { theme, setTheme } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
+  const [form, setForm] = useState<AppSettings>(() => settingsDB.get());
   const [isImporting, setIsImporting] = useState(false);
+
+  // Sync form when database updates externally (e.g. from Cloud sync or other tabs)
+  useEffect(() => {
+    const latest = settingsDB.get();
+    setForm((prev) => ({
+      ...latest,
+      restaurantLogo: prev.restaurantLogo !== undefined ? prev.restaurantLogo : latest.restaurantLogo,
+    }));
+  }, [tick]);
 
   // Firebase Configuration State
   const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConfig>(() => {
@@ -3515,39 +3529,21 @@ export function SettingsPage() {
         saveStoredFirebaseConfig(configToSave);
         initFirebase(configToSave);
         firebaseSync.start();
-        success(testResult.message);
+        success('Cloud connection established successfully!');
       } else {
-        error(testResult.message);
+        error(testResult.message || 'Firebase connection failed.');
       }
-    } catch (err: any) {
-      error(err?.message || 'Failed to connect to Firebase.');
+    } catch {
+      error('Failed to connect to Firebase.');
     } finally {
       setIsTestingConnection(false);
     }
   };
 
   const handleTestOnlyConnection = async () => {
-    let current = { ...firebaseConfig };
-    if (rawFirebaseJson.trim()) {
-      const extracted = parseFirebaseConfigSnippet(rawFirebaseJson);
-      current = {
-        apiKey: (extracted.apiKey || current.apiKey || '').trim(),
-        authDomain: (extracted.authDomain || current.authDomain || '').trim(),
-        projectId: (extracted.projectId || current.projectId || '').trim(),
-        appId: (extracted.appId || current.appId || '').trim(),
-        storageBucket: (extracted.storageBucket || current.storageBucket || '').trim(),
-        messagingSenderId: (extracted.messagingSenderId || current.messagingSenderId || '').trim(),
-        databaseURL: (extracted.databaseURL || current.databaseURL || '').trim(),
-      };
-    }
-
-    if (!current.apiKey.trim() || !current.projectId.trim()) {
-      error('Please enter at least your Firebase API Key and Project ID to test.');
-      return;
-    }
-
     setIsTestingConnection(true);
     try {
+      const current = { ...firebaseConfig };
       const configToTest: FirebaseConfig = {
         apiKey: current.apiKey.trim(),
         authDomain: current.authDomain.trim() || `${current.projectId.trim()}.firebaseapp.com`,
@@ -3558,42 +3554,21 @@ export function SettingsPage() {
         databaseURL: current.databaseURL?.trim() || '',
       };
 
-      const testResult = await testFirebaseConnection(configToTest);
-      if (testResult.success) {
-        success(testResult.message);
+      const res = await testFirebaseConnection(configToTest);
+      if (res.success) {
+        success(res.message || 'Firebase project is reachable and healthy!');
       } else {
-        error(testResult.message);
+        error(res.message || 'Firebase connection failed.');
       }
-    } catch (err: any) {
-      error(err?.message || 'Connection test failed.');
+    } catch {
+      error('Error during connection test.');
     } finally {
       setIsTestingConnection(false);
     }
   };
 
-  const handlePasteFirebaseJson = (jsonString: string) => {
-    setRawFirebaseJson(jsonString);
-    if (!jsonString.trim()) return;
-
-    const extracted = parseFirebaseConfigSnippet(jsonString);
-    if (extracted.apiKey || extracted.projectId) {
-      setFirebaseConfig((prev) => ({
-        apiKey: extracted.apiKey || prev.apiKey,
-        authDomain: extracted.authDomain || prev.authDomain,
-        projectId: extracted.projectId || prev.projectId,
-        appId: extracted.appId || prev.appId,
-        storageBucket: extracted.storageBucket || prev.storageBucket,
-        messagingSenderId: extracted.messagingSenderId || prev.messagingSenderId,
-        databaseURL: extracted.databaseURL || prev.databaseURL,
-      }));
-      success('✓ Extracted Firebase keys successfully from pasted snippet!');
-    }
-  };
-
-  const handleDisconnectFirebase = async () => {
-    saveStoredFirebaseConfig(null);
-    await resetFirebaseApp();
-    firebaseSync.stop();
+  const handleDisconnectFirebase = () => {
+    resetFirebaseApp();
     setFirebaseConfig({
       apiKey: '',
       authDomain: '',
@@ -3604,27 +3579,46 @@ export function SettingsPage() {
       databaseURL: '',
     });
     setRawFirebaseJson('');
-    info('Firebase disconnected. Operating in offline LocalStorage mode.');
+    info('Firebase disconnected. System running in offline-first mode.');
   };
 
   const handleUploadAllToCloud = async () => {
+    if (!isFirebaseActive()) {
+      error('Firebase is not active. Connect to cloud before uploading.');
+      return;
+    }
     setIsUploadingToCloud(true);
     try {
-      const res = await firebaseSync.uploadLocalDataToCloud();
+      const res = await firebaseSync.pushAllLocalDataToCloud();
       if (res.success) {
-        success(`☁️ Successfully uploaded ${res.count} items (Menu, Tables, Orders, Settings) to Cloud Firestore!`);
+        success('Local database successfully synchronized to Firebase Cloud Firestore!');
       } else {
-        error(res.error || 'Failed to upload data to cloud.');
+        error(res.message || 'Cloud synchronization encountered errors.');
       }
+    } catch (err: any) {
+      error(`Cloud sync failed: ${err?.message || 'Unknown error'}`);
     } finally {
       setIsUploadingToCloud(false);
+    }
+  };
+
+  const handlePasteFirebaseJson = (val: string) => {
+    setRawFirebaseJson(val);
+    const parsed = parseFirebaseConfigSnippet(val);
+    if (parsed.apiKey || parsed.projectId) {
+      setFirebaseConfig((prev) => ({
+        ...prev,
+        ...parsed,
+      }));
+      success('Parsed Firebase configuration snippet successfully!');
     }
   };
 
   const saveSettings = () => {
     settingsDB.update(form);
     setTheme(form.theme);
-    success('Settings saved successfully.');
+    setLanguage(form.language);
+    success(t('saved', 'Settings saved successfully.'));
   };
 
   const handleLogoUpload = (file: File | null) => {
@@ -3645,7 +3639,7 @@ export function SettingsPage() {
       const result = e.target?.result as string;
       if (!result) return;
 
-      // Compress and resize image using Canvas for optimal localStorage usage
+      // Compress and resize image using Canvas
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -3672,10 +3666,12 @@ export function SettingsPage() {
           ctx.drawImage(img, 0, 0, width, height);
           const compressedDataUrl = canvas.toDataURL('image/png');
           setForm((prev) => ({ ...prev, restaurantLogo: compressedDataUrl }));
-          success('Logo photo loaded! Click "Save Settings" to apply.');
+          settingsDB.update({ restaurantLogo: compressedDataUrl });
+          success('Logo updated successfully!');
         } else {
           setForm((prev) => ({ ...prev, restaurantLogo: result }));
-          success('Logo photo loaded! Click "Save Settings" to apply.');
+          settingsDB.update({ restaurantLogo: result });
+          success('Logo updated successfully!');
         }
       };
       img.src = result;
@@ -3685,7 +3681,8 @@ export function SettingsPage() {
 
   const handleRemoveLogo = () => {
     setForm((prev) => ({ ...prev, restaurantLogo: undefined }));
-    info('Logo removed. Click "Save Settings" to apply.');
+    settingsDB.update({ restaurantLogo: undefined });
+    info('Logo removed.');
   };
 
   const importBackup = async (file: File | null) => {
@@ -3709,401 +3706,439 @@ export function SettingsPage() {
     }
   };
 
-
-
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="Application Settings"
-        description="Configure restaurant details, logo, tax, theme, language, backup and restore options."
-        action={<Button onClick={saveSettings} leftIcon={<Save size={16} />}>Save Settings</Button>}
-      />
-
-      {/* Restaurant Logo & Branding Section */}
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between">
+      {/* Top Action Bar (No duplicate title) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400">
+            <Settings size={20} />
+          </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Restaurant Logo & Photo</h3>
+            <h2 className="text-base font-bold text-gray-900 dark:text-white leading-tight">
+              {form.restaurantName || 'Restaurant Settings'}
+            </h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Upload your official restaurant logo photo to show across the Sidebar, Login page, QR Menu, and Printed Receipts.
+              {cloudState.status === 'connected' ? '🟢 Cloud Sync Active' : '🟡 Offline Mode'}
             </p>
           </div>
-          {form.restaurantLogo ? (
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
-              ✓ Logo Active
-            </span>
-          ) : (
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-              ⏳ Default Icon
-            </span>
-          )}
         </div>
+        <Button onClick={saveSettings} leftIcon={<Save size={16} />} variant="primary" className="font-bold shadow-xs">
+          {t('saveChanges', 'Save Changes')}
+        </Button>
+      </div>
 
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-          {/* Logo Placeholder / Preview Box */}
-          <div className="flex flex-col items-center justify-center shrink-0">
-            {form.restaurantLogo ? (
-              <div className="relative group">
-                <img
-                  src={form.restaurantLogo}
-                  alt="Restaurant Logo"
-                  className="h-28 w-28 rounded-2xl object-cover border-2 border-blue-500 shadow-md bg-white p-1"
-                />
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="absolute -top-2 -right-2 rounded-full bg-rose-600 p-1 text-white shadow-lg hover:bg-rose-700 transition-transform active:scale-90 cursor-pointer"
-                  title="Remove Logo"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex h-28 w-28 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 p-3 text-center dark:border-gray-700 dark:bg-gray-800/60 shadow-xs">
-                <ImageIcon className="h-8 w-8 text-gray-400 mb-1" />
-                <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 leading-tight">
-                  Logo Placeholder
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Upload Controls & Instructions */}
-          <div className="flex-1 space-y-3">
-            <div className="flex flex-wrap gap-2.5">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 active:scale-95 transition-all shadow-xs">
-                <Upload size={16} />
-                {form.restaurantLogo ? 'Change Photo' : 'Upload Photo'}
-                <input
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp, image/svg+xml"
-                  className="hidden"
-                  onChange={(e) => handleLogoUpload(e.target.files?.[0] || null)}
-                />
-              </label>
-              {form.restaurantLogo && (
-                <Button variant="danger" onClick={handleRemoveLogo} leftIcon={<Trash2 size={16} />}>
-                  Remove Logo
-                </Button>
+      {/* Restaurant Profile Card with Compact Logo */}
+      <Card className="space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              {form.restaurantLogo ? (
+                <div className="relative group">
+                  <img
+                    src={form.restaurantLogo}
+                    alt="Logo"
+                    className="h-16 w-16 rounded-2xl object-cover border border-gray-200 dark:border-gray-700 shadow-sm bg-white p-0.5"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="absolute -top-1.5 -right-1.5 rounded-full bg-rose-600 p-1 text-white shadow hover:bg-rose-700 transition-transform active:scale-90 cursor-pointer"
+                    title={t('removeLogo', 'Remove')}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-gray-400">
+                  <ImageIcon size={24} />
+                </div>
               )}
             </div>
-            <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
-              <p>• Supported formats: PNG, JPG, WebP, SVG (Max 5MB).</p>
-              <p>• Recommended: Square ratio (e.g. 512×512px) with clean transparent or solid background.</p>
-              <p>• Auto-compressed and optimized for lightning fast local storage and real-time synchronization.</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                  {t('restaurantProfile', 'Restaurant Profile')}
+                </h3>
+                {form.restaurantLogo ? (
+                  <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5">
+                    {t('logoActive', 'Logo Active')}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px] font-medium px-2 py-0.5">
+                    {t('defaultIcon', 'Default Icon')}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700 active:scale-95 transition-all shadow-xs">
+                  <Upload size={13} />
+                  {form.restaurantLogo ? t('changePhoto', 'Change Photo') : t('uploadPhoto', 'Upload Photo')}
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg, image/webp, image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => handleLogoUpload(e.target.files?.[0] || null)}
+                  />
+                </label>
+                {form.restaurantLogo && (
+                  <Button variant="danger" size="sm" onClick={handleRemoveLogo} className="py-1 text-xs" leftIcon={<Trash2 size={13} />}>
+                    {t('removeLogo', 'Remove')}
+                  </Button>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+
+        {/* Form Inputs */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Input label={t('restaurantName', 'Restaurant Name')} value={form.restaurantName} onChange={(e) => setForm((prev) => ({ ...prev, restaurantName: e.target.value }))} />
+          <Input label={t('phone', 'Phone')} value={form.restaurantPhone} onChange={(e) => setForm((prev) => ({ ...prev, restaurantPhone: e.target.value }))} />
+          <div className="md:col-span-2">
+            <Textarea label={t('address', 'Address')} value={form.restaurantAddress} onChange={(e) => setForm((prev) => ({ ...prev, restaurantAddress: e.target.value }))} rows={2} />
+          </div>
+          <Input label={t('gstNumber', 'GST Number')} value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
+          <Input label={t('taxPercentage', 'Tax Percentage (%)')} type="number" value={String(form.taxPercentage)} onChange={(e) => setForm((prev) => ({ ...prev, taxPercentage: Number(e.target.value) }))} />
+          <Select
+            label={t('currency', 'Region & Currency')}
+            value={form.currency}
+            onChange={(e) => {
+              const code = e.target.value;
+              const preset = SUPPORTED_CURRENCIES.find((c) => c.code === code);
+              if (preset) {
+                setForm((prev) => ({
+                  ...prev,
+                  currency: preset.code,
+                  currencySymbol: preset.symbol,
+                }));
+              } else {
+                setForm((prev) => ({ ...prev, currency: code }));
+              }
+            }}
+            options={SUPPORTED_CURRENCIES.map((c) => ({
+              value: c.code,
+              label: `${c.label} (${c.region})`,
+            }))}
+          />
+          <Input
+            label={t('currencySymbol', 'Currency Symbol')}
+            value={form.currencySymbol}
+            onChange={(e) => setForm((prev) => ({ ...prev, currencySymbol: e.target.value }))}
+          />
+          <div className="md:col-span-2">
+            <Input
+              label="Staff Mobile Lite APK Download URL"
+              placeholder="./restaurant-lite.apk or https://..."
+              value={form.waiterApkUrl || ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, waiterApkUrl: e.target.value }))}
+            />
           </div>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Restaurant Profile</h3>
-          <Input label="Restaurant Name" value={form.restaurantName} onChange={(e) => setForm((prev) => ({ ...prev, restaurantName: e.target.value }))} />
-          <Textarea label="Address" value={form.restaurantAddress} onChange={(e) => setForm((prev) => ({ ...prev, restaurantAddress: e.target.value }))} rows={3} />
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Input label="Phone" value={form.restaurantPhone} onChange={(e) => setForm((prev) => ({ ...prev, restaurantPhone: e.target.value }))} />
-            <Input label="GST Number" value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
-            <Input label="Tax Percentage" type="number" value={String(form.taxPercentage)} onChange={(e) => setForm((prev) => ({ ...prev, taxPercentage: Number(e.target.value) }))} />
-            <Input label="Backup Interval (hours)" type="number" value={String(form.backupInterval)} onChange={(e) => setForm((prev) => ({ ...prev, backupInterval: Number(e.target.value) }))} />
-            <Select
-              label="Region & Currency"
-              value={form.currency}
-              onChange={(e) => {
-                const code = e.target.value;
-                const preset = SUPPORTED_CURRENCIES.find((c) => c.code === code);
-                if (preset) {
-                  setForm((prev) => ({
-                    ...prev,
-                    currency: preset.code,
-                    currencySymbol: preset.symbol,
-                  }));
-                } else {
-                  setForm((prev) => ({ ...prev, currency: code }));
-                }
-              }}
-              options={SUPPORTED_CURRENCIES.map((c) => ({
-                value: c.code,
-                label: `${c.label} (${c.region})`,
-              }))}
+      {/* Appearance & Language Card */}
+      <Card className="space-y-4">
+        <h3 className="text-base font-bold text-gray-900 dark:text-white">
+          {t('appearance', 'Appearance & Language')}
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Theme Switcher */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+              {t('theme', 'Theme')}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, theme: 'light' }));
+                  setTheme('light');
+                }}
+                className={cn(
+                  "flex items-center justify-center gap-2 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
+                  theme === 'light'
+                    ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                )}
+              >
+                <Sun size={16} /> {t('light', 'Light')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, theme: 'dark' }));
+                  setTheme('dark');
+                }}
+                className={cn(
+                  "flex items-center justify-center gap-2 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
+                  theme === 'dark'
+                    ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                )}
+              >
+                <Moon size={16} /> {t('dark', 'Dark')}
+              </button>
+            </div>
+          </div>
+
+          {/* Language Switcher */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+              {t('language', 'Language')}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {SUPPORTED_LANGUAGES.map((l) => {
+                const isSelected = language === l.code;
+                return (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => {
+                      setForm((prev) => ({ ...prev, language: l.code }));
+                      setLanguage(l.code);
+                    }}
+                    className={cn(
+                      "flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
+                      isSelected
+                        ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                    )}
+                  >
+                    <span>{l.flag}</span>
+                    <span>{l.nativeName}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.autoBackup}
+              onChange={(e) => setForm((prev) => ({ ...prev, autoBackup: e.target.checked }))}
+              className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
             />
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+              {t('autoBackup', 'Enable Automatic Backups')}
+            </span>
+          </label>
+          <div className="w-44">
             <Input
-              label="Currency Symbol"
-              value={form.currencySymbol}
-              onChange={(e) => setForm((prev) => ({ ...prev, currencySymbol: e.target.value }))}
+              label={t('backupInterval', 'Interval (hrs)')}
+              type="number"
+              value={String(form.backupInterval)}
+              onChange={(e) => setForm((prev) => ({ ...prev, backupInterval: Number(e.target.value) }))}
             />
-            <div className="md:col-span-2">
-              <Input
-                label="Restaurant Mobile Lite APK Download URL"
-                placeholder="./restaurant-lite.apk or https://..."
-                value={form.waiterApkUrl || ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, waiterApkUrl: e.target.value }))}
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Direct URL to the Lite APK file or install package for staff mobile devices. Defaults to bundled Lite APK.
+          </div>
+        </div>
+      </Card>
+
+      {/* Customer Calling Alerts & Ringtone */}
+      <Card className="space-y-4 border border-amber-200/80 dark:border-amber-900/40 bg-gradient-to-br from-amber-50/40 to-orange-50/20 dark:from-amber-950/20 dark:to-orange-950/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <BellRing size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                {t('callingAlerts', 'Customer Calling Alert')}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Audio chime & vibration played on tablets and mobile phones
               </p>
             </div>
           </div>
-        </Card>
-
-        <Card className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Appearance & Localization</h3>
-          <Select label="Theme" value={form.theme} onChange={(e) => setForm((prev) => ({ ...prev, theme: e.target.value as AppSettings['theme'] }))} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
-          <Select label="Language" value={form.language} onChange={(e) => setForm((prev) => ({ ...prev, language: e.target.value as AppSettings['language'] }))} options={[{ value: 'en', label: 'English' }, { value: 'es', label: 'Spanish' }, { value: 'fr', label: 'French' }, { value: 'hi', label: 'Hindi' }]} />
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-            <input type="checkbox" checked={form.autoBackup} onChange={(e) => setForm((prev) => ({ ...prev, autoBackup: e.target.checked }))} />
-            <span className="text-sm text-gray-700 dark:text-gray-300">Enable automatic backups</span>
-          </label>
-          <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              Multi-language support and theme selection are stored locally, so the application remains fully offline-first.
-            </p>
-          </div>
-        </Card>
-      </div>
-
-      {/* Customer Calling Alerts & Ringtone */}
-      <Card className="space-y-4 border border-amber-200 dark:border-amber-900/40 bg-amber-50/20 dark:bg-amber-950/10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <BellRing size={22} />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Customer Calling Alerts & Ringtone</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Select the audio chime ringtone and vibration alert played when a customer calls for waiter service.
-            </p>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => soundService.testSound(form.waiterCallSound || 'chime')}
+            className="text-xs font-semibold"
+            leftIcon={<Volume2 size={14} />}
+          >
+            {t('preview', 'Preview Alert')}
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-          <div>
-            <Select
-              label="Waiter Call Ringtone / Chime"
-              value={form.waiterCallSound || 'chime'}
-              onChange={(e) => setForm((prev) => ({ ...prev, waiterCallSound: e.target.value as any }))}
-              options={[
-                { value: 'chime', label: '🔔 Melodic Chime (3-Tone Harmonics)' },
-                { value: 'bell', label: '🛎️ Service Bell (Restaurant Ding-Dong)' },
-                { value: 'urgent', label: '🚨 Urgent Alert (High-Pitch Chimes)' },
-                { value: 'gentle', label: '🎶 Gentle Marimba (Soft Warm Triad)' },
-                { value: 'pager', label: '📟 Digital Pager (Triple POS Beep)' },
-              ]}
-            />
-          </div>
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => soundService.testSound(form.waiterCallSound || 'chime')}
-              className="font-bold flex items-center justify-center gap-2 w-full sm:w-auto h-[42px]"
-            >
-              <Volume2 size={16} /> Preview Ringtone & Vibration
-            </Button>
-          </div>
+        {/* Sound Selection Chips */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+          {[
+            { id: 'chime' as const, label: 'Chime', icon: '🔔', sub: 'Melodic 3-Tone' },
+            { id: 'bell' as const, label: 'Service Bell', icon: '🛎️', sub: 'Ding-Dong' },
+            { id: 'urgent' as const, label: 'Urgent', icon: '🚨', sub: 'High Chimes' },
+            { id: 'gentle' as const, label: 'Marimba', icon: '🎶', sub: 'Warm Triad' },
+            { id: 'pager' as const, label: 'Pager', icon: '📟', sub: 'Triple Beep' },
+          ].map((snd) => {
+            const isSelected = (form.waiterCallSound || 'chime') === snd.id;
+            return (
+              <button
+                key={snd.id}
+                type="button"
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, waiterCallSound: snd.id }));
+                  settingsDB.update({ waiterCallSound: snd.id });
+                  soundService.testSound(snd.id);
+                }}
+                className={cn(
+                  "flex flex-col items-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                  isSelected
+                    ? "border-amber-500 bg-amber-100/70 text-amber-950 font-bold dark:border-amber-500 dark:bg-amber-950/60 dark:text-amber-200 shadow-xs ring-1 ring-amber-400/50"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-amber-300 dark:border-gray-800 dark:bg-gray-800/80 dark:text-gray-300"
+                )}
+              >
+                <span className="text-xl mb-1">{snd.icon}</span>
+                <span className="text-xs font-semibold leading-tight">{snd.label}</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{snd.sub}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700 bg-white dark:bg-gray-800">
+        {/* Vibration Toggle */}
+        <label className="flex items-center justify-between gap-3 p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800">
+          <div className="flex items-center gap-2.5">
+            <Smartphone size={18} className="text-amber-600 dark:text-amber-400" />
+            <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200">
+              {t('vibration', 'Physical Vibration on Tablets & Mobile Phones')}
+            </span>
+          </div>
           <input
             type="checkbox"
             checked={form.waiterCallVibration !== false}
-            onChange={(e) => setForm((prev) => ({ ...prev, waiterCallVibration: e.target.checked }))}
+            onChange={(e) => {
+              const val = e.target.checked;
+              setForm((prev) => ({ ...prev, waiterCallVibration: val }));
+              settingsDB.update({ waiterCallVibration: val });
+            }}
+            className="h-4 w-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
           />
-          <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
-            Enable physical haptic vibration alert on mobile phones & tablets
-          </span>
         </label>
       </Card>
 
-      {/* Google Firebase Cloud Synchronization Card (Primary 24/7 Cloud Backbone) */}
-      <Card className="space-y-5 border-2 border-blue-500/40">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* Cloud Synchronization Card */}
+      <Card className="space-y-4 border border-blue-200 dark:border-blue-900/40 bg-blue-50/20 dark:bg-blue-950/10">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <Cloud size={24} />
+              <Cloud size={22} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Google Firebase Cloud Synchronization (Primary 24/7 Backbone)
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                {t('cloudSync', 'Cloud Synchronization')}
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                <strong>Zero PC or terminal commands required!</strong> Seamlessly synchronizes orders, table status, waiter calls, and payments across all kitchen tablets, waiter phones, POS, and customer QR menus.
+                Automated multi-device real-time sync across mobile phones, tablets, and POS
               </p>
             </div>
           </div>
-          <div>
+          <div className="flex items-center gap-2">
             {cloudState.status === 'connected' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Cloud Connected (24/7 Live Sync Active)
+                {t('connected', 'Cloud Connected')}
               </span>
             )}
             {cloudState.status === 'connecting' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3.5 py-1 text-xs font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
                 <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
-                Verifying Cloud Connection...
+                {t('connecting', 'Connecting...')}
               </span>
             )}
             {cloudState.status === 'error' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
                 <span className="h-2 w-2 rounded-full bg-rose-500"></span>
-                Cloud Error (Sync Inactive)
+                Cloud Error
               </span>
             )}
             {cloudState.status === 'disconnected' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
                 <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-                Offline Local Mode (Browser Storage)
+                {t('offline', 'Offline Mode')}
               </span>
             )}
           </div>
         </div>
 
-        {/* Cloud Error Alert Box */}
-        {cloudState.status === 'error' && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
-              <div>
-                <p className="font-bold">Cloud Connection / Project Inaccessible</p>
-                <p className="text-rose-700 dark:text-rose-300 mt-0.5">
-                  {cloudState.errorMessage || 'Unable to connect to Google Firebase Cloud Firestore. The project may have been deleted, disabled, or Firestore rules are preventing sync.'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs border-rose-300 hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-900/50"
-                onClick={() => checkFirebaseHealth()}
-                isLoading={cloudState.status === 'connecting'}
-                leftIcon={<RefreshCw size={13} />}
-              >
-                Re-check Health
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                className="text-xs"
-                onClick={handleDisconnectFirebase}
-                leftIcon={<Trash2 size={13} />}
-              >
-                Disconnect / Switch Offline
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Paste JSON Box */}
-        <div className="space-y-2 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-          <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-            Paste Firebase Web SDK Config (JSON / Code Snippet)
-          </label>
-          <textarea
-            rows={2}
-            value={rawFirebaseJson}
-            onChange={(e) => handlePasteFirebaseJson(e.target.value)}
-            placeholder={`Paste your firebaseConfig object here, e.g.:\n{\n  "apiKey": "AIzaSy...",\n  "projectId": "your-restaurant-app",\n  "appId": "1:..."\n}`}
-            className="w-full rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-          />
-        </div>
-
-        {/* Individual Credentials Inputs */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Input
-            label="API Key (apiKey)"
-            value={firebaseConfig.apiKey}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
-            placeholder="AIzaSy..."
-          />
-          <Input
-            label="Project ID (projectId)"
-            value={firebaseConfig.projectId}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, projectId: e.target.value }))}
-            placeholder="your-restaurant-app-id"
-          />
-          <Input
-            label="Auth Domain (authDomain)"
-            value={firebaseConfig.authDomain}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, authDomain: e.target.value }))}
-            placeholder="your-app.firebaseapp.com"
-          />
-          <Input
-            label="App ID (appId)"
-            value={firebaseConfig.appId}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, appId: e.target.value }))}
-            placeholder="1:123456789:web:abcdef"
-          />
-          <Input
-            label="Storage Bucket (storageBucket)"
-            value={firebaseConfig.storageBucket || ''}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, storageBucket: e.target.value }))}
-            placeholder="your-app.appspot.com"
-          />
-          <Input
-            label="Database URL (Optional for RTDB)"
-            value={firebaseConfig.databaseURL || ''}
-            onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, databaseURL: e.target.value }))}
-            placeholder="https://your-app-default-rtdb.firebaseio.com"
-          />
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex flex-wrap gap-2.5">
-            <Button
-              variant="primary"
-              className="bg-blue-600 hover:bg-blue-700 font-bold"
-              onClick={handleSaveFirebaseConfig}
-              isLoading={isTestingConnection}
-              leftIcon={<Save size={16} />}
-            >
-              Save & Connect Cloud
-            </Button>
+        {/* Quick Sync Actions */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => checkFirebaseHealth()}
+            isLoading={cloudState.status === 'connecting'}
+            leftIcon={<RefreshCw size={14} />}
+          >
+            {t('syncNow', 'Sync Now')}
+          </Button>
+          {cloudState.status === 'connected' && (
             <Button
               variant="outline"
-              onClick={handleTestOnlyConnection}
-              isLoading={isTestingConnection}
-              leftIcon={<RefreshCw size={16} />}
+              size="sm"
+              className="text-emerald-700 border-emerald-300 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+              onClick={handleUploadAllToCloud}
+              isLoading={isUploadingToCloud}
+              leftIcon={<Upload size={14} />}
             >
-              Test Connection
-            </Button>
-            {cloudState.status === 'connected' && (
-              <Button
-                variant="outline"
-                className="font-semibold text-emerald-700 border-emerald-300 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                onClick={handleUploadAllToCloud}
-                isLoading={isUploadingToCloud}
-                leftIcon={<Upload size={16} />}
-              >
-                Upload Local Menu & Orders to Cloud
-              </Button>
-            )}
-          </div>
-          {(hasStoredFirebaseConfig() || Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)) && (
-            <Button variant="danger" size="sm" onClick={handleDisconnectFirebase} leftIcon={<Trash2 size={14} />}>
-              Disconnect Cloud
+              {t('uploadToCloud', 'Upload Local Data to Cloud')}
             </Button>
           )}
         </div>
+
+        {/* Advanced Developer Accordion (Tucked away cleanly) */}
+        <details className="mt-2 text-xs group">
+          <summary className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer font-medium select-none py-1">
+            ⚙️ Advanced: Custom Firebase Credentials (Optional)
+          </summary>
+          <div className="mt-3 space-y-3 p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+            <textarea
+              rows={2}
+              value={rawFirebaseJson}
+              onChange={(e) => handlePasteFirebaseJson(e.target.value)}
+              placeholder={`Paste your firebaseConfig object here:\n{\n  "apiKey": "AIzaSy...",\n  "projectId": "myapp-970f1"\n}`}
+              className="w-full rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label="API Key" value={firebaseConfig.apiKey} onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, apiKey: e.target.value }))} />
+              <Input label="Project ID" value={firebaseConfig.projectId} onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, projectId: e.target.value }))} />
+              <Input label="Auth Domain" value={firebaseConfig.authDomain} onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, authDomain: e.target.value }))} />
+              <Input label="App ID" value={firebaseConfig.appId} onChange={(e) => setFirebaseConfig((prev) => ({ ...prev, appId: e.target.value }))} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <Button variant="primary" size="sm" onClick={handleSaveFirebaseConfig} isLoading={isTestingConnection} leftIcon={<Save size={14} />}>
+                Save Credentials
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleTestOnlyConnection} isLoading={isTestingConnection} leftIcon={<RefreshCw size={14} />}>
+                Test Connection
+              </Button>
+              {(hasStoredFirebaseConfig() || Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)) && (
+                <Button variant="danger" size="sm" onClick={handleDisconnectFirebase} leftIcon={<Trash2 size={14} />}>
+                  Disconnect
+                </Button>
+              )}
+            </div>
+          </div>
+        </details>
       </Card>
 
-
+      {/* Data Management Card */}
       <Card className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Data Management</h3>
+        <h3 className="text-base font-bold text-gray-900 dark:text-white">
+          {t('dataManagement', 'Data Management')}
+        </h3>
         <div className="flex flex-wrap gap-3">
           <Button variant="outline" onClick={() => backupDB.downloadBackup()} leftIcon={<Download size={16} />}>
-            Download Backup
+            {t('downloadBackup', 'Download Backup')}
           </Button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800">
             <Upload size={16} />
-            {isImporting ? 'Importing...' : 'Restore Backup'}
+            {isImporting ? 'Importing...' : t('restoreBackup', 'Restore Backup')}
             <input type="file" accept="application/json" className="hidden" onChange={(e) => void importBackup(e.target.files?.[0] || null)} />
           </label>
-        </div>
-        <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-900/20 dark:text-blue-100">
-          Exported backup files contain users, menu, orders, payments, inventory, suppliers, employees, settings, and notifications.
         </div>
       </Card>
     </div>

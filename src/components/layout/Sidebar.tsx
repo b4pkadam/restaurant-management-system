@@ -7,6 +7,7 @@ import {
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { settingsDB } from '../../database/db';
 import type { UserRole } from '../../types';
@@ -32,22 +33,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const tick = useDbUpdate();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const { unreadCount } = useNotifications();
   const settings = React.useMemo(() => settingsDB.get(), [tick]);
 
   const menuItems: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier'] },
-    { id: 'pos', label: 'POS / Billing', icon: <CreditCard size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
-    { id: 'orders', label: 'Orders', icon: <ShoppingCart size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter', 'chef'] },
-    { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'chef'] },
-    { id: 'tables', label: 'Tables', icon: <Table2 size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
-    { id: 'menu', label: 'Menu', icon: <UtensilsCrossed size={20} />, roles: ['admin', 'manager'] },
-    { id: 'inventory', label: 'Inventory', icon: <Package size={20} />, roles: ['admin', 'manager'] },
-    { id: 'suppliers', label: 'Suppliers', icon: <Truck size={20} />, roles: ['admin', 'manager'] },
-    { id: 'employees', label: 'Employees', icon: <Users size={20} />, roles: ['admin', 'manager'] },
-    { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} />, roles: ['admin', 'manager'] },
-    { id: 'users', label: 'Users', icon: <Users size={20} />, roles: ['admin'] },
-    { id: 'settings', label: 'Settings', icon: <Settings size={20} />, roles: ['admin'] }
+    { id: 'dashboard', label: t('dashboard', 'Dashboard'), icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier'] },
+    { id: 'pos', label: t('pos', 'POS / Billing'), icon: <CreditCard size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
+    { id: 'orders', label: t('orders', 'Orders'), icon: <ShoppingCart size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter', 'chef'] },
+    { id: 'kitchen', label: t('kitchen', 'Kitchen Display'), icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'chef'] },
+    { id: 'tables', label: t('tables', 'Tables'), icon: <Table2 size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
+    { id: 'menu', label: t('menu', 'Menu'), icon: <UtensilsCrossed size={20} />, roles: ['admin', 'manager'] },
+    { id: 'inventory', label: t('inventory', 'Inventory'), icon: <Package size={20} />, roles: ['admin', 'manager'] },
+    { id: 'suppliers', label: t('suppliers', 'Suppliers'), icon: <Truck size={20} />, roles: ['admin', 'manager'] },
+    { id: 'employees', label: t('employees', 'Employees'), icon: <Users size={20} />, roles: ['admin', 'manager'] },
+    { id: 'reports', label: t('reports', 'Reports'), icon: <BarChart3 size={20} />, roles: ['admin', 'manager'] },
+    { id: 'users', label: t('users', 'Users'), icon: <Users size={20} />, roles: ['admin'] },
+    { id: 'settings', label: t('settings', 'Settings'), icon: <Settings size={20} />, roles: ['admin'] }
   ];
 
   const filteredMenuItems = menuItems.filter((item) =>

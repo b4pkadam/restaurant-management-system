@@ -210,4 +210,6 @@ export interface AppSettings {
   waiterApkUrl?: string;
   waiterCallSound?: WaiterCallSound;
   waiterCallVibration?: boolean;
+  _rev?: number;
+  updatedAt?: string;
 }

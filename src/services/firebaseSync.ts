@@ -331,7 +331,7 @@ export function mergeEntities(
   const incRev = typeof incoming._rev === 'number' ? incoming._rev : 0;
   const baseUpdated = base.updatedAt ? new Date(base.updatedAt).getTime() : 0;
   const incUpdated = incoming.updatedAt ? new Date(incoming.updatedAt).getTime() : 0;
-  const incomingIsNewer = incRev > baseRev || (incRev === baseRev && incUpdated >= baseUpdated);
+  const incomingIsNewer = isOutgoingWrite || incRev > baseRev || (incRev === baseRev && incUpdated >= baseUpdated);
 
   const primary = incomingIsNewer ? incoming : base;
   const secondary = incomingIsNewer ? base : incoming;
@@ -341,6 +341,10 @@ export function mergeEntities(
     if (primary[key] !== undefined) {
       merged[key] = primary[key];
     }
+  }
+
+  if (isOutgoingWrite && incoming.restaurantLogo === undefined && 'restaurantLogo' in incoming) {
+    delete merged.restaurantLogo;
   }
 
   merged._rev = Math.max(baseRev, incRev);
@@ -416,7 +420,7 @@ export const firebaseSync = {
             isSyncingFromCloud = true;
             try {
               if (collName === 'settings') {
-                const settingsDoc = snapshot.docs[0];
+                const settingsDoc = snapshot.docs.find((d) => d.id === 'global_settings') || snapshot.docs[0];
                 if (settingsDoc && settingsDoc.exists()) {
                   if (cloudUpdateHandler) {
                     cloudUpdateHandler.setItem('settings', settingsDoc.data());
