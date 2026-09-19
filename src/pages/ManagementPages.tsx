@@ -157,21 +157,66 @@ const shiftOptions = [
   { value: 'flexible', label: 'Flexible' },
 ];
 
+function StatChip({
+  icon,
+  label,
+  value,
+  color = 'blue',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple';
+}) {
+  const colorStyles = {
+    blue: 'border-blue-200 bg-blue-50/70 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200',
+    green: 'border-emerald-200 bg-emerald-50/70 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
+    red: 'border-rose-200 bg-rose-50/70 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200',
+    yellow: 'border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200',
+    purple: 'border-purple-200 bg-purple-50/70 text-purple-900 dark:border-purple-900/40 dark:bg-purple-950/30 dark:text-purple-200',
+  };
+
+  const iconColors = {
+    blue: 'text-blue-600 dark:text-blue-400',
+    green: 'text-emerald-600 dark:text-emerald-400',
+    red: 'text-rose-600 dark:text-rose-400',
+    yellow: 'text-amber-600 dark:text-amber-400',
+    purple: 'text-purple-600 dark:text-purple-400',
+  };
+
+  return (
+    <div className={cn('flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs shadow-2xs transition-all shrink-0', colorStyles[color])}>
+      <span className={cn('shrink-0', iconColors[color])}>{icon}</span>
+      <span className="font-medium opacity-80">{label}:</span>
+      <span className="font-black">{value}</span>
+    </div>
+  );
+}
+
 function SectionHeader({
   title,
   description,
+  stats,
   action,
 }: {
   title?: string;
   description?: string;
+  stats?: React.ReactNode;
   action?: React.ReactNode;
 }) {
-  if (!action && !title && !description) return null;
+  if (!action && !title && !description && !stats) return null;
 
   if (!title && !description) {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
-        {action}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
+        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+          {stats}
+        </div>
+        {action && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-auto">
+            {action}
+          </div>
+        )}
       </div>
     );
   }
@@ -429,25 +474,26 @@ export function MenuManagementPage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
+        stats={
+          <>
+            <StatChip icon={<UtensilsCrossed size={14} />} label="Categories" value={categories.filter((c) => c.isActive).length} color="blue" />
+            <StatChip icon={<Receipt size={14} />} label="Items" value={items.length} color="green" />
+            <StatChip icon={<EyeOff size={14} />} label="Hidden" value={items.filter((i) => !i.isAvailable).length} color="yellow" />
+          </>
+        }
         action={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => { resetCategoryForm(); setShowCategoryModal(true); }} leftIcon={<Plus size={16} />}>
+            <Button size="sm" variant="outline" onClick={() => { resetCategoryForm(); setShowCategoryModal(true); }} leftIcon={<Plus size={14} />}>
               Add Category
             </Button>
-            <Button onClick={() => { resetItemForm(); setShowItemModal(true); }} leftIcon={<Plus size={16} />}>
+            <Button size="sm" onClick={() => { resetItemForm(); setShowItemModal(true); }} leftIcon={<Plus size={14} />}>
               Add Menu Item
             </Button>
           </div>
         }
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard title="Active Categories" value={categories.filter((c) => c.isActive).length} icon={<UtensilsCrossed size={22} />} color="blue" />
-        <StatCard title="Menu Items" value={items.length} icon={<Receipt size={22} />} color="green" />
-        <StatCard title="Unavailable Items" value={items.filter((i) => !i.isAvailable).length} icon={<EyeOff size={22} />} color="yellow" />
-      </div>
 
       <Tabs
         variant="underline"
@@ -1528,20 +1574,21 @@ export function OrdersManagementPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
+        stats={
+          <>
+            <StatChip icon={<Receipt size={14} />} label="Active Orders" value={activeOrders.length} color="yellow" />
+            <StatChip icon={<CheckCircle2 size={14} />} label="Completed" value={completedOrders.length} color="green" />
+            <StatChip icon={<Receipt size={14} />} label="Revenue" value={currency(completedOrders.reduce((sum, order) => sum + order.total, 0))} color="blue" />
+          </>
+        }
         action={
-          <Button variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={16} />}>
+          <Button size="sm" variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={14} />}>
             Refresh
           </Button>
         }
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard title="Active Orders" value={activeOrders.length} icon={<Receipt size={22} />} color="yellow" />
-        <StatCard title="Completed Orders" value={completedOrders.length} icon={<CheckCircle2 size={22} />} color="green" />
-        <StatCard title="Revenue" value={currency(completedOrders.reduce((sum, order) => sum + order.total, 0))} icon={<Receipt size={22} />} color="blue" />
-      </div>
 
       <Card>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1795,20 +1842,21 @@ export function KitchenDisplayPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
+        stats={
+          <>
+            <StatChip icon={<Receipt size={14} />} label="Queued" value={orders.filter((order) => order.status === 'active').length} color="yellow" />
+            <StatChip icon={<ChefHat size={14} />} label="Cooking" value={orders.filter((order) => order.status === 'preparing').length} color="blue" />
+            <StatChip icon={<CheckCircle2 size={14} />} label="Ready" value={orders.filter((order) => order.status === 'ready').length} color="green" />
+          </>
+        }
         action={
-          <Button variant="outline" onClick={refresh} leftIcon={<RefreshCw size={16} />}>
+          <Button size="sm" variant="outline" onClick={refresh} leftIcon={<RefreshCw size={14} />}>
             Refresh Board
           </Button>
         }
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard title="Queued" value={orders.filter((order) => order.status === 'active').length} icon={<Receipt size={22} />} color="yellow" />
-        <StatCard title="Preparing" value={orders.filter((order) => order.status === 'preparing').length} icon={<ChefHat size={22} />} color="blue" />
-        <StatCard title="Ready" value={orders.filter((order) => order.status === 'ready').length} icon={<CheckCircle2 size={22} />} color="green" />
-      </div>
 
       {orders.length === 0 ? (
         <Card className="py-16 text-center text-gray-500 dark:text-gray-400">
@@ -2195,17 +2243,18 @@ export function TableManagementPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
-        action={canManageTableStructure ? <Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button> : undefined}
+        stats={
+          <>
+            <StatChip icon={<CheckCircle2 size={14} />} label="Available" value={stats.available} color="green" />
+            <StatChip icon={<Users size={14} />} label="Occupied" value={stats.occupied} color="red" />
+            <StatChip icon={<Receipt size={14} />} label="Reserved" value={stats.reserved} color="yellow" />
+            <StatChip icon={<RefreshCw size={14} />} label="Cleaning" value={stats.cleaning} color="purple" />
+          </>
+        }
+        action={canManageTableStructure ? <Button size="sm" onClick={() => openTableModal()} leftIcon={<Plus size={14} />}>Add Table</Button> : undefined}
       />
-
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard title="Available" value={stats.available} icon={<CheckCircle2 size={20} />} color="green" />
-        <StatCard title="Occupied" value={stats.occupied} icon={<Users size={20} />} color="red" />
-        <StatCard title="Reserved" value={stats.reserved} icon={<Receipt size={20} />} color="yellow" />
-        <StatCard title="Cleaning" value={stats.cleaning} icon={<RefreshCw size={20} />} color="purple" />
-      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {tables.map((table) => {
@@ -2650,26 +2699,27 @@ export function InventoryManagementPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
+        stats={
+          <>
+            <StatChip icon={<PackagePlus size={14} />} label="Items" value={items.length} color="blue" />
+            <StatChip icon={<AlertTriangle size={14} />} label="Low Stock" value={lowStockItems.length} color="yellow" />
+            <StatChip icon={<Truck size={14} />} label="Suppliers" value={items.filter((item) => item.supplierId).length} color="purple" />
+            <StatChip icon={<Receipt size={14} />} label="Total Value" value={currency(inventoryValue)} color="green" />
+          </>
+        }
         action={canManageInventoryModule ? (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => openPurchaseModal()} leftIcon={<PackagePlus size={16} />}>
+            <Button size="sm" variant="outline" onClick={() => openPurchaseModal()} leftIcon={<PackagePlus size={14} />}>
               Add Purchase
             </Button>
-            <Button onClick={() => openItemModal()} leftIcon={<Plus size={16} />}>
+            <Button size="sm" onClick={() => openItemModal()} leftIcon={<Plus size={14} />}>
               Add Item
             </Button>
           </div>
         ) : undefined}
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <StatCard title="Inventory Items" value={items.length} icon={<PackagePlus size={20} />} color="blue" />
-        <StatCard title="Low Stock Alerts" value={lowStockItems.length} icon={<AlertTriangle size={20} />} color="yellow" />
-        <StatCard title="Suppliers Linked" value={items.filter((item) => item.supplierId).length} icon={<Truck size={20} />} color="purple" />
-        <StatCard title="Inventory Value" value={currency(inventoryValue)} icon={<Receipt size={20} />} color="green" />
-      </div>
 
       {lowStockItems.length > 0 && (
         <Card className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20">
@@ -2879,16 +2929,17 @@ export function SuppliersPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
-        action={canManageSupplierRecords ? <Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add Supplier</Button> : undefined}
+        stats={
+          <>
+            <StatChip icon={<Truck size={14} />} label="Suppliers" value={suppliers.length} color="blue" />
+            <StatChip icon={<CheckCircle2 size={14} />} label="Active" value={suppliers.filter((supplier) => supplier.isActive).length} color="green" />
+            <StatChip icon={<AlertTriangle size={14} />} label="Inactive" value={suppliers.filter((supplier) => !supplier.isActive).length} color="yellow" />
+          </>
+        }
+        action={canManageSupplierRecords ? <Button size="sm" onClick={() => openModal()} leftIcon={<Plus size={14} />}>Add Supplier</Button> : undefined}
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard title="Suppliers" value={suppliers.length} icon={<Truck size={20} />} color="blue" />
-        <StatCard title="Active Suppliers" value={suppliers.filter((supplier) => supplier.isActive).length} icon={<CheckCircle2 size={20} />} color="green" />
-        <StatCard title="Inactive Suppliers" value={suppliers.filter((supplier) => !supplier.isActive).length} icon={<AlertTriangle size={20} />} color="yellow" />
-      </div>
 
       <DataTable
         columns={[
@@ -3065,17 +3116,18 @@ export function EmployeeManagementPage() {
   const totalSalary = employees.reduce((sum, employee) => sum + employee.salary, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
-        action={canManageEmployeeModule ? <Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add Employee</Button> : undefined}
+        stats={
+          <>
+            <StatChip icon={<Users size={14} />} label="Staff" value={employees.length} color="blue" />
+            <StatChip icon={<CheckCircle2 size={14} />} label="Active" value={employees.filter((employee) => employee.isActive).length} color="green" />
+            <StatChip icon={<UserCog size={14} />} label="Managers" value={employees.filter((employee) => ['manager', 'admin'].includes(employee.role)).length} color="purple" />
+            <StatChip icon={<Receipt size={14} />} label="Payroll" value={currency(totalSalary)} color="yellow" />
+          </>
+        }
+        action={canManageEmployeeModule ? <Button size="sm" onClick={() => openModal()} leftIcon={<Plus size={14} />}>Add Employee</Button> : undefined}
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <StatCard title="Employees" value={employees.length} icon={<Users size={20} />} color="blue" />
-        <StatCard title="Active Staff" value={employees.filter((employee) => employee.isActive).length} icon={<CheckCircle2 size={20} />} color="green" />
-        <StatCard title="Managers & Admin" value={employees.filter((employee) => ['manager', 'admin'].includes(employee.role)).length} icon={<UserCog size={20} />} color="purple" />
-        <StatCard title="Monthly Salary" value={currency(totalSalary)} icon={<Receipt size={20} />} color="yellow" />
-      </div>
 
       <DataTable
         columns={[
@@ -3231,30 +3283,41 @@ export function ReportsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setRefreshKey((value) => value + 1)} leftIcon={<RefreshCw size={16} />}>
-              Refresh
-            </Button>
-            <Button variant="outline" onClick={exportCsv} leftIcon={<Download size={16} />}>
-              Export CSV
-            </Button>
-            <Button onClick={exportPdf} leftIcon={<FileDown size={16} />}>
-              Export PDF
+    <div className="space-y-4">
+      <Card padding="sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">From:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1 text-xs text-gray-900 dark:text-white"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">To:</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1 text-xs text-gray-900 dark:text-white"
+              />
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}>
+              Apply Range
             </Button>
           </div>
-        }
-      />
-
-      <Card>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Input label="Start Date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <Input label="End Date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          <div className="flex items-end">
-            <Button className="w-full" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}>
-              Apply Range
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end lg:self-auto">
+            <Button size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)} leftIcon={<RefreshCw size={14} />}>
+              Refresh
+            </Button>
+            <Button size="sm" variant="outline" onClick={exportCsv} leftIcon={<Download size={14} />}>
+              Export CSV
+            </Button>
+            <Button size="sm" onClick={exportPdf} leftIcon={<FileDown size={14} />}>
+              Export PDF
             </Button>
           </div>
         </div>
@@ -3675,7 +3738,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Action Bar (No duplicate title) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-2.5">
@@ -4185,17 +4248,18 @@ export function UserManagementPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SectionHeader
-        action={<Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add User</Button>}
+        stats={
+          <>
+            <StatChip icon={<Users size={14} />} label="Users" value={users.length} color="blue" />
+            <StatChip icon={<CheckCircle2 size={14} />} label="Active" value={users.filter((user) => user.isActive).length} color="green" />
+            <StatChip icon={<UserCog size={14} />} label="Admins & Mgrs" value={users.filter((user) => user.role === 'admin' || user.role === 'manager').length} color="purple" />
+            <StatChip icon={<Receipt size={14} />} label="Staff" value={users.filter((user) => user.role === 'waiter' || user.role === 'chef' || user.role === 'cashier').length} color="yellow" />
+          </>
+        }
+        action={<Button size="sm" onClick={() => openModal()} leftIcon={<Plus size={14} />}>Add User</Button>}
       />
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <StatCard title="Total Users" value={users.length} icon={<Users size={20} />} color="blue" />
-        <StatCard title="Active Users" value={users.filter((user) => user.isActive).length} icon={<CheckCircle2 size={20} />} color="green" />
-        <StatCard title="Admins & Managers" value={users.filter((user) => user.role === 'admin' || user.role === 'manager').length} icon={<UserCog size={20} />} color="purple" />
-        <StatCard title="Active Staff" value={users.filter((user) => user.role === 'waiter' || user.role === 'chef' || user.role === 'cashier').length} icon={<Receipt size={20} />} color="yellow" />
-      </div>
 
       <DataTable
         columns={[

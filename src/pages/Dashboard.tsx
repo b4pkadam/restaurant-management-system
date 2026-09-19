@@ -58,17 +58,19 @@ export const Dashboard: React.FC = () => {
     .slice(0, 5);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
-        <h2 className="text-2xl font-bold">Welcome back!</h2>
-        <p className="text-blue-100 mt-1">
-          Here's what's happening at {settings.restaurantName} today.
-        </p>
-        <div className="flex items-center gap-4 mt-4">
-          <div className="flex items-center gap-2">
-            <Clock size={16} />
-            <span className="text-sm">{format(new Date(), 'EEEE, MMMM d, yyyy')}</span>
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 sm:p-5 text-white shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-bold">Welcome back!</h2>
+            <p className="text-blue-100 text-xs sm:text-sm mt-0.5">
+              Here's what's happening at {settings.restaurantName} today.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1.5 text-xs self-start sm:self-auto backdrop-blur-xs">
+            <Clock size={14} />
+            <span className="font-semibold">{format(new Date(), 'EEEE, MMMM d, yyyy')}</span>
           </div>
         </div>
       </div>
