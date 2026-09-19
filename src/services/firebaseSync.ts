@@ -210,9 +210,12 @@ export function mergeTables(base: any, incoming: any): any {
   let status = incoming.status || base.status;
 
   if (base.currentOrderId && !incoming.currentOrderId) {
-    if (incomingIsStrictlyNewer && incoming.status === 'available') {
+    if (incomingIsStrictlyNewer && (incoming.status === 'available' || incoming.status === 'cleaning' || incoming.status === 'reserved')) {
       currentOrderId = undefined;
-      status = 'available';
+      status = incoming.status;
+    } else if (incomingIsStrictlyNewer) {
+      currentOrderId = undefined;
+      status = incoming.status || 'available';
     } else {
       currentOrderId = base.currentOrderId;
       status = 'occupied';
@@ -220,6 +223,9 @@ export function mergeTables(base: any, incoming: any): any {
   } else if (incoming.currentOrderId && !base.currentOrderId) {
     currentOrderId = incoming.currentOrderId;
     status = 'occupied';
+  } else if (incomingIsStrictlyNewer) {
+    status = incoming.status || status;
+    currentOrderId = incoming.currentOrderId;
   } else if (currentOrderId) {
     status = 'occupied';
   }
@@ -347,8 +353,16 @@ export const firebaseSync = {
                   items.forEach((t: any) => {
                     if (t.number) {
                       const existing = uniqueMap.get(t.number);
-                      if (!existing || (!existing.currentOrderId && t.currentOrderId)) {
+                      if (!existing) {
                         uniqueMap.set(t.number, t);
+                      } else {
+                        const existingRev = typeof existing._rev === 'number' ? existing._rev : 0;
+                        const tRev = typeof t._rev === 'number' ? t._rev : 0;
+                        const existingUpdated = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+                        const tUpdated = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
+                        if (tRev > existingRev || (tRev === existingRev && tUpdated >= existingUpdated)) {
+                          uniqueMap.set(t.number, t);
+                        }
                       }
                     }
                   });

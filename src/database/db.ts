@@ -304,9 +304,14 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
       }
     } else if (t.status === 'available') {
       if (matchingOrder) {
-        t.status = 'occupied';
-        t.currentOrderId = matchingOrder.id;
-        changed = true;
+        const orderUpdated = matchingOrder.updatedAt ? new Date(matchingOrder.updatedAt).getTime() : (matchingOrder.createdAt ? new Date(matchingOrder.createdAt).getTime() : 0);
+        const tableUpdated = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
+        // Only override to occupied if the active order is strictly newer than when the table was set available
+        if (orderUpdated > tableUpdated) {
+          t.status = 'occupied';
+          t.currentOrderId = matchingOrder.id;
+          changed = true;
+        }
       } else if (t.currentOrderId) {
         t.currentOrderId = undefined;
         changed = true;
@@ -1591,21 +1596,21 @@ export const tableDB = {
     if (changed) {
       memoryStore.set('tables', tables);
       notifyDbListeners();
-      if (isFirebaseActive()) {
-        tables.forEach((t, idx) => {
-          const original = raw[idx];
-          if (!original || JSON.stringify(original) !== JSON.stringify(t)) {
-            firebaseSync.pushDoc('tables', `table_${t.number}`, t).catch(() => {});
-          }
-        });
-      }
     }
     const uniqueMap = new Map<number, Table>();
     tables.forEach((t) => {
       if (!t.number) return;
       const existing = uniqueMap.get(t.number);
-      if (!existing || (!existing.currentOrderId && t.currentOrderId)) {
+      if (!existing) {
         uniqueMap.set(t.number, t);
+      } else {
+        const existingRev = typeof existing._rev === 'number' ? existing._rev : 0;
+        const tRev = typeof t._rev === 'number' ? t._rev : 0;
+        const existingUpdated = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const tUpdated = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
+        if (tRev > existingRev || (tRev === existingRev && tUpdated >= existingUpdated)) {
+          uniqueMap.set(t.number, t);
+        }
       }
     });
     return Array.from(uniqueMap.values()).sort((a, b) => a.number - b.number);
@@ -1630,6 +1635,7 @@ export const tableDB = {
     };
     tables.push(newTable);
     setCollection('tables', tables);
+    broadcastSync((s) => s.broadcastTableUpdated(newTable));
     return newTable;
   },
   
@@ -1647,6 +1653,7 @@ export const tableDB = {
       updatedAt: new Date().toISOString(),
     };
     setCollection('tables', tables);
+    broadcastSync((s) => s.broadcastTableUpdated(tables[index]));
     return tables[index];
   },
   

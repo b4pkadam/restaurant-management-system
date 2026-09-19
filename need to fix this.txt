@@ -8,7 +8,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
   ──────                                                                                                                                                
   ## 🚨 Critical Vulnerabilities (Must Fix Before Production)                                                                                           
   ──────                                                                                                                                                
-  ### 1. Unauthenticated Read/Write Access to User Accounts in Firestore                                                                                
+  ### 1. Unauthenticated Read/Write Access to User Accounts in Firestore :-done                                                                               
                                                                                                                                                         
   • Location: firestore.rules:69-72                                                                                                                     
     // 8. User Accounts (Admin & Staff)                                                                                                                 
@@ -29,7 +29,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
                                                                                                                                                         
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 2. Hardcoded Master Password & Information Disclosure                                                                                             
+  ### 2. Hardcoded Master Password & Information Disclosure        :not yet done                                                                                     
                                                                                                                                                         
   • Location:                                                                                                                                           
       • db.ts:935-946                                                                                                                                   
@@ -58,7 +58,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       • Provide a secure, one-time initial setup CLI or protected bootstrap screen where the system administrator creates their own initial password.   
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 3. Client-Side Only Authentication & Authorization (Zero Backend Enforcement)                                                                     
+  ### 3. Client-Side Only Authentication & Authorization (Zero Backend Enforcement)   -not yed done                                                                  
                                                                                                                                                         
   • Location: AuthContext.tsx:32-58, access.ts:13-37                                                                                                    
   • Vulnerability: Client-Side Enforcement of Server-Side Security (CWE-602).                                                                           
@@ -77,7 +77,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       • Enforce role-based access control (RBAC) via Firebase Auth Custom Claims (request.auth.token.role) or server-side API middleware.               
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 4. Stored Cross-Site Scripting (XSS) in Receipt & QR Code Printing                                                                                
+  ### 4. Stored Cross-Site Scripting (XSS) in Receipt & QR Code Printing   :done                                                                             
                                                                                                                                                         
   • Location:                                                                                                                                           
       • printInvoice.ts:46-110                                                                                                                          
@@ -104,7 +104,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       • Or print receipts via a hidden React-rendered portal without document.write.                                                                    
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 5. Embedded Cloud Credentials in Client Bundle                                                                                                    
+  ### 5. Embedded Cloud Credentials in Client Bundle        :not done                                                                                            
                                                                                                                                                         
   • Location: firebaseConfig.ts:14-50                                                                                                                   
   • Vulnerability: Security through Obscurity / Key Extraction (CWE-798).                                                                               
@@ -121,7 +121,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
   ──────                                                                                                                                                
   ## ⚠️ High Vulnerabilities (Operational & Data Integrity Risks)                                                                                       
   ──────                                                                                                                                                
-  ### 6. Public Unauthenticated Read Access to Orders & Payments                                                                                        
+  ### 6. Public Unauthenticated Read Access to Orders & Payments     -done                                                                                   
                                                                                                                                                         
   • Location: firestore.rules:40-47                                                                                                                     
     match /orders/{orderId} {                                                                                                                           
@@ -141,7 +141,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       behind authenticated staff roles.                                                                                                                 
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 7. Unrestricted Table Creation & Denial of Service via QR URL                                                                                     
+  ### 7. Unrestricted Table Creation & Denial of Service via QR URL      -done                                                                               
                                                                                                                                                         
   • Location: CustomerOrder.tsx:73-84                                                                                                                   
     let t = tableDB.getAll().find((tbl) => tbl.number === tableNumber);                                                                                 
@@ -163,7 +163,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       • If a table number does not exist in tableDB.getAll(), render a clean error: "Invalid Table. Please ask your server for assistance."             
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 8. Client-Side Price & Total Trust (Price Tampering)                                                                                              
+  ### 8. Client-Side Price & Total Trust (Price Tampering)  -done                                                                                            
                                                                                                                                                         
   • Location: CustomerOrder.tsx:329-373                                                                                                                 
   • Vulnerability: Parameter Tampering / Lack of Server-Side Price Verification (CWE-472).                                                              
@@ -177,7 +177,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
       • Always recalculate order totals against canonical item prices stored in the database on order receipt. Never trust client-provided totals.      
                                                                                                                                                         
   ──────                                                                                                                                                
-  ### 9. Insecure Backup Export / Import                                                                                                                
+  ### 9. Insecure Backup Export / Import  -done                                                                                                              
                                                                                                                                                         
   • Location: db.ts:1872-1919                                                                                                                           
   • Vulnerabilities:                                                                                                                                    
@@ -199,7 +199,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
   • Production Fix: Move rate limiting to a persistent backend tier (e.g., Firebase Authentication built-in brute force protection or Cloudflare Rate   
   Limiting).                                                                                                                                            
   ──────                                                                                                                                                
-  ### 11. Concurrency Race Conditions & Last-Write-Wins Data Overwrite                                                                                  
+  ### 11. Concurrency Race Conditions & Last-Write-Wins Data Overwrite  -done                                                                                
                                                                                                                                                         
   • Location: firebaseSync.ts:109-114, firebaseSync.ts:165-175                                                                                          
   • Root Cause:                                                                                                                                         
@@ -211,7 +211,7 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
   first write's updates.                                                                                                                                
   • Production Fix: Use Firestore runTransaction or granular field updates (updateDoc) with revision timestamps/versions.                               
   ──────                                                                                                                                                
-  ### 12. External Data Leakage via 3rd-Party QR Generator                                                                                              
+  ### 12. External Data Leakage via 3rd-Party QR Generator  -done                                                                                            
                                                                                                                                                         
   • Location: QRCodeModal.tsx:51                                                                                                                        
     img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent('${orderUrl}');                                     
@@ -220,14 +220,14 @@ As a Senior Software & Security Engineer, I have performed a deep-dive architect
   node_modules.
   • Production Fix: Render QR codes locally using QRCodeSVG from qrcode.react (offline-safe, zero third-party leakage).
   ──────
-  ### 13. Hidden Easter Egg Modal on Login Screen
+  ### 13. Hidden Easter Egg Modal on Login Screen-done
   
   • Location: Login.tsx:135-165, Login.tsx:551-600
   • Issue: Clicking the 4 corners of the login screen opens the Cloud Configuration modal, exposing Firebase credentials and a "Disconnect Cloud" button.
   • Production Fix: Remove the 4-corner Easter egg from production builds; restrict cloud connection management exclusively to authenticated            
   Administrators in the Settings page.
   ──────
-  ### 14. Missing Content Security Policy (CSP) & Reversible Password Fallback
+  ### 14. Missing Content Security Policy (CSP) & Reversible Password Fallback- done
   
   • Location: index.html, db.ts:709
   • Issues:

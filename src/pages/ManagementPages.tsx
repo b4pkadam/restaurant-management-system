@@ -1692,7 +1692,7 @@ export function OrdersManagementPage() {
 }
 
 export function KitchenDisplayPage() {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { success } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
@@ -1708,6 +1708,9 @@ export function KitchenDisplayPage() {
 
   useEffect(() => {
     refresh();
+  }, [tick]);
+
+  useEffect(() => {
     const interval = window.setInterval(refresh, 5000);
     return () => window.clearInterval(interval);
   }, []);
@@ -1974,7 +1977,7 @@ export function KitchenDisplayPage() {
 }
 
 export function TableManagementPage() {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { success, error } = useToast();
   const { notifications, markAsRead } = useNotifications();
   const { user } = useAuth();
@@ -1994,7 +1997,7 @@ export function TableManagementPage() {
 
   useEffect(() => {
     loadTables();
-  }, []);
+  }, [tick]);
 
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';

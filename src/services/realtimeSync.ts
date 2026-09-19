@@ -1,7 +1,7 @@
-import type { Order, Notification, AppSettings } from '../types';
+import type { Order, Notification, AppSettings, Table } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED' | 'TABLE_UPDATED';
   payload: any;
   senderId: string;
 }
@@ -68,6 +68,9 @@ class RealtimeSyncService {
           if (msg.payload.order?.id) msgKey += `_${msg.payload.order.id}_${msg.payload.order.status}`;
           if (msg.payload.settings?.updatedAt) msgKey += `_${msg.payload.settings.updatedAt}`;
           if (msg.payload.tableNumber) msgKey += `_${msg.payload.tableNumber}_${msg.payload.timestamp || ''}`;
+          if (msg.payload.table) {
+            msgKey += `_${msg.payload.table.id || msg.payload.table.number}_${msg.payload.table.status}_${msg.payload.table.updatedAt || ''}`;
+          }
         }
 
         if (this.processedTimestamps.has(msgKey)) continue;
@@ -104,6 +107,28 @@ class RealtimeSyncService {
     const { orderDB, tableDB, notificationDB, settingsDB, notifyDbListeners, setCollection } = await import('../database/db');
 
     switch (message.type) {
+      case 'TABLE_UPDATED': {
+        const table: Table = message.payload?.table;
+        if (!table || (!table.id && !table.number)) return;
+
+        const tables = tableDB.getAll();
+        const idx = tables.findIndex(
+          (t) =>
+            t.id === table.id ||
+            t.number === table.number ||
+            `table_${t.number}` === table.id ||
+            `table_${table.number}` === t.id
+        );
+        if (idx !== -1) {
+          tables[idx] = { ...tables[idx], ...table };
+        } else {
+          tables.push(table);
+        }
+        setCollection('tables', tables);
+        notifyDbListeners();
+        break;
+      }
+
       case 'ORDER_CREATED': {
         const order: Order = message.payload?.order;
         const notif: Notification = message.payload?.notification;
@@ -149,6 +174,24 @@ class RealtimeSyncService {
         if (idx !== -1) {
           orders[idx] = { ...orders[idx], ...order };
           setCollection('orders', orders);
+
+          // If order is completed or cancelled, automatically free up the associated table
+          if (['completed', 'cancelled'].includes(order.status)) {
+            const targetTableId = order.tableId;
+            const targetTableNumber = order.tableNumber;
+            if (targetTableId) {
+              const tbl = tableDB.getById(targetTableId);
+              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === order.id)) {
+                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+              }
+            } else if (targetTableNumber) {
+              const tbl = tableDB.getByNumber(targetTableNumber);
+              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === order.id)) {
+                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+              }
+            }
+          }
+
           notifyDbListeners();
           if (!isInitialSync) {
             this.playAlertSound();
@@ -329,6 +372,15 @@ class RealtimeSyncService {
     const msg: SyncMessage = {
       type: 'SETTINGS_UPDATED',
       payload: { settings: { ...settings, updatedAt: new Date().toISOString() } },
+      senderId: SENDER_ID,
+    };
+    this.sendToCloud(msg);
+  }
+
+  public broadcastTableUpdated(table: Table) {
+    const msg: SyncMessage = {
+      type: 'TABLE_UPDATED',
+      payload: { table },
       senderId: SENDER_ID,
     };
     this.sendToCloud(msg);
