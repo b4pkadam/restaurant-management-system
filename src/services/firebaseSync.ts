@@ -230,11 +230,22 @@ export function mergeTables(base: any, incoming: any): any {
     status = 'occupied';
   }
 
+  // Waiter call state: preserve incoming if provided, or clear if incoming cleared it and is strictly newer
+  let waiterCall = incoming.waiterCall;
+  if (incoming.waiterCall === undefined && base.waiterCall) {
+    if (incomingIsStrictlyNewer) {
+      waiterCall = undefined;
+    } else {
+      waiterCall = base.waiterCall;
+    }
+  }
+
   return {
     ...base,
     ...incoming,
     status,
     currentOrderId,
+    waiterCall,
     capacity: incoming.capacity || base.capacity,
     qrCode: incoming.qrCode || base.qrCode,
     _rev: Math.max(baseRev, incRev),

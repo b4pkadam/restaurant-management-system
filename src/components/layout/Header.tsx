@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Bell, BellRing, Search } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useNotifications } from '../../context/NotificationContext';
+import { acknowledgeWaiterCall } from '../../database/db';
 import { format } from 'date-fns';
 import { safeFormatDate } from '../../utils/safeDate';
 
@@ -13,6 +14,19 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+
+  const handleAcknowledgeCall = (call: (typeof notifications)[0]) => {
+    if (call.tableNumber) {
+      acknowledgeWaiterCall(call.tableNumber, 'Staff');
+    } else {
+      const match = call.title.match(/Table\s+(\d+)/i);
+      if (match && match[1]) {
+        acknowledgeWaiterCall(Number(match[1]), 'Staff');
+      } else {
+        markAsRead(call.id);
+      }
+    }
+  };
 
   // Active unread waiter call notifications (active within the last 3 minutes)
   const unreadWaiterCalls = notifications.filter((n) => {
@@ -36,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-3">
             <button
-              onClick={() => unreadWaiterCalls.forEach((c) => markAsRead(c.id))}
+              onClick={() => unreadWaiterCalls.forEach(handleAcknowledgeCall)}
               className="rounded-lg bg-white text-gray-900 px-3 py-1 text-xs font-black hover:bg-gray-100 transition-all shadow-xs cursor-pointer"
             >
               Acknowledge (✓)
@@ -67,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
                     <BellRing size={13} className="animate-bounce shrink-0" />
                     <span className="truncate max-w-[130px]">{call.title}</span>
                     <button
-                      onClick={() => markAsRead(call.id)}
+                      onClick={() => handleAcknowledgeCall(call)}
                       className="ml-0.5 rounded-full bg-white/25 hover:bg-white/40 px-1 py-0.2 text-[10px] cursor-pointer"
                       title="Dismiss Call"
                     >

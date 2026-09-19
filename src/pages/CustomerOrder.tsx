@@ -105,15 +105,40 @@ export function CustomerOrderPage({ tableNumber }: CustomerOrderPageProps) {
   const handleCallWaiter = useCallback(() => {
     if (waiterCalled) return;
     setWaiterCalled(true);
+    const callTimestamp = Date.now();
+    const callId = `waiter_call_${tableNumber}_${callTimestamp}`;
+
+    // 1. Update table with active waiterCall
+    const tbl = tableDB.getByNumber(tableNumber);
+    if (tbl) {
+      tableDB.update(tbl.id, {
+        waiterCall: {
+          active: true,
+          timestamp: callTimestamp,
+          message: `Table ${tableNumber} has called for waiter service.`,
+        },
+      });
+    }
+
+    // 2. Create notification with deterministic callId
     notificationDB.create({
+      id: callId,
       type: 'table',
+      tableNumber,
       title: `🔔 Table ${tableNumber} Calling Waiter!`,
       message: `Table ${tableNumber} has called for waiter service / table assistance.`,
     });
-    // Broadcast waiter call in real-time to desktop
+
+    // 3. Broadcast waiter call in real-time to all terminals
     import('../services/realtimeSync').then(({ realtimeSync }) => {
-      realtimeSync.broadcastWaiterCall(tableNumber, `Table ${tableNumber} has called for waiter service.`);
+      realtimeSync.broadcastWaiterCall(
+        tableNumber,
+        `Table ${tableNumber} has called for waiter service.`,
+        callTimestamp,
+        callId
+      );
     }).catch(() => {});
+
     setTimeout(() => setWaiterCalled(false), 8000);
   }, [tableNumber, waiterCalled]);
 

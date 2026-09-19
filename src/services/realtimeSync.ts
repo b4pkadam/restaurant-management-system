@@ -1,7 +1,7 @@
 import type { Order, Notification, AppSettings, Table } from '../types';
 
 interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED' | 'TABLE_UPDATED';
+  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED' | 'TABLE_UPDATED' | 'WAITER_CALL_ACKNOWLEDGED';
   payload: any;
   senderId: string;
 }
@@ -214,13 +214,25 @@ class RealtimeSyncService {
       }
 
       case 'WAITER_CALLED': {
-        const { tableNumber, message: waiterMsg, timestamp } = message.payload || {};
+        const { tableNumber, message: waiterMsg, timestamp, callId } = message.payload || {};
         if (!tableNumber) return;
 
-        // Strictly ignore stale or historical waiter calls on reload or if older than 25 seconds
-        const isFresh = timestamp ? (Date.now() - timestamp < 25000 && timestamp >= this.startupTime - 3000) : false;
+        // Strictly ignore stale or historical waiter calls on reload or if older than 45 seconds
+        const isFresh = timestamp ? (Date.now() - timestamp < 45000 && timestamp >= this.startupTime - 5000) : false;
         if (isInitialSync || !isFresh) {
           return;
+        }
+
+        // Update table entity with active waiter call
+        const tbl = tableDB.getByNumber(tableNumber);
+        if (tbl) {
+          tableDB.update(tbl.id, {
+            waiterCall: {
+              active: true,
+              timestamp: timestamp || Date.now(),
+              message: waiterMsg || `Table ${tableNumber} requested waiter service.`,
+            },
+          });
         }
 
         const notifications = notificationDB.getAll();
@@ -231,13 +243,33 @@ class RealtimeSyncService {
 
         if (!existsNotif) {
           notificationDB.create({
+            id: callId || `waiter_call_${tableNumber}_${timestamp || Date.now()}`,
             type: 'table',
+            tableNumber,
             title: notifTitle,
             message: waiterMsg || `Table ${tableNumber} has requested immediate waiter service / assistance.`,
           });
-          notifyDbListeners();
-          this.playWaiterCallSound();
         }
+
+        notifyDbListeners();
+        this.playWaiterCallSound();
+        break;
+      }
+
+      case 'WAITER_CALL_ACKNOWLEDGED': {
+        const { tableNumber } = message.payload || {};
+        if (!tableNumber) return;
+
+        // 1. Clear waiterCall on table
+        const tbl = tableDB.getByNumber(tableNumber);
+        if (tbl && tbl.waiterCall) {
+          tableDB.update(tbl.id, { waiterCall: undefined });
+        }
+
+        // 2. Mark all notifications for this table as read
+        notificationDB.acknowledgeForTable(tableNumber);
+
+        notifyDbListeners();
         break;
       }
 
@@ -254,26 +286,16 @@ class RealtimeSyncService {
 
   public playWaiterCallSound() {
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const playTone = (freq: number, startOffset: number, duration: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + startOffset);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime + startOffset);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + startOffset + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(audioCtx.currentTime + startOffset);
-        osc.stop(audioCtx.currentTime + startOffset + duration);
-      };
-
-      // 3-tone chime for waiter call
-      playTone(784, 0, 0.2);       // G5
-      playTone(987.77, 0.18, 0.2);  // B5
-      playTone(1318.5, 0.36, 0.45); // E6
+      import('./soundService').then(({ soundService }) => {
+        import('../database/db').then(({ settingsDB }) => {
+          const settings = settingsDB.get();
+          soundService.playWaiterCallAlert(settings?.waiterCallSound, settings?.waiterCallVibration !== false);
+        }).catch(() => {
+          soundService.playWaiterCallAlert('chime', true);
+        });
+      }).catch(() => {});
     } catch {
-      // Autoplay policy
+      // Audio autoplay blocked
     }
   }
 
@@ -296,12 +318,26 @@ class RealtimeSyncService {
     }
   }
 
-  public broadcastWaiterCall(tableNumber: number, message?: string) {
+  public broadcastWaiterCall(tableNumber: number, message?: string, timestamp?: number, callId?: string) {
+    const ts = timestamp || Date.now();
     const msg: SyncMessage = {
       type: 'WAITER_CALLED',
       payload: {
         tableNumber,
         message: message || `Table ${tableNumber} requested waiter service.`,
+        timestamp: ts,
+        callId: callId || `waiter_call_${tableNumber}_${ts}`,
+      },
+      senderId: SENDER_ID,
+    };
+    this.sendToCloud(msg);
+  }
+
+  public broadcastWaiterCallAcknowledged(tableNumber: number) {
+    const msg: SyncMessage = {
+      type: 'WAITER_CALL_ACKNOWLEDGED',
+      payload: {
+        tableNumber,
         timestamp: Date.now(),
       },
       senderId: SENDER_ID,

@@ -317,6 +317,11 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
         changed = true;
       }
     }
+
+    if (t.waiterCall && (!t.waiterCall.active || (t.waiterCall.timestamp && Date.now() - t.waiterCall.timestamp > 3 * 60 * 1000))) {
+      t.waiterCall = undefined;
+      changed = true;
+    }
     return t;
   });
 
@@ -1885,12 +1890,15 @@ export const orderDB = {
       const targetTableId = orders[index].tableId;
       const targetTableNumber = orders[index].tableNumber;
       if (targetTableId) {
-        tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined });
+        tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, waiterCall: undefined });
       } else if (targetTableNumber) {
         const tbl = tableDB.getByNumber(targetTableNumber);
         if (tbl) {
-          tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined });
+          tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, waiterCall: undefined });
         }
+      }
+      if (targetTableNumber) {
+        notificationDB.acknowledgeForTable(targetTableNumber);
       }
     }
 
@@ -2153,11 +2161,11 @@ export const notificationDB = {
     return notificationDB.getAll().filter(n => !n.isRead);
   },
   
-  create: (notification: Omit<Notification, 'id' | 'createdAt' | 'isRead'>): Notification => {
+  create: (notification: Omit<Notification, 'createdAt' | 'isRead'> & { id?: string }): Notification => {
     const notifications = notificationDB.getAll();
     const newNotification: Notification = {
       ...notification,
-      id: uuidv4(),
+      id: notification.id || uuidv4(),
       isRead: false,
       createdAt: new Date().toISOString()
     };
@@ -2175,6 +2183,31 @@ export const notificationDB = {
       setCollection('notifications', notifications);
     }
   },
+
+  acknowledgeForTable: (tableNumber: number, acknowledgedBy?: string): void => {
+    const notifications = notificationDB.getAll();
+    let changed = false;
+    const now = new Date().toISOString();
+    const updated = notifications.map((n) => {
+      const matchesTable =
+        n.type === 'table' &&
+        (n.tableNumber === tableNumber || n.title.includes(`Table ${tableNumber}`));
+      if (matchesTable && !n.isRead) {
+        changed = true;
+        return {
+          ...n,
+          isRead: true,
+          acknowledgedAt: now,
+          acknowledgedBy: acknowledgedBy || 'Staff',
+        };
+      }
+      return n;
+    });
+
+    if (changed) {
+      setCollection('notifications', updated);
+    }
+  },
   
   markAllAsRead: (): void => {
     const notifications = notificationDB.getAll().map(n => ({ ...n, isRead: true }));
@@ -2185,6 +2218,25 @@ export const notificationDB = {
     setCollection('notifications', []);
   }
 };
+
+/**
+ * Universal waiter call acknowledgment helper:
+ * Clears table waiter call, marks all matching notifications as read across clouds,
+ * and broadcasts real-time acknowledgment to all peer devices.
+ */
+export function acknowledgeWaiterCall(tableNumber: number, acknowledgedBy?: string): void {
+  // 1. Clear waiterCall on table in tableDB (pushes to cloud & broadcasts TABLE_UPDATED)
+  const tbl = tableDB.getByNumber(tableNumber);
+  if (tbl && tbl.waiterCall) {
+    tableDB.update(tbl.id, { waiterCall: undefined });
+  }
+
+  // 2. Mark all matching notifications as read in memory and cloud
+  notificationDB.acknowledgeForTable(tableNumber, acknowledgedBy);
+
+  // 3. Broadcast real-time acknowledgment to peer devices
+  broadcastSync((s) => s.broadcastWaiterCallAcknowledged(tableNumber));
+}
 
 // Settings Management
 export const settingsDB = {
@@ -2202,6 +2254,8 @@ export const settingsDB = {
       autoBackup: true,
       backupInterval: 24,
       waiterApkUrl: './restaurant-lite.apk',
+      waiterCallSound: 'chime',
+      waiterCallVibration: true,
     };
     
     const stored = getItem<AppSettings>('settings');
@@ -2209,6 +2263,8 @@ export const settingsDB = {
     return {
       ...defaultSettings,
       ...stored,
+      waiterCallSound: stored.waiterCallSound || 'chime',
+      waiterCallVibration: stored.waiterCallVibration !== false,
       waiterApkUrl: (!stored.waiterApkUrl || stored.waiterApkUrl === './restaurant-waiter-lite.apk')
         ? defaultSettings.waiterApkUrl
         : stored.waiterApkUrl,

@@ -32,6 +32,8 @@ import {
   UtensilsCrossed,
   Image as ImageIcon,
   X,
+  Volume2,
+  VolumeX,
   Cloud,
   Database,
   Check,
@@ -100,7 +102,9 @@ import {
   supplierDB,
   tableDB,
   userDB,
+  acknowledgeWaiterCall,
 } from '../database/db';
+import { soundService } from '../services/soundService';
 import type {
   AppSettings,
   Category,
@@ -2071,7 +2075,8 @@ export function TableManagementPage() {
   };
 
   const clearReservation = (table: Table) => {
-    tableDB.update(table.id, { status: 'available', reservationInfo: undefined });
+    tableDB.update(table.id, { status: 'available', reservationInfo: undefined, waiterCall: undefined });
+    acknowledgeWaiterCall(table.number, user?.username);
     success(`Reservation cleared for Table ${table.number}.`);
     loadTables();
   };
@@ -2121,7 +2126,8 @@ export function TableManagementPage() {
         return;
       }
     }
-    tableDB.update(table.id, { status: 'cleaning', currentOrderId: undefined });
+    tableDB.update(table.id, { status: 'cleaning', currentOrderId: undefined, waiterCall: undefined });
+    acknowledgeWaiterCall(table.number, user?.username);
     success(`Table ${table.number} marked for Cleaning.`);
     loadTables();
   };
@@ -2156,7 +2162,8 @@ export function TableManagementPage() {
       });
     }
 
-    tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+    tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+    acknowledgeWaiterCall(table.number, user?.username);
     success(`Table ${table.number} cleared and is now Ready & Available.`);
     loadTables();
   };
@@ -2292,10 +2299,24 @@ export function TableManagementPage() {
               )}
 
               {(() => {
-                const tableWaiterCall = notifications.find(
-                  (n) => !n.isRead && n.type === 'table' && n.title.includes(`Table ${table.number}`)
-                );
-                if (!tableWaiterCall) return null;
+                const isFreshCall = (t?: number | string) => {
+                  if (!t) return false;
+                  const timeMs = typeof t === 'number' ? t : new Date(t).getTime();
+                  return !isNaN(timeMs) && Date.now() - timeMs < 3 * 60 * 1000;
+                };
+
+                const hasActiveWaiterCall =
+                  (table.waiterCall?.active && isFreshCall(table.waiterCall.timestamp)) ||
+                  notifications.some(
+                    (n) =>
+                      !n.isRead &&
+                      n.type === 'table' &&
+                      (n.tableNumber === table.number || n.title.includes(`Table ${table.number}`)) &&
+                      isFreshCall(n.createdAt)
+                  );
+
+                if (!hasActiveWaiterCall) return null;
+
                 return (
                   <div className="rounded-xl bg-amber-500 text-white p-2.5 text-xs font-bold flex items-center justify-between shadow-md animate-pulse border border-amber-300">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -2303,8 +2324,8 @@ export function TableManagementPage() {
                       <span className="truncate">Customer Calling Waiter!</span>
                     </div>
                     <button
-                      onClick={() => markAsRead(tableWaiterCall.id)}
-                      className="ml-1 shrink-0 rounded-md bg-white/25 hover:bg-white/40 px-2 py-0.5 text-[11px] cursor-pointer"
+                      onClick={() => acknowledgeWaiterCall(table.number, user?.username)}
+                      className="ml-1 shrink-0 rounded-md bg-white text-amber-900 hover:bg-amber-100 px-2 py-0.5 text-[11px] font-black cursor-pointer shadow-xs transition-all"
                     >
                       ✓ Dismiss
                     </button>
@@ -3831,6 +3852,59 @@ export function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {/* Customer Calling Alerts & Ringtone */}
+      <Card className="space-y-4 border border-amber-200 dark:border-amber-900/40 bg-amber-50/20 dark:bg-amber-950/10">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <BellRing size={22} />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Customer Calling Alerts & Ringtone</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Select the audio chime ringtone and vibration alert played when a customer calls for waiter service.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+          <div>
+            <Select
+              label="Waiter Call Ringtone / Chime"
+              value={form.waiterCallSound || 'chime'}
+              onChange={(e) => setForm((prev) => ({ ...prev, waiterCallSound: e.target.value as any }))}
+              options={[
+                { value: 'chime', label: '🔔 Melodic Chime (3-Tone Harmonics)' },
+                { value: 'bell', label: '🛎️ Service Bell (Restaurant Ding-Dong)' },
+                { value: 'urgent', label: '🚨 Urgent Alert (High-Pitch Chimes)' },
+                { value: 'gentle', label: '🎶 Gentle Marimba (Soft Warm Triad)' },
+                { value: 'pager', label: '📟 Digital Pager (Triple POS Beep)' },
+              ]}
+            />
+          </div>
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => soundService.testSound(form.waiterCallSound || 'chime')}
+              className="font-bold flex items-center justify-center gap-2 w-full sm:w-auto h-[42px]"
+            >
+              <Volume2 size={16} /> Preview Ringtone & Vibration
+            </Button>
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <input
+            type="checkbox"
+            checked={form.waiterCallVibration !== false}
+            onChange={(e) => setForm((prev) => ({ ...prev, waiterCallVibration: e.target.checked }))}
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+            Enable physical haptic vibration alert on mobile phones & tablets
+          </span>
+        </label>
+      </Card>
 
       {/* Google Firebase Cloud Synchronization Card */}
       <Card className="space-y-5 border-2 border-blue-500/30">

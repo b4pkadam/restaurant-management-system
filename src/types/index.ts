@@ -70,6 +70,11 @@ export interface Table {
     reservationTime: string;
     partySize: number;
   };
+  waiterCall?: {
+    active: boolean;
+    timestamp: number;
+    message?: string;
+  };
   updatedAt?: string;
   _rev?: number;
 }
@@ -176,14 +181,18 @@ export interface DailySales {
 
 export interface Notification {
   id: string;
-  type: 'order' | 'inventory' | 'system' | 'alert';
+  type: 'order' | 'inventory' | 'system' | 'alert' | 'table';
   title: string;
   message: string;
   isRead: boolean;
   createdAt: string;
+  tableNumber?: number;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
 }
 
 export type ThemeMode = 'light' | 'dark';
+export type WaiterCallSound = 'chime' | 'bell' | 'urgent' | 'gentle' | 'pager';
 
 export interface AppSettings {
   restaurantName: string;
@@ -199,4 +208,6 @@ export interface AppSettings {
   autoBackup: boolean;
   backupInterval: number; // in hours
   waiterApkUrl?: string;
+  waiterCallSound?: WaiterCallSound;
+  waiterCallVibration?: boolean;
 }

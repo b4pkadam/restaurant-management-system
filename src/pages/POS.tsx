@@ -14,7 +14,7 @@ import { cn } from '../utils/cn';
 import { v4 as uuidv4 } from 'uuid';
 import {
   menuItemDB, categoryDB, tableDB, orderDB, paymentDB, settingsDB,
-  notificationDB
+  notificationDB, acknowledgeWaiterCall
 } from '../database/db';
 import type { MenuItem, OrderItem, Table, Order, Payment } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -466,13 +466,17 @@ export const POSPage: React.FC = () => {
 
         if (isAllItemsServed) {
           const targetTableId = selectedTable?.id || updated?.tableId;
+          const targetTableNum = selectedTable?.number || updated?.tableNumber;
           if (targetTableId) {
-            tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-          } else if (updated?.tableNumber) {
-            const tbl = tableDB.getByNumber(updated.tableNumber);
-            if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+            tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+          } else if (targetTableNum) {
+            const tbl = tableDB.getByNumber(targetTableNum);
+            if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
           }
-          success(`Payment of ${formatCurrency(total)} received! Table ${selectedTable?.number || updated?.tableNumber || 'N/A'} is now AVAILABLE ✅`);
+          if (targetTableNum) {
+            acknowledgeWaiterCall(targetTableNum, user?.username || 'Cashier');
+          }
+          success(`Payment of ${formatCurrency(total)} received! Table ${targetTableNum || 'N/A'} is now AVAILABLE ✅`);
         } else {
           success(`Payment of ${formatCurrency(total)} received! Order remaining in Kitchen Display until fully served.`);
         }
@@ -1182,8 +1186,9 @@ export const POSPage: React.FC = () => {
                 onClick={() => {
                   if (table.status === 'cleaning') {
                     if (window.confirm(`Table ${table.number} is marked as Cleaning. Mark it Ready (Available) and select it?`)) {
-                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-                      const updatedTable = { ...table, status: 'available' as const };
+                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+                      acknowledgeWaiterCall(table.number, user?.username || 'Cashier');
+                      const updatedTable = { ...table, status: 'available' as const, waiterCall: undefined };
                       setSelectedTable(updatedTable);
                       setLoadedOrderId(null);
                       setShowTableModal(false);
@@ -1201,8 +1206,9 @@ export const POSPage: React.FC = () => {
                   }
                   if (table.status === 'occupied' && !activeOrd) {
                     if (window.confirm(`Table ${table.number} is marked occupied but has no active order. Reset to Available and select?`)) {
-                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-                      const updatedTable = { ...table, status: 'available' as const };
+                      tableDB.update(table.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+                      acknowledgeWaiterCall(table.number, user?.username || 'Cashier');
+                      const updatedTable = { ...table, status: 'available' as const, waiterCall: undefined };
                       setSelectedTable(updatedTable);
                       setLoadedOrderId(null);
                       setShowTableModal(false);
