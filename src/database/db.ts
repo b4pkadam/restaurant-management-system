@@ -316,9 +316,18 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
         t.currentOrderId = undefined;
         changed = true;
       }
+      if (t.waiterCall) {
+        t.waiterCall = undefined;
+        changed = true;
+      }
     }
 
-    if (t.waiterCall && (!t.waiterCall.active || (t.waiterCall.timestamp && Date.now() - t.waiterCall.timestamp > 3 * 60 * 1000))) {
+    if (
+      t.waiterCall &&
+      (!t.waiterCall.active ||
+        t.status === 'available' ||
+        (t.waiterCall.timestamp && Date.now() - t.waiterCall.timestamp > 45000))
+    ) {
       t.waiterCall = undefined;
       changed = true;
     }
@@ -811,18 +820,95 @@ registerCloudUpdateHandler({
     }
 
     if (collName === 'tables') {
-      // Keep sorted and unique by table number
+      const existingTbl = index !== -1 ? items[index] : null;
+      const waiterCall = data?.waiterCall;
+      const isFreshWaiterCall =
+        waiterCall?.active &&
+        waiterCall?.timestamp &&
+        Date.now() - waiterCall.timestamp < 35000 &&
+        (!existingTbl?.waiterCall || !existingTbl?.waiterCall?.active);
+
+      if (isFreshWaiterCall) {
+        import('../services/soundService').then(({ soundService }) => {
+          const settings = (memoryStore.get('settings') as AppSettings) || {};
+          soundService.playWaiterCallAlert(settings?.waiterCallSound, settings?.waiterCallVibration !== false);
+        }).catch(() => {});
+
+        const notifications = (memoryStore.get('notifications') as Notification[]) || [];
+        const notifTitle = `🔔 Table ${data.number} Calling Waiter!`;
+        const exists = notifications.find(
+          (n) => n.type === 'table' && n.tableNumber === data.number && !n.isRead
+        );
+        if (!exists) {
+          notifications.unshift({
+            id: `waiter_call_${data.number}_${waiterCall.timestamp}`,
+            type: 'table',
+            tableNumber: data.number,
+            title: notifTitle,
+            message: waiterCall.message || `Table ${data.number} requested waiter service.`,
+            createdAt: new Date(waiterCall.timestamp).toISOString(),
+            isRead: false,
+          });
+          memoryStore.set('notifications', notifications);
+        }
+      } else if (data?.waiterCall === undefined && existingTbl?.waiterCall) {
+        notificationDB.acknowledgeForTable(data.number);
+      }
+
+      // Keep sorted and unique by table number comparing _rev and updatedAt monotonically
       const uniqueMap = new Map<number, any>();
       items.forEach((t: any) => {
         if (t.number) {
+          if (t.status === 'available') {
+            t.currentOrderId = undefined;
+            t.waiterCall = undefined;
+          }
           const ex = uniqueMap.get(t.number);
-          if (!ex || (!ex.currentOrderId && t.currentOrderId)) {
+          if (!ex) {
             uniqueMap.set(t.number, t);
+          } else {
+            const exRev = typeof ex._rev === 'number' ? ex._rev : 0;
+            const tRev = typeof t._rev === 'number' ? t._rev : 0;
+            const exTime = ex.updatedAt ? new Date(ex.updatedAt).getTime() : 0;
+            const tTime = t.updatedAt ? new Date(t.updatedAt).getTime() : 0;
+            if (tRev > exRev || (tRev === exRev && tTime >= exTime)) {
+              uniqueMap.set(t.number, t);
+            }
           }
         }
       });
       const cleanTables = Array.from(uniqueMap.values()).sort((a: any, b: any) => a.number - b.number);
       memoryStore.set('tables', cleanTables);
+    } else if (collName === 'orders') {
+      const mergedOrder = items[index === -1 ? items.length - 1 : index];
+      if (mergedOrder && ['completed', 'cancelled'].includes(mergedOrder.status)) {
+        const tables = (memoryStore.get('tables') as Table[]) || [];
+        let tableChanged = false;
+        const updatedTables = tables.map((tbl) => {
+          const matches =
+            (mergedOrder.tableId && tbl.id === mergedOrder.tableId) ||
+            (mergedOrder.tableNumber && tbl.number === mergedOrder.tableNumber);
+          if (matches && (!tbl.currentOrderId || tbl.currentOrderId === mergedOrder.id)) {
+            tableChanged = true;
+            return {
+              ...tbl,
+              status: 'available' as const,
+              currentOrderId: undefined,
+              reservationInfo: undefined,
+              waiterCall: undefined,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return tbl;
+        });
+        if (tableChanged) {
+          memoryStore.set('tables', updatedTables);
+        }
+        if (mergedOrder.tableNumber) {
+          notificationDB.acknowledgeForTable(mergedOrder.tableNumber);
+        }
+      }
+      memoryStore.set(collName, items);
     } else {
       memoryStore.set(collName, items);
     }

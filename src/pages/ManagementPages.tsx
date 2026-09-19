@@ -1312,14 +1312,17 @@ export function OrdersManagementPage() {
       return;
     }
 
-    const isAllItemsServed = payingOrder.items.length > 0 && payingOrder.items.every((i) => i.status === 'served');
-    const nextStatus = isAllItemsServed ? 'completed' : payingOrder.status;
+    const servedItems = (payingOrder.items || []).map((item) => ({
+      ...item,
+      status: (item.status === 'cancelled' ? 'cancelled' : 'served') as const,
+    }));
 
     const updated = orderDB.update(payingOrder.id, {
-      status: nextStatus,
+      status: 'completed',
+      items: servedItems,
       paymentStatus: 'paid',
       isPaid: true,
-      completedAt: isAllItemsServed ? new Date().toISOString() : undefined,
+      completedAt: new Date().toISOString(),
     });
 
     const payRecord = paymentDB.create({
@@ -1331,16 +1334,20 @@ export function OrdersManagementPage() {
       receivedBy: user?.username || 'Staff',
     });
 
-    if (isAllItemsServed) {
-      if (payingOrder.tableId) {
-        tableDB.update(payingOrder.tableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
-      }
-      addNotification('order', 'Payment & Order Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
-      success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed! Table is now Available.`);
-    } else {
-      addNotification('order', 'Payment Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed. Order remains in kitchen until served.`);
-      success(`Payment of ${currency(payingOrder.total)} received! Order remains active in Kitchen Display until fully served.`);
+    const targetTableId = payingOrder.tableId;
+    const targetTableNum = payingOrder.tableNumber;
+    if (targetTableId) {
+      tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+    } else if (targetTableNum) {
+      const tbl = tableDB.getByNumber(targetTableNum);
+      if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
     }
+    if (targetTableNum) {
+      acknowledgeWaiterCall(targetTableNum, user?.username || 'Staff');
+    }
+
+    addNotification('order', 'Payment & Order Completed', `${payingOrder.orderNumber} payment of ${currency(payingOrder.total)} completed.`);
+    success(`Payment of ${currency(payingOrder.total)} received & ${payingOrder.orderNumber} completed! Table is now Available.`);
 
     setPayingOrder(null);
     loadOrders();
@@ -3946,98 +3953,19 @@ export function SettingsPage() {
         </label>
       </Card>
 
-      {/* Dedicated WebServer Real-Time Synchronization Card */}
-      <Card className="space-y-5 border-2 border-emerald-500/30">
+      {/* Google Firebase Cloud Synchronization Card (Primary 24/7 Cloud Backbone) */}
+      <Card className="space-y-5 border-2 border-blue-500/40">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <Radio size={24} />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Dedicated WebServer Real-Time Sync
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Direct WebSocket & HTTP relay replacing PubNub. Delivers instant multi-terminal sync without rate limits or URL truncation.
-              </p>
-            </div>
-          </div>
-          <div>
-            {serverStatus === 'connected' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                WebServer Connected (Active)
-              </span>
-            )}
-            {serverStatus === 'connecting' && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
-                Connecting to WebServer...
-              </span>
-            )}
-            {(serverStatus === 'disconnected' || serverStatus === 'error') && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
-                <span className="h-2 w-2 rounded-full bg-rose-500"></span>
-                WebServer Disconnected
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-3 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-          <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-            Sync Server Address (WebSocket / HTTP Relay)
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              value={syncServerUrl}
-              onChange={(e) => setSyncServerUrl(e.target.value)}
-              placeholder="e.g. http://localhost:3001 or http://192.168.1.100:3001"
-              className="flex-1 rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleTestSyncServer}
-              isLoading={isTestingServer}
-              leftIcon={<RefreshCw size={14} />}
-            >
-              Test Connection
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSaveSyncServer}
-              leftIcon={<CheckCircle2 size={14} />}
-            >
-              Save & Connect
-            </Button>
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-            <p>
-              💡 <strong>How to start your dedicated sync server:</strong> Run <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">npm run server</code> or <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">node server.js</code> on your host terminal.
-            </p>
-            <p>
-              📱 For phones and other tablets on the same Wi-Fi, enter your host computer's local IP (e.g. <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">http://192.168.1.X:3001</code>).
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Google Firebase Cloud Synchronization Card */}
-      <Card className="space-y-5 border-2 border-blue-500/30">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <Cloud size={24} />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Google Firebase Cloud Synchronization
+                Google Firebase Cloud Synchronization (Primary 24/7 Backbone)
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Connect your free Google Firebase backend to enable live real-time order syncing across kitchen tablets, waiter phones, and customer QR orders.
+                <strong>Zero PC or terminal commands required!</strong> Seamlessly synchronizes orders, table status, waiter calls, and payments across all kitchen tablets, waiter phones, POS, and customer QR menus.
               </p>
             </div>
           </div>
@@ -4045,7 +3973,7 @@ export function SettingsPage() {
             {cloudState.status === 'connected' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Cloud Connected (Live Sync Active)
+                Cloud Connected (24/7 Live Sync Active)
               </span>
             )}
             {cloudState.status === 'connecting' && (
@@ -4196,6 +4124,85 @@ export function SettingsPage() {
               Disconnect Cloud
             </Button>
           )}
+        </div>
+      </Card>
+
+      {/* Dedicated WebServer Sync Card (Optional LAN Relay) */}
+      <Card className="space-y-5 border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              <Radio size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Optional Local LAN Relay Server (Dedicated WebServer)
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Optional WebSocket & HTTP local relay for restaurants with an on-premise desktop computer. <strong>Not needed for tablets and mobile phones</strong> (Cloud Firestore handles all syncing automatically).
+              </p>
+            </div>
+          </div>
+          <div>
+            {serverStatus === 'connected' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Local Relay Active
+              </span>
+            )}
+            {serverStatus === 'connecting' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+                Connecting to Local Relay...
+              </span>
+            )}
+            {(serverStatus === 'disconnected' || serverStatus === 'error') && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3.5 py-1 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                <span className="h-2 w-2 rounded-full bg-gray-400"></span>
+                Local Relay Inactive (Optional)
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+            Sync Server Address (Optional WebSocket / HTTP Relay)
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={syncServerUrl}
+              onChange={(e) => setSyncServerUrl(e.target.value)}
+              placeholder="e.g. http://localhost:3001 or http://192.168.1.100:3001"
+              className="flex-1 rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestSyncServer}
+              isLoading={isTestingServer}
+              leftIcon={<RefreshCw size={14} />}
+            >
+              Test Connection
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveSyncServer}
+              leftIcon={<CheckCircle2 size={14} />}
+            >
+              Save & Connect
+            </Button>
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+            <p>
+              💡 <strong>If you have an on-premise desktop computer:</strong> Run <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">npm run server</code> or <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">node server.js</code> on your host PC terminal.
+            </p>
+            <p>
+              📱 <strong>If operating on tablets/phones without a PC:</strong> Leave this field empty. Google Firebase Cloud Firestore above manages 100% of multi-terminal real-time sync with zero maintenance.
+            </p>
+          </div>
         </div>
       </Card>
 

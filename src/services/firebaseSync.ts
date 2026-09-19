@@ -3,6 +3,7 @@ import {
   doc,
   setDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   writeBatch,
   runTransaction,
@@ -235,7 +236,7 @@ export function mergeOrders(base: any, incoming: any, isOutgoingWrite: boolean =
 /**
  * Intelligent entity merger for tables
  */
-export function mergeTables(base: any, incoming: any): any {
+export function mergeTables(base: any, incoming: any, isOutgoingWrite: boolean = false): any {
   if (!base) return incoming;
   if (!incoming) return base;
 
@@ -250,10 +251,7 @@ export function mergeTables(base: any, incoming: any): any {
   let status = incoming.status || base.status;
 
   if (base.currentOrderId && !incoming.currentOrderId) {
-    if (incomingIsStrictlyNewer && (incoming.status === 'available' || incoming.status === 'cleaning' || incoming.status === 'reserved')) {
-      currentOrderId = undefined;
-      status = incoming.status;
-    } else if (incomingIsStrictlyNewer) {
+    if (isOutgoingWrite || incomingIsStrictlyNewer) {
       currentOrderId = undefined;
       status = incoming.status || 'available';
     } else {
@@ -263,21 +261,27 @@ export function mergeTables(base: any, incoming: any): any {
   } else if (incoming.currentOrderId && !base.currentOrderId) {
     currentOrderId = incoming.currentOrderId;
     status = 'occupied';
-  } else if (incomingIsStrictlyNewer) {
+  } else if (incomingIsStrictlyNewer || isOutgoingWrite) {
     status = incoming.status || status;
     currentOrderId = incoming.currentOrderId;
   } else if (currentOrderId) {
     status = 'occupied';
   }
 
-  // Waiter call state: preserve incoming if provided, or clear if incoming cleared it and is strictly newer
+  // Waiter call state: preserve incoming if provided, or clear if incoming cleared it
   let waiterCall = incoming.waiterCall;
   if (incoming.waiterCall === undefined && base.waiterCall) {
-    if (incomingIsStrictlyNewer) {
+    if (isOutgoingWrite || incomingIsStrictlyNewer) {
       waiterCall = undefined;
     } else {
       waiterCall = base.waiterCall;
     }
+  }
+
+  // An available, cleaning, or reserved table can never retain an active waiter call or past order
+  if (status === 'available') {
+    currentOrderId = undefined;
+    waiterCall = undefined;
   }
 
   return {
@@ -312,7 +316,7 @@ export function mergeEntities(
   }
 
   if (collName === 'tables') {
-    return mergeTables(base, incoming);
+    return mergeTables(base, incoming, isOutgoingWrite);
   }
 
   if (collName === 'users') {
@@ -345,6 +349,30 @@ export function mergeEntities(
     : base.updatedAt || new Date().toISOString();
 
   return merged;
+}
+
+/**
+ * Recursively prepares an object for Firestore writes.
+ * Replaces explicit undefined values with deleteField() so that
+ * fields like waiterCall and currentOrderId are actually deleted in the cloud document
+ * when cleared instead of being silently skipped by { merge: true }.
+ */
+export function prepareForFirestore(data: any): any {
+  if (data === null || data === undefined) return data;
+  if (typeof data !== 'object') return data;
+  if (Array.isArray(data)) return data;
+
+  const payload: any = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined) {
+      payload[k] = deleteField();
+    } else if (v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
+      payload[k] = prepareForFirestore(v);
+    } else {
+      payload[k] = v;
+    }
+  }
+  return payload;
 }
 
 export const firebaseSync = {
@@ -403,6 +431,17 @@ export const firebaseSync = {
                   const uniqueMap = new Map<number, any>();
                   items.forEach((t: any) => {
                     if (t.number) {
+                      if (
+                        t.waiterCall &&
+                        (!t.waiterCall.active ||
+                          t.status === 'available' ||
+                          (t.waiterCall.timestamp && Date.now() - t.waiterCall.timestamp > 45000))
+                      ) {
+                        t.waiterCall = undefined;
+                      }
+                      if (t.status === 'available') {
+                        t.currentOrderId = undefined;
+                      }
                       const existing = uniqueMap.get(t.number);
                       if (!existing) {
                         uniqueMap.set(t.number, t);
@@ -547,8 +586,12 @@ export const firebaseSync = {
 
           if (!snapshot.exists()) {
             // New document: initialize revision metadata
+            const cleanPayload = { ...cleanData };
+            for (const k of Object.keys(cleanPayload)) {
+              if (cleanPayload[k] === undefined) delete cleanPayload[k];
+            }
             const payload = {
-              ...cleanData,
+              ...cleanPayload,
               id: cleanDocId,
               _rev: typeof cleanData._rev === 'number' && cleanData._rev > 0 ? cleanData._rev : 1,
               updatedAt: cleanData.updatedAt || now,
@@ -565,12 +608,12 @@ export const firebaseSync = {
           const localRev = typeof cleanData._rev === 'number' ? cleanData._rev : 0;
           const nextRev = Math.max(cloudRev, localRev) + 1;
 
-          const updatedPayload = {
+          const updatedPayload = prepareForFirestore({
             ...merged,
             id: cleanDocId,
             _rev: nextRev,
             updatedAt: now,
-          };
+          });
 
           transaction.set(docRef, updatedPayload, { merge: true });
         });
@@ -582,16 +625,13 @@ export const firebaseSync = {
           txError
         );
         const nextRev = (typeof cleanData._rev === 'number' ? cleanData._rev : 0) + 1;
-        await setDoc(
-          docRef,
-          {
-            ...cleanData,
-            id: cleanDocId,
-            _rev: nextRev,
-            updatedAt: cleanData.updatedAt || now,
-          },
-          { merge: true }
-        );
+        const fallbackPayload = prepareForFirestore({
+          ...cleanData,
+          id: cleanDocId,
+          _rev: nextRev,
+          updatedAt: cleanData.updatedAt || now,
+        });
+        await setDoc(docRef, fallbackPayload, { merge: true });
       }
     } catch (error: any) {
       console.warn(`Cloud sync failed for ${collName}/${docId}:`, error);

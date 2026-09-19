@@ -110,6 +110,7 @@ export const initFirebase = (
       try {
         dbInstance = initializeFirestore(appInstance, {
           experimentalAutoDetectLongPolling: true,
+          ignoreUndefinedProperties: true,
         });
       } catch {
         dbInstance = getFirestore(appInstance);
@@ -119,6 +120,7 @@ export const initFirebase = (
       try {
         dbInstance = initializeFirestore(appInstance, {
           experimentalAutoDetectLongPolling: true,
+          ignoreUndefinedProperties: true,
         });
       } catch {
         dbInstance = getFirestore(appInstance);
@@ -249,5 +251,9 @@ export const isFirebaseActive = (): boolean => {
   if (!hasStoredFirebaseConfig()) {
     return false;
   }
-  return currentConnectionState.status === 'connected';
+  return currentConnectionState.status === 'connected' || currentConnectionState.status === 'connecting';
+};
+
+export const isFirebaseConnected = (): boolean => {
+  return hasStoredFirebaseConfig() && currentConnectionState.status === 'connected';
 };

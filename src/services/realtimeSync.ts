@@ -20,6 +20,15 @@ export type ServerConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 const SENDER_ID = Math.random().toString(36).substring(2, 10);
 const STORAGE_SERVER_URL_KEY = 'restaurant_sync_server_url';
 
+export function hasCustomServerUrl(): boolean {
+  try {
+    const saved = localStorage.getItem(STORAGE_SERVER_URL_KEY);
+    return Boolean(saved && saved.trim());
+  } catch {
+    return false;
+  }
+}
+
 export function getDefaultServerUrl(): string {
   if (typeof window === 'undefined') return 'http://localhost:3001';
 
@@ -43,6 +52,7 @@ class RealtimeSyncService {
   private startupTime = Date.now();
   private ws: WebSocket | null = null;
   private reconnectTimer: any = null;
+  private failedAttempts = 0;
   private processedMessageKeys = new Set<string>();
   private statusListeners = new Set<(status: ServerConnectionStatus) => void>();
   private currentStatus: ServerConnectionStatus = 'disconnected';
@@ -53,8 +63,16 @@ class RealtimeSyncService {
     this.isInitialized = true;
 
     this.serverUrl = this.getEffectiveServerUrl();
-    this.connectWebSocket();
     this.listenLocalBroadcast();
+
+    // Connect WebSocket if explicitly configured or running on localhost developer machine
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    const isLocalDev = hostname === 'localhost' || hostname === '127.0.0.1';
+    if (hasCustomServerUrl() || isLocalDev) {
+      this.connectWebSocket();
+    } else {
+      this.setStatus('disconnected');
+    }
   }
 
   public getEffectiveServerUrl(): string {
@@ -71,6 +89,7 @@ class RealtimeSyncService {
       }
     } catch {}
     this.serverUrl = clean || getDefaultServerUrl();
+    this.failedAttempts = 0;
     this.reconnect();
   }
 
@@ -133,6 +152,7 @@ class RealtimeSyncService {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
+        this.failedAttempts = 0;
         this.setStatus('connected');
         console.log(`[RealtimeSync] Connected to dedicated sync server: ${wsUrl}`);
         if (this.reconnectTimer) {
@@ -172,10 +192,19 @@ class RealtimeSyncService {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
+    this.failedAttempts++;
+
+    // If failed more than 2 times and no custom URL configured, stop aggressive reconnecting
+    if (this.failedAttempts > 2 && !hasCustomServerUrl()) {
+      this.setStatus('disconnected');
+      return;
+    }
+
+    const delay = Math.min(30000, 4000 * Math.pow(1.5, Math.min(this.failedAttempts, 5)));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectWebSocket();
-    }, 4000);
+    }, delay);
   }
 
   private listenLocalBroadcast() {
@@ -227,16 +256,18 @@ class RealtimeSyncService {
       } catch {}
     }
 
-    // 2. HTTP POST fallback/redundancy to ensure delivery
-    const httpBase = this.serverUrl || getDefaultServerUrl();
-    const httpEndpoint = httpBase.replace(/\/+$/, '') + '/api/sync';
-    fetch(httpEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: jsonStr,
-    }).catch(() => {
-      // Offline / server unreachable
-    });
+    // 2. HTTP POST fallback only if local server is connected or configured
+    if (this.currentStatus === 'connected' || hasCustomServerUrl()) {
+      const httpBase = this.serverUrl || getDefaultServerUrl();
+      const httpEndpoint = httpBase.replace(/\/+$/, '') + '/api/sync';
+      fetch(httpEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonStr,
+      }).catch(() => {
+        // Offline / server unreachable
+      });
+    }
 
     // 3. Broadcast to local tab/window instances
     try {
