@@ -101,7 +101,6 @@ import {
   orderDB,
   paymentDB,
   purchaseDB,
-  purgeSampleData,
   settingsDB,
   supplierDB,
   tableDB,
@@ -163,14 +162,24 @@ function SectionHeader({
   description,
   action,
 }: {
-  title: string;
+  title?: string;
   description?: string;
   action?: React.ReactNode;
 }) {
+  if (!action && !title && !description) return null;
+
+  if (!title && !description) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
+        {action}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h2>
+        {title && <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h2>}
         {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>}
       </div>
       {action}
@@ -422,8 +431,6 @@ export function MenuManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Menu Management"
-        description="Manage categories, menu items, prices, images, barcodes, and availability."
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => { resetCategoryForm(); setShowCategoryModal(true); }} leftIcon={<Plus size={16} />}>
@@ -1233,19 +1240,6 @@ export function OrdersManagementPage() {
     loadOrders();
   };
 
-  const handlePurgeSampleData = () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to purge all sample and demo data?\n\nThis will permanently delete demo orders, sample payments, and sample notifications from both local and cloud databases.'
-    );
-    if (!confirmed) return;
-
-    const res = purgeSampleData();
-    success(
-      `Sample data purged: removed ${res.ordersRemoved} sample orders, ${res.paymentsRemoved} payments, and ${res.notificationsRemoved} notifications.`
-    );
-    loadOrders();
-  };
-
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesSearch = `${order.orderNumber} ${order.customerName || ''} ${order.waiterName || ''}`
@@ -1536,24 +1530,10 @@ export function OrdersManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Order Management"
-        description="Track all active, ready, served, and completed orders in one place."
         action={
-          <div className="flex flex-wrap items-center gap-2">
-            {isAdmin && (
-              <Button
-                variant="danger"
-                onClick={handlePurgeSampleData}
-                leftIcon={<Trash2 size={16} />}
-                title="Permanently remove all sample and demo records from database"
-              >
-                Purge Sample Data
-              </Button>
-            )}
-            <Button variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={16} />}>
-              Refresh
-            </Button>
-          </div>
+          <Button variant="outline" onClick={loadOrders} leftIcon={<RefreshCw size={16} />}>
+            Refresh
+          </Button>
         }
       />
 
@@ -1817,8 +1797,6 @@ export function KitchenDisplayPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Kitchen Display System"
-        description="Real-time kitchen board for chefs to prepare items and dispatch orders."
         action={
           <Button variant="outline" onClick={refresh} leftIcon={<RefreshCw size={16} />}>
             Refresh Board
@@ -2219,8 +2197,6 @@ export function TableManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Table Management"
-        description="Monitor table occupancy, clean/clear tables, manage reservations, and assign orders."
         action={canManageTableStructure ? <Button onClick={() => openTableModal()} leftIcon={<Plus size={16} />}>Add Table</Button> : undefined}
       />
 
@@ -2676,8 +2652,6 @@ export function InventoryManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Inventory Management"
-        description="Track ingredients, low stock alerts, stock value, and purchase entries."
         action={canManageInventoryModule ? (
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => openPurchaseModal()} leftIcon={<PackagePlus size={16} />}>
@@ -2907,8 +2881,6 @@ export function SuppliersPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Supplier Management"
-        description="Manage local vendors, supplier contacts, GST details, and purchasing sources."
         action={canManageSupplierRecords ? <Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add Supplier</Button> : undefined}
       />
 
@@ -3095,8 +3067,6 @@ export function EmployeeManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Employee Management"
-        description="Manage staff records, roles, salaries, shifts, and employment status."
         action={canManageEmployeeModule ? <Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add Employee</Button> : undefined}
       />
 
@@ -3263,8 +3233,6 @@ export function ReportsPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Reports & Analytics"
-        description="Monitor daily sales, monthly revenue, best sellers, and export business reports."
         action={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setRefreshKey((value) => value + 1)} leftIcon={<RefreshCw size={16} />}>
@@ -4219,8 +4187,6 @@ export function UserManagementPage() {
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="User Management"
-        description="Create staff login accounts, assign roles, and manage credentials with cloud sync."
         action={<Button onClick={() => openModal()} leftIcon={<Plus size={16} />}>Add User</Button>}
       />
 
