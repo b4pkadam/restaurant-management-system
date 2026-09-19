@@ -210,4 +210,5 @@ export interface AppSettings {
   waiterApkUrl?: string;
   waiterCallSound?: WaiterCallSound;
   waiterCallVibration?: boolean;
+  syncServerUrl?: string;
 }

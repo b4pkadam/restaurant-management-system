@@ -1,29 +1,181 @@
 import type { Order, Notification, AppSettings, Table } from '../types';
+import { mergeOrders } from './firebaseSync';
 
-interface SyncMessage {
-  type: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_DELETED' | 'SETTINGS_UPDATED' | 'WAITER_CALLED' | 'TABLE_UPDATED' | 'WAITER_CALL_ACKNOWLEDGED';
+export interface SyncMessage {
+  type:
+    | 'ORDER_CREATED'
+    | 'ORDER_UPDATED'
+    | 'ORDER_DELETED'
+    | 'SETTINGS_UPDATED'
+    | 'WAITER_CALLED'
+    | 'TABLE_UPDATED'
+    | 'WAITER_CALL_ACKNOWLEDGED'
+    | 'SYNC_BATCH';
   payload: any;
   senderId: string;
 }
 
+export type ServerConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+
 const SENDER_ID = Math.random().toString(36).substring(2, 10);
-const CHANNEL = 'restaurant_pos_b4pkadam';
-const PUB_URL = `https://ps.pubnub.com/publish/demo/demo/0/${CHANNEL}/0/`;
-const HIST_URL = `https://ps.pubnub.com/v2/history/sub-key/demo/channel/${CHANNEL}?count=30`;
+const STORAGE_SERVER_URL_KEY = 'restaurant_sync_server_url';
+
+export function getDefaultServerUrl(): string {
+  if (typeof window === 'undefined') return 'http://localhost:3001';
+
+  // Check manual override in localStorage
+  try {
+    const saved = localStorage.getItem(STORAGE_SERVER_URL_KEY);
+    if (saved && saved.trim()) return saved.trim();
+  } catch {}
+
+  // If app is opened directly on an IP (e.g. 192.168.1.x:5173), default server is on port 3001
+  const hostname = window.location.hostname;
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('github.io')) {
+    return `http://${hostname}:3001`;
+  }
+
+  return 'http://localhost:3001';
+}
 
 class RealtimeSyncService {
   private isInitialized = false;
-  private isFirstPoll = true;
   private startupTime = Date.now();
-  private pollInterval: any = null;
-  private processedTimestamps = new Set<string>();
+  private ws: WebSocket | null = null;
+  private reconnectTimer: any = null;
+  private processedMessageKeys = new Set<string>();
+  private statusListeners = new Set<(status: ServerConnectionStatus) => void>();
+  private currentStatus: ServerConnectionStatus = 'disconnected';
+  private serverUrl: string = getDefaultServerUrl();
 
   public init() {
     if (this.isInitialized) return;
     this.isInitialized = true;
 
-    this.startPolling();
+    this.serverUrl = this.getEffectiveServerUrl();
+    this.connectWebSocket();
     this.listenLocalBroadcast();
+  }
+
+  public getEffectiveServerUrl(): string {
+    return getDefaultServerUrl();
+  }
+
+  public setServerUrl(url: string) {
+    const clean = (url || '').trim().replace(/\/+$/, '');
+    try {
+      if (clean) {
+        localStorage.setItem(STORAGE_SERVER_URL_KEY, clean);
+      } else {
+        localStorage.removeItem(STORAGE_SERVER_URL_KEY);
+      }
+    } catch {}
+    this.serverUrl = clean || getDefaultServerUrl();
+    this.reconnect();
+  }
+
+  public getConnectionStatus(): ServerConnectionStatus {
+    return this.currentStatus;
+  }
+
+  public subscribeStatus(cb: (status: ServerConnectionStatus) => void): () => void {
+    this.statusListeners.add(cb);
+    cb(this.currentStatus);
+    return () => {
+      this.statusListeners.delete(cb);
+    };
+  }
+
+  private setStatus(status: ServerConnectionStatus) {
+    this.currentStatus = status;
+    this.statusListeners.forEach((cb) => {
+      try {
+        cb(status);
+      } catch {}
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sync-server-status', { detail: { status } }));
+    }
+  }
+
+  public reconnect() {
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {}
+      this.ws = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.connectWebSocket();
+  }
+
+  private getWebSocketUrl(): string {
+    const base = this.serverUrl || getDefaultServerUrl();
+    if (base.startsWith('https://')) {
+      return base.replace('https://', 'wss://') + '/ws';
+    }
+    if (base.startsWith('http://')) {
+      return base.replace('http://', 'ws://') + '/ws';
+    }
+    return `ws://${base}/ws`;
+  }
+
+  private connectWebSocket() {
+    if (typeof window === 'undefined') return;
+
+    this.setStatus('connecting');
+    const wsUrl = this.getWebSocketUrl();
+
+    try {
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this.setStatus('connected');
+        console.log(`[RealtimeSync] Connected to dedicated sync server: ${wsUrl}`);
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
+      };
+
+      this.ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && data.type === 'SYNC_BATCH' && Array.isArray(data.payload?.messages)) {
+            for (const m of data.payload.messages) {
+              await this.processMessage(m, true);
+            }
+          } else if (data && data.type) {
+            await this.processMessage(data, false);
+          }
+        } catch {
+          // ignore malformed frame
+        }
+      };
+
+      this.ws.onerror = () => {
+        this.setStatus('error');
+      };
+
+      this.ws.onclose = () => {
+        this.setStatus('disconnected');
+        this.scheduleReconnect();
+      };
+    } catch {
+      this.setStatus('error');
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connectWebSocket();
+    }, 4000);
   }
 
   private listenLocalBroadcast() {
@@ -42,57 +194,51 @@ class RealtimeSyncService {
     } catch {}
   }
 
-  private startPolling() {
-    if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll PubNub cloud history every 1.5 seconds for cross-device updates
-    this.pollInterval = setInterval(() => this.pollCloudHistory(), 1500);
-    this.pollCloudHistory();
-  }
+  private async processMessage(msg: SyncMessage, isCatchup = false) {
+    if (!msg || typeof msg !== 'object' || !msg.type) return;
 
-  private async pollCloudHistory() {
-    try {
-      const res = await fetch(HIST_URL);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!Array.isArray(data) || !Array.isArray(data[0])) return;
-
-      const messages = data[0];
-
-      for (let i = 0; i < messages.length; i++) {
-        const msg: SyncMessage = messages[i];
-        if (!msg || typeof msg !== 'object') continue;
-
-        // Generate unique message identifier using senderId + type + order/settings id
-        let msgKey = `${msg.senderId}_${msg.type}`;
-        if (msg.payload) {
-          if (msg.payload.order?.id) msgKey += `_${msg.payload.order.id}_${msg.payload.order.status}`;
-          if (msg.payload.settings?.updatedAt) msgKey += `_${msg.payload.settings.updatedAt}`;
-          if (msg.payload.tableNumber) msgKey += `_${msg.payload.tableNumber}_${msg.payload.timestamp || ''}`;
-          if (msg.payload.table) {
-            msgKey += `_${msg.payload.table.id || msg.payload.table.number}_${msg.payload.table.status}_${msg.payload.table.updatedAt || ''}`;
-          }
-        }
-
-        if (this.processedTimestamps.has(msgKey)) continue;
-        this.processedTimestamps.add(msgKey);
-
-        if (msg.senderId !== SENDER_ID) {
-          await this.handleIncomingMessage(msg, this.isFirstPoll);
-        }
+    // Deduplicate identical message keys
+    let msgKey = `${msg.senderId}_${msg.type}`;
+    if (msg.payload) {
+      if (msg.payload.order?.id) msgKey += `_${msg.payload.order.id}_${msg.payload.order.status}_${msg.payload.order.updatedAt || ''}`;
+      if (msg.payload.tableNumber) msgKey += `_${msg.payload.tableNumber}_${msg.payload.timestamp || ''}`;
+      if (msg.payload.table) {
+        msgKey += `_${msg.payload.table.id || msg.payload.table.number}_${msg.payload.table.status}_${msg.payload.table.updatedAt || ''}`;
       }
-      this.isFirstPoll = false;
-    } catch {
-      // Ignore network polling glitches
+    }
+
+    if (this.processedMessageKeys.has(msgKey)) return;
+    this.processedMessageKeys.add(msgKey);
+
+    if (msg.senderId !== SENDER_ID) {
+      await this.handleIncomingMessage(msg, isCatchup);
     }
   }
 
   private sendToCloud(msg: SyncMessage) {
     const jsonStr = JSON.stringify(msg);
 
-    // 1. Publish to PubNub High-Availability Cloud Relay
-    fetch(PUB_URL + encodeURIComponent(jsonStr)).catch(() => {});
+    // 1. Send via WebSocket if open
+    let sentViaWs = false;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(jsonStr);
+        sentViaWs = true;
+      } catch {}
+    }
 
-    // 2. Broadcast to local tab/window instances
+    // 2. HTTP POST fallback/redundancy to ensure delivery
+    const httpBase = this.serverUrl || getDefaultServerUrl();
+    const httpEndpoint = httpBase.replace(/\/+$/, '') + '/api/sync';
+    fetch(httpEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: jsonStr,
+    }).catch(() => {
+      // Offline / server unreachable
+    });
+
+    // 3. Broadcast to local tab/window instances
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const bc = new BroadcastChannel('restaurant_db_channel');
@@ -135,32 +281,35 @@ class RealtimeSyncService {
 
         if (!order || !order.id) return;
 
-        const existing = orderDB.getById(order.id);
-        if (!existing) {
-          const orders = orderDB.getAll();
+        const orders = orderDB.getAll();
+        const existingIdx = orders.findIndex((o) => o.id === order.id);
+        if (existingIdx === -1) {
           orders.push(order);
           setCollection('orders', orders);
+        } else {
+          orders[existingIdx] = mergeOrders(orders[existingIdx], order, false);
+          setCollection('orders', orders);
+        }
 
-          if (order.tableNumber) {
-            const t = tableDB.getByNumber(order.tableNumber);
-            if (t) {
-              tableDB.update(t.id, { status: 'occupied', currentOrderId: order.id });
-            }
+        if (order.tableNumber) {
+          const t = tableDB.getByNumber(order.tableNumber);
+          if (t) {
+            tableDB.update(t.id, { status: 'occupied', currentOrderId: order.id });
           }
+        }
 
-          if (notif) {
-            const notifications = notificationDB.getAll();
-            const existsNotif = notifications.find((n) => n.id === notif.id);
-            if (!existsNotif) {
-              notifications.unshift(notif);
-              setCollection('notifications', notifications);
-            }
+        if (notif) {
+          const notifications = notificationDB.getAll();
+          const existsNotif = notifications.find((n) => n.id === notif.id);
+          if (!existsNotif) {
+            notifications.unshift(notif);
+            setCollection('notifications', notifications);
           }
+        }
 
-          notifyDbListeners();
-          if (!isInitialSync) {
-            this.playAlertSound();
-          }
+        notifyDbListeners();
+        if (!isInitialSync) {
+          this.playAlertSound();
         }
         break;
       }
@@ -172,22 +321,23 @@ class RealtimeSyncService {
         const orders = orderDB.getAll();
         const idx = orders.findIndex((o) => o.id === order.id);
         if (idx !== -1) {
-          orders[idx] = { ...orders[idx], ...order };
+          const merged = mergeOrders(orders[idx], order, false);
+          orders[idx] = merged;
           setCollection('orders', orders);
 
           // If order is completed or cancelled, automatically free up the associated table
-          if (['completed', 'cancelled'].includes(order.status)) {
-            const targetTableId = order.tableId;
-            const targetTableNumber = order.tableNumber;
+          if (['completed', 'cancelled'].includes(merged.status)) {
+            const targetTableId = merged.tableId;
+            const targetTableNumber = merged.tableNumber;
             if (targetTableId) {
               const tbl = tableDB.getById(targetTableId);
-              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === order.id)) {
-                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === merged.id)) {
+                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
               }
             } else if (targetTableNumber) {
               const tbl = tableDB.getByNumber(targetTableNumber);
-              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === order.id)) {
-                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+              if (tbl && (!tbl.currentOrderId || tbl.currentOrderId === merged.id)) {
+                tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
               }
             }
           }
@@ -196,6 +346,10 @@ class RealtimeSyncService {
           if (!isInitialSync) {
             this.playAlertSound();
           }
+        } else {
+          orders.push(order);
+          setCollection('orders', orders);
+          notifyDbListeners();
         }
         break;
       }
@@ -346,50 +500,18 @@ class RealtimeSyncService {
   }
 
   public broadcastOrderCreated(order: Order, notification?: Notification) {
-    const compressedOrder: Order = {
-      ...order,
-      items: order.items.map((i) => ({
-        id: i.id,
-        menuItemId: i.menuItemId,
-        menuItemName: i.menuItemName,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        totalPrice: i.totalPrice,
-        spiceLevel: i.spiceLevel,
-        selectedDrink: i.selectedDrink,
-        notes: i.notes,
-        status: i.status || 'pending',
-      })),
-    };
-
     const msg: SyncMessage = {
       type: 'ORDER_CREATED',
-      payload: { order: compressedOrder, notification },
+      payload: { order, notification },
       senderId: SENDER_ID,
     };
     this.sendToCloud(msg);
   }
 
   public broadcastOrderUpdated(order: Order) {
-    const compressedOrder: Order = {
-      ...order,
-      items: order.items.map((i) => ({
-        id: i.id,
-        menuItemId: i.menuItemId,
-        menuItemName: i.menuItemName,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        totalPrice: i.totalPrice,
-        spiceLevel: i.spiceLevel,
-        selectedDrink: i.selectedDrink,
-        notes: i.notes,
-        status: i.status || 'pending',
-      })),
-    };
-
     const msg: SyncMessage = {
       type: 'ORDER_UPDATED',
-      payload: { order: compressedOrder },
+      payload: { order },
       senderId: SENDER_ID,
     };
     this.sendToCloud(msg);

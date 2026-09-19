@@ -37,6 +37,7 @@ import {
   Cloud,
   Database,
   Check,
+  Radio,
 } from 'lucide-react';
 import {
   getStoredFirebaseConfig,
@@ -105,6 +106,7 @@ import {
   acknowledgeWaiterCall,
 } from '../database/db';
 import { soundService } from '../services/soundService';
+import { realtimeSync, type ServerConnectionStatus, getDefaultServerUrl } from '../services/realtimeSync';
 import type {
   AppSettings,
   Category,
@@ -3456,17 +3458,55 @@ export function SettingsPage() {
   const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
+  // Dedicated WebServer Sync State
+  const [syncServerUrl, setSyncServerUrl] = useState<string>(() => realtimeSync.getEffectiveServerUrl());
+  const [serverStatus, setServerStatus] = useState<ServerConnectionStatus>(() => realtimeSync.getConnectionStatus());
+  const [isTestingServer, setIsTestingServer] = useState(false);
+
   useEffect(() => {
     const unsub = subscribeFirebaseStatus((state) => {
       setCloudState(state);
+    });
+
+    const unsubServer = realtimeSync.subscribeStatus((status) => {
+      setServerStatus(status);
     });
 
     if (hasStoredFirebaseConfig()) {
       checkFirebaseHealth();
     }
 
-    return () => unsub();
+    return () => {
+      unsub();
+      unsubServer();
+    };
   }, []);
+
+  const handleSaveSyncServer = () => {
+    realtimeSync.setServerUrl(syncServerUrl);
+    setForm((prev) => ({ ...prev, syncServerUrl }));
+    settingsDB.update({ syncServerUrl });
+    success('Sync server URL saved! Connecting to server...');
+  };
+
+  const handleTestSyncServer = async () => {
+    setIsTestingServer(true);
+    try {
+      const endpoint = (syncServerUrl.trim() || getDefaultServerUrl()).replace(/\/+$/, '') + '/health';
+      const res = await fetch(endpoint);
+      if (res.ok) {
+        const data = await res.json();
+        success(`🎉 Connected to Sync Server! Active clients: ${data.activeClients ?? 0}`);
+        realtimeSync.setServerUrl(syncServerUrl);
+      } else {
+        error(`Server returned HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      error(`Could not reach Sync Server at ${syncServerUrl}. Make sure 'node server.js' or 'npm run server' is running.`);
+    } finally {
+      setIsTestingServer(false);
+    }
+  };
 
   const handleSaveFirebaseConfig = async () => {
     let current = { ...firebaseConfig };
@@ -3904,6 +3944,85 @@ export function SettingsPage() {
             Enable physical haptic vibration alert on mobile phones & tablets
           </span>
         </label>
+      </Card>
+
+      {/* Dedicated WebServer Real-Time Synchronization Card */}
+      <Card className="space-y-5 border-2 border-emerald-500/30">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Radio size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Dedicated WebServer Real-Time Sync
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Direct WebSocket & HTTP relay replacing PubNub. Delivers instant multi-terminal sync without rate limits or URL truncation.
+              </p>
+            </div>
+          </div>
+          <div>
+            {serverStatus === 'connected' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                WebServer Connected (Active)
+              </span>
+            )}
+            {serverStatus === 'connecting' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+                Connecting to WebServer...
+              </span>
+            )}
+            {(serverStatus === 'disconnected' || serverStatus === 'error') && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3.5 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+                <span className="h-2 w-2 rounded-full bg-rose-500"></span>
+                WebServer Disconnected
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl bg-gray-50 p-4 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+            Sync Server Address (WebSocket / HTTP Relay)
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={syncServerUrl}
+              onChange={(e) => setSyncServerUrl(e.target.value)}
+              placeholder="e.g. http://localhost:3001 or http://192.168.1.100:3001"
+              className="flex-1 rounded-xl border border-gray-300 p-2.5 font-mono text-xs dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestSyncServer}
+              isLoading={isTestingServer}
+              leftIcon={<RefreshCw size={14} />}
+            >
+              Test Connection
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveSyncServer}
+              leftIcon={<CheckCircle2 size={14} />}
+            >
+              Save & Connect
+            </Button>
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+            <p>
+              💡 <strong>How to start your dedicated sync server:</strong> Run <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">npm run server</code> or <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded text-emerald-600 dark:text-emerald-400 font-mono font-bold">node server.js</code> on your host terminal.
+            </p>
+            <p>
+              📱 For phones and other tablets on the same Wi-Fi, enter your host computer's local IP (e.g. <code className="bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">http://192.168.1.X:3001</code>).
+            </p>
+          </div>
+        </div>
       </Card>
 
       {/* Google Firebase Cloud Synchronization Card */}

@@ -427,32 +427,31 @@ export const POSPage: React.FC = () => {
           return;
         }
 
-        const isAllItemsServed = cart.every((i) => i.status === 'served');
-        const nextStatus = isAllItemsServed ? 'completed' : (latestOrder.status || 'active');
+        // Complete existing table order: mark non-cancelled items as served and complete order
+        const servedCartItems = cart.map((item) => ({
+          id: item.id,
+          menuItemId: item.menuItemId,
+          menuItemName: item.menuItemName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          spiceLevel: item.spiceLevel,
+          selectedDrink: item.selectedDrink,
+          notes: item.notes,
+          status: (item.status === 'cancelled' ? 'cancelled' : 'served') as const,
+        }));
 
-        // Complete/Update existing table order
         const updated = orderDB.update(loadedOrderId, {
-          status: nextStatus,
+          status: 'completed',
           paymentStatus: 'paid',
           isPaid: true,
-          completedAt: isAllItemsServed ? new Date().toISOString() : undefined,
+          completedAt: new Date().toISOString(),
           subtotal,
           tax: taxAmount,
           discount: discountAmount,
           total,
           notes: orderNotes.trim() || undefined,
-          items: cart.map((item) => ({
-            id: item.id,
-            menuItemId: item.menuItemId,
-            menuItemName: item.menuItemName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.totalPrice,
-            spiceLevel: item.spiceLevel,
-            selectedDrink: item.selectedDrink,
-            notes: item.notes,
-            status: item.status || 'pending',
-          })),
+          items: servedCartItems,
         });
 
         const payRecord = paymentDB.create({
@@ -464,22 +463,18 @@ export const POSPage: React.FC = () => {
           receivedBy: user?.username || 'Cashier',
         });
 
-        if (isAllItemsServed) {
-          const targetTableId = selectedTable?.id || updated?.tableId;
-          const targetTableNum = selectedTable?.number || updated?.tableNumber;
-          if (targetTableId) {
-            tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
-          } else if (targetTableNum) {
-            const tbl = tableDB.getByNumber(targetTableNum);
-            if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
-          }
-          if (targetTableNum) {
-            acknowledgeWaiterCall(targetTableNum, user?.username || 'Cashier');
-          }
-          success(`Payment of ${formatCurrency(total)} received! Table ${targetTableNum || 'N/A'} is now AVAILABLE ✅`);
-        } else {
-          success(`Payment of ${formatCurrency(total)} received! Order remaining in Kitchen Display until fully served.`);
+        const targetTableId = selectedTable?.id || updated?.tableId;
+        const targetTableNum = selectedTable?.number || updated?.tableNumber;
+        if (targetTableId) {
+          tableDB.update(targetTableId, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
+        } else if (targetTableNum) {
+          const tbl = tableDB.getByNumber(targetTableNum);
+          if (tbl) tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined, waiterCall: undefined });
         }
+        if (targetTableNum) {
+          acknowledgeWaiterCall(targetTableNum, user?.username || 'Cashier');
+        }
+        success(`Payment of ${formatCurrency(total)} received! Table ${targetTableNum || 'N/A'} is now AVAILABLE ✅`);
 
         setPaymentSuccessData({ order: updated || latestOrder, payment: payRecord });
       } else {

@@ -46,6 +46,35 @@ let activeUnsubscribers: Unsubscribe[] = [];
 let isSyncingFromCloud = false;
 const initializedCollections = new Set<string>();
 
+interface PendingWrite {
+  collName: string;
+  docId: string;
+  data: any;
+  timestamp: number;
+}
+const pendingWrites = new Map<string, PendingWrite>();
+
+export async function flushPendingWrites(): Promise<void> {
+  if (pendingWrites.size === 0 || isSyncingFromCloud || !isFirebaseActive()) return;
+  const list = Array.from(pendingWrites.values());
+  pendingWrites.clear();
+  for (const item of list) {
+    try {
+      await firebaseSync.pushDoc(item.collName, item.docId, item.data);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('firebase-status-changed', (e: any) => {
+    if (e.detail?.status === 'connected') {
+      flushPendingWrites().catch(() => {});
+    }
+  });
+}
+
 // Priority ranking for Order and Item status to prevent regressing states during concurrent merges
 export const ORDER_STATUS_PRIORITY: Record<string, number> = {
   active: 1,
@@ -171,6 +200,13 @@ export function mergeOrders(base: any, incoming: any, isOutgoingWrite: boolean =
   const notes = [base.notes, incoming.notes].filter(Boolean);
   const mergedNotes = Array.from(new Set(notes)).join(' | ') || undefined;
 
+  // Revision and timestamp monotonicity
+  const baseRev = typeof base._rev === 'number' ? base._rev : 0;
+  const incRev = typeof incoming._rev === 'number' ? incoming._rev : 0;
+  const baseUpdated = base.updatedAt ? new Date(base.updatedAt).getTime() : 0;
+  const incUpdated = incoming.updatedAt ? new Date(incoming.updatedAt).getTime() : 0;
+  const incomingIsStrictlyNewer = incRev > baseRev || (incRev === baseRev && incUpdated > baseUpdated);
+
   return {
     ...base,
     ...incoming,
@@ -182,13 +218,17 @@ export function mergeOrders(base: any, incoming: any, isOutgoingWrite: boolean =
     isPaid,
     paymentStatus,
     notes: mergedNotes,
-    completedAt: incoming.completedAt || base.completedAt,
+    completedAt: status === 'completed' ? (incoming.completedAt || base.completedAt || new Date().toISOString()) : undefined,
     customerName: incoming.customerName || base.customerName,
     customerPhone: incoming.customerPhone || base.customerPhone,
     tableId: incoming.tableId || base.tableId,
     tableNumber: incoming.tableNumber ?? base.tableNumber,
     waiterId: incoming.waiterId || base.waiterId,
     waiterName: incoming.waiterName || base.waiterName,
+    _rev: Math.max(baseRev, incRev),
+    updatedAt: incomingIsStrictlyNewer
+      ? incoming.updatedAt || new Date().toISOString()
+      : base.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -487,7 +527,11 @@ export const firebaseSync = {
    * Push a single document create/update to Cloud Firestore with transactional concurrency control
    */
   pushDoc: async (collName: string, docId: string, data: any): Promise<void> => {
-    if (isSyncingFromCloud || !isFirebaseActive()) return;
+    if (isSyncingFromCloud) return;
+    if (!isFirebaseActive()) {
+      pendingWrites.set(`${collName}_${docId}`, { collName, docId, data, timestamp: Date.now() });
+      return;
+    }
     const db = getFirebaseDb();
     if (!db) return;
 

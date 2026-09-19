@@ -1735,9 +1735,7 @@ export const orderDB = {
   },
   
   getActive: (): Order[] => {
-    return orderDB.getAll().filter(o => 
-      o.status !== 'cancelled' && (o.status !== 'completed' || o.items.some(i => i.status !== 'served' && i.status !== 'cancelled'))
-    );
+    return orderDB.getAll().filter(o => !['completed', 'cancelled'].includes(o.status));
   },
   
   getToday: (): Order[] => {
@@ -2256,6 +2254,7 @@ export const settingsDB = {
       waiterApkUrl: './restaurant-lite.apk',
       waiterCallSound: 'chime',
       waiterCallVibration: true,
+      syncServerUrl: 'http://localhost:3001',
     };
     
     const stored = getItem<AppSettings>('settings');
@@ -2265,6 +2264,7 @@ export const settingsDB = {
       ...stored,
       waiterCallSound: stored.waiterCallSound || 'chime',
       waiterCallVibration: stored.waiterCallVibration !== false,
+      syncServerUrl: stored.syncServerUrl || defaultSettings.syncServerUrl,
       waiterApkUrl: (!stored.waiterApkUrl || stored.waiterApkUrl === './restaurant-waiter-lite.apk')
         ? defaultSettings.waiterApkUrl
         : stored.waiterApkUrl,
