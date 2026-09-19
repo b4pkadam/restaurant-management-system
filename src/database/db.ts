@@ -1910,7 +1910,7 @@ export const orderDB = {
       message: `Table ${newOrder.tableNumber || 'N/A'} placed a new order for ${newOrder.items.length} item(s).`
     });
 
-    // Broadcast to other physical devices (PC/phones) via WebSocket
+    // Broadcast to other local browser tabs
     broadcastSync((s) => s.broadcastOrderCreated(newOrder, notif));
 
     return newOrder;
@@ -2340,7 +2340,6 @@ export const settingsDB = {
       waiterApkUrl: './restaurant-lite.apk',
       waiterCallSound: 'chime',
       waiterCallVibration: true,
-      syncServerUrl: 'http://localhost:3001',
     };
     
     const stored = getItem<AppSettings>('settings');
@@ -2350,7 +2349,6 @@ export const settingsDB = {
       ...stored,
       waiterCallSound: stored.waiterCallSound || 'chime',
       waiterCallVibration: stored.waiterCallVibration !== false,
-      syncServerUrl: stored.syncServerUrl || defaultSettings.syncServerUrl,
       waiterApkUrl: (!stored.waiterApkUrl || stored.waiterApkUrl === './restaurant-waiter-lite.apk')
         ? defaultSettings.waiterApkUrl
         : stored.waiterApkUrl,
