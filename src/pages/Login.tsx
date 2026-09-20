@@ -49,11 +49,23 @@ export const LoginPage: React.FC = () => {
     }
 
     try {
+      // If users are already populated via firebaseSync onSnapshot, skip redundant getDocs
+      if (userDB.getAll().length > 0) {
+        setIsCheckingCloud(false);
+        return;
+      }
+
       const health = await checkFirebaseHealth();
       if (health.isConnected) {
+        // Double check after health check whether snapshot has arrived in the meantime
+        if (userDB.getAll().length > 0) {
+          setIsCheckingCloud(false);
+          return;
+        }
+
         const db = getFirebaseDb();
         if (db) {
-          // 1. Sync accounts from Firestore users collection
+          // 1. Fallback sync accounts from Firestore users collection
           const usersSnap = await getDocs(collection(db, 'users'));
           if (!usersSnap.empty) {
             const existingUsers = userDB.getAll();
@@ -66,13 +78,16 @@ export const LoginPage: React.FC = () => {
             window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'users' } }));
           }
 
-          // 2. Sync settings from Firestore settings collection
-          const settingsSnap = await getDocs(collection(db, 'settings'));
-          if (!settingsSnap.empty) {
-            const settingsDoc = settingsSnap.docs[0];
-            if (settingsDoc && settingsDoc.exists()) {
-              setInMemoryItem('settings', settingsDoc.data());
-              window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
+          // 2. Fallback sync settings from Firestore settings collection if not yet present
+          const currentSettings = settingsDB.get();
+          if (!currentSettings || !currentSettings.restaurantName) {
+            const settingsSnap = await getDocs(collection(db, 'settings'));
+            if (!settingsSnap.empty) {
+              const settingsDoc = settingsSnap.docs[0];
+              if (settingsDoc && settingsDoc.exists()) {
+                setInMemoryItem('settings', settingsDoc.data());
+                window.dispatchEvent(new CustomEvent('db-update', { detail: { collection: 'settings' } }));
+              }
             }
           }
         }
@@ -87,6 +102,9 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     const unsub = subscribeFirebaseStatus((state) => {
       setCloudState(state);
+      if (state.status === 'connected') {
+        setIsCheckingCloud(false);
+      }
     });
 
     fetchCloudData();

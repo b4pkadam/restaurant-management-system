@@ -1775,15 +1775,6 @@ export const orderDB = {
     if (changed) {
       memoryStore.set('orders', orders);
       notifyDbListeners();
-      if (isFirebaseActive()) {
-        orders.forEach((ord, idx) => {
-          const original = raw[idx];
-          if (ord.id && (!original || JSON.stringify(original) !== JSON.stringify(ord))) {
-            firebaseSync.pushDoc('orders', ord.id, ord).catch(() => {});
-          }
-        });
-      }
-
       // Also auto-repair matching payments if order total was repaired
       const payments = getCollection<Payment>('payments');
       let paymentsChanged = false;
@@ -1799,14 +1790,6 @@ export const orderDB = {
       if (paymentsChanged) {
         memoryStore.set('payments', repairedPayments);
         notifyDbListeners();
-        if (isFirebaseActive()) {
-          repairedPayments.forEach((p, idx) => {
-            const originalP = payments[idx];
-            if (p.id && (!originalP || JSON.stringify(originalP) !== JSON.stringify(p))) {
-              firebaseSync.pushDoc('payments', p.id, p).catch(() => {});
-            }
-          });
-        }
       }
     }
     return orders;
@@ -1874,12 +1857,35 @@ export const orderDB = {
       isStaffOrder
     );
 
+    // Deduct linked recipe ingredients upfront and flag inventoryDeducted
+    const menuItems = menuItemDB.getAll();
+    const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+    const preparedItems = (pricing.items || []).map((orderItem) => {
+      if (orderItem.inventoryDeducted || orderItem.status === 'cancelled') {
+        return orderItem;
+      }
+      const menuItem = menuMap.get(orderItem.menuItemId);
+      if (menuItem?.recipe && Array.isArray(menuItem.recipe) && menuItem.recipe.length > 0) {
+        for (const ing of menuItem.recipe) {
+          if (ing.inventoryItemId && ing.quantity > 0) {
+            const totalRequired = Number(orderItem.quantity || 1) * Number(ing.quantity);
+            try {
+              inventoryDB.deductStock(ing.inventoryItemId, totalRequired);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+      return { ...orderItem, inventoryDeducted: true };
+    });
+
     const now = new Date().toISOString();
     const newOrder: Order = {
       paymentStatus: 'pending',
       isPaid: false,
       ...order,
-      items: pricing.items,
+      items: preparedItems,
       subtotal: pricing.subtotal,
       tax: pricing.tax,
       discount: pricing.discount,
@@ -1894,13 +1900,6 @@ export const orderDB = {
     };
     orders.push(newOrder);
     setCollection('orders', orders);
-
-    // Automatically deduct linked recipe ingredients from inventory
-    try {
-      inventoryDB.deductForOrder(newOrder.id);
-    } catch {
-      // ignore
-    }
     
     // Update table status if dine-in
     if (targetTableId) {

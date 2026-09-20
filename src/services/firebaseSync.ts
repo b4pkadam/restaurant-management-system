@@ -6,7 +6,6 @@ import {
   deleteField,
   onSnapshot,
   writeBatch,
-  runTransaction,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { getFirebaseDb, isFirebaseActive, setFirebaseConnectionStatus } from './firebase';
@@ -27,6 +26,25 @@ export const SYNC_COLLECTIONS = [
   'notifications',
   'settings',
 ] as const;
+
+export const CUSTOMER_SYNC_COLLECTIONS = [
+  'orders',
+  'tables',
+  'categories',
+  'menuItems',
+  'notifications',
+  'settings',
+] as const;
+
+export function isCustomerQrSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  const qTable = params.get('table');
+  if (qTable && /^\d+$/.test(qTable)) return true;
+  const hash = window.location.hash || '';
+  if (/#table=\d+/.test(hash)) return true;
+  return false;
+}
 
 export interface CloudUpdateHandler {
   setCollection: (collName: string, items: any[]) => void;
@@ -400,8 +418,11 @@ export const firebaseSync = {
     setFirebaseConnectionStatus('connecting');
 
     let listenerErrorFired = false;
+    const collectionsToSync = isCustomerQrSession()
+      ? CUSTOMER_SYNC_COLLECTIONS
+      : SYNC_COLLECTIONS;
 
-    SYNC_COLLECTIONS.forEach((collName) => {
+    collectionsToSync.forEach((collName) => {
       try {
         const collRef = collection(db, collName);
         const unsub = onSnapshot(
@@ -584,59 +605,16 @@ export const firebaseSync = {
       const docRef = doc(db, collName, cleanDocId);
       const now = new Date().toISOString();
 
-      try {
-        await runTransaction(db, async (transaction) => {
-          const snapshot = await transaction.get(docRef);
+      const nextRev = (typeof cleanData?._rev === 'number' && cleanData._rev > 0 ? cleanData._rev : 0) + 1;
+      const updatedPayload = prepareForFirestore({
+        ...cleanData,
+        id: cleanDocId,
+        _rev: nextRev,
+        updatedAt: cleanData?.updatedAt || now,
+      });
 
-          if (!snapshot.exists()) {
-            // New document: initialize revision metadata
-            const cleanPayload = { ...cleanData };
-            for (const k of Object.keys(cleanPayload)) {
-              if (cleanPayload[k] === undefined) delete cleanPayload[k];
-            }
-            const payload = {
-              ...cleanPayload,
-              id: cleanDocId,
-              _rev: typeof cleanData._rev === 'number' && cleanData._rev > 0 ? cleanData._rev : 1,
-              updatedAt: cleanData.updatedAt || now,
-            };
-            transaction.set(docRef, payload);
-            return;
-          }
-
-          // Existing document: perform optimistic concurrency checking & field-level merge
-          const cloudData = snapshot.data();
-          const merged = mergeEntities(collName, cloudData, cleanData, true);
-
-          const cloudRev = typeof cloudData._rev === 'number' ? cloudData._rev : 0;
-          const localRev = typeof cleanData._rev === 'number' ? cleanData._rev : 0;
-          const nextRev = Math.max(cloudRev, localRev) + 1;
-
-          const updatedPayload = prepareForFirestore({
-            ...merged,
-            id: cleanDocId,
-            _rev: nextRev,
-            updatedAt: now,
-          });
-
-          transaction.set(docRef, updatedPayload, { merge: true });
-        });
-        console.log(`[Cloud Sync] Transactionally pushed ${collName}/${cleanDocId} to Firestore`);
-      } catch (txError: any) {
-        // Fallback for offline or transaction-incompatible environments
-        console.warn(
-          `[Cloud Sync] Transaction for ${collName}/${cleanDocId} failed, using optimistic merge fallback:`,
-          txError
-        );
-        const nextRev = (typeof cleanData._rev === 'number' ? cleanData._rev : 0) + 1;
-        const fallbackPayload = prepareForFirestore({
-          ...cleanData,
-          id: cleanDocId,
-          _rev: nextRev,
-          updatedAt: cleanData.updatedAt || now,
-        });
-        await setDoc(docRef, fallbackPayload, { merge: true });
-      }
+      await setDoc(docRef, updatedPayload, { merge: true });
+      console.log(`[Cloud Sync] Pushed ${collName}/${cleanDocId} to Firestore`);
     } catch (error: any) {
       console.warn(`Cloud sync failed for ${collName}/${docId}:`, error);
       const msg = error?.message || String(error);
