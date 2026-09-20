@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote,
   Smartphone, User, Table2, Package, Check, Percent, DollarSign, ChefHat,
-  BellRing, Printer, Lock
+  BellRing, Printer, Lock, FileDown
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -21,7 +21,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
-import { printInvoice } from '../utils/printInvoice';
+import { printInvoice, downloadThermalReceiptPdf } from '../utils/printInvoice';
 
 interface CartItem extends OrderItem {
   menuItem: MenuItem;
@@ -1531,20 +1531,30 @@ export const POSPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex gap-2 pt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-3">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="w-full text-xs font-bold"
                 onClick={() => {
                   printInvoice(paymentSuccessData.order, paymentSuccessData.payment);
                 }}
-                leftIcon={<Printer size={16} />}
+                leftIcon={<Printer size={15} />}
               >
                 Print Receipt
               </Button>
               <Button
+                variant="outline"
+                className="w-full text-xs font-bold"
+                onClick={() => {
+                  downloadThermalReceiptPdf(paymentSuccessData.order, paymentSuccessData.payment);
+                }}
+                leftIcon={<FileDown size={15} />}
+              >
+                Download PDF
+              </Button>
+              <Button
                 variant="primary"
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
                 onClick={() => setPaymentSuccessData(null)}
               >
                 Done

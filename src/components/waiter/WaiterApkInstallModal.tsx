@@ -28,10 +28,12 @@ export const WaiterApkInstallModal: React.FC<WaiterApkInstallModalProps> = ({
     if (rawApkUrl.startsWith('http://') || rawApkUrl.startsWith('https://')) {
       return rawApkUrl;
     }
-    // Local relative file URL
-    const basePath = window.location.href.split(/[?#]/)[0].replace(/\/[^/]*$/, '');
-    const cleanRelative = rawApkUrl.replace(/^\.?\//, '');
-    return `${basePath}/${cleanRelative}`;
+    try {
+      const cleanRelative = rawApkUrl.replace(/^\.?\//, '');
+      return new URL(cleanRelative, window.location.href).href;
+    } catch {
+      return rawApkUrl;
+    }
   }, [rawApkUrl]);
 
   // Listen for browser PWA install event if supported

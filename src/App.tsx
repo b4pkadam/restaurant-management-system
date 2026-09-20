@@ -46,6 +46,7 @@ import {
 import { useDbUpdate } from './hooks/useDbUpdate';
 import { canViewPage, getDefaultPageForRole, PAGE_ACCESS, type AppPage } from './utils/access';
 import { VersionBadge } from './components/VersionBadge';
+import { WaiterApkInstallModal } from './components/waiter/WaiterApkInstallModal';
 import { cn } from './utils/cn';
 
 type Page = AppPage;
@@ -96,6 +97,8 @@ function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const [showApkInstallModal, setShowApkInstallModal] = useState(false);
+  const [hasCheckedApkPrompt, setHasCheckedApkPrompt] = useState(false);
 
   // Synchronously ensure browser storage contains no restaurant data for multi-user safety
   useEffect(() => {
@@ -173,6 +176,56 @@ function AppShell() {
       setCurrentPage(getDefaultPageForRole(user.role));
     }
   }, [user, currentPage]);
+
+  // Auto-prompt to install Lite APK / PWA when staff/waiter opens in mobile browser
+  useEffect(() => {
+    if (!bootstrapped || !isAuthenticated || !user || hasCheckedApkPrompt) {
+      return;
+    }
+
+    setHasCheckedApkPrompt(true);
+
+    // If app is already installed and running in standalone / PWA mode, do not prompt
+    const isStandalone =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true);
+
+    if (isStandalone) return;
+
+    // Check if dismissed in this browser session
+    try {
+      if (sessionStorage.getItem('rms_waiter_apk_prompt_dismissed')) {
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    // Prompt if mobile screen / user agent or waiter role
+    const isMobile =
+      typeof window !== 'undefined' &&
+      (window.innerWidth < 768 ||
+        /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        user.role === 'waiter');
+
+    if (!isMobile) return;
+
+    const timer = window.setTimeout(() => {
+      setShowApkInstallModal(true);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [bootstrapped, isAuthenticated, user, hasCheckedApkPrompt]);
+
+  const handleCloseApkModal = () => {
+    setShowApkInstallModal(false);
+    try {
+      sessionStorage.setItem('rms_waiter_apk_prompt_dismissed', 'true');
+    } catch {
+      // ignore
+    }
+  };
 
   const pageTitle = useMemo(() => {
     const titles: Record<Page, string> = {
@@ -463,6 +516,12 @@ function AppShell() {
           </div>
         </div>
       )}
+
+      {/* Mobile Browser APK / PWA Install Prompt */}
+      <WaiterApkInstallModal
+        isOpen={showApkInstallModal}
+        onClose={handleCloseApkModal}
+      />
 
       <VersionBadge />
     </div>

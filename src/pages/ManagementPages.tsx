@@ -231,7 +231,7 @@ function SectionHeader({
   );
 }
 
-import { printInvoice } from '../utils/printInvoice';
+import { printInvoice, downloadThermalReceiptPdf } from '../utils/printInvoice';
 
 function currency(value: number, symbol?: string) {
   return formatCurrency(value, symbol);
@@ -1711,6 +1711,9 @@ export function OrdersManagementPage() {
                   )}
                   <Button size="sm" variant="outline" onClick={() => printInvoice(order, payment)} leftIcon={<Printer size={14} />}>
                     Print Invoice
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => downloadThermalReceiptPdf(order, payment)} leftIcon={<FileDown size={14} />} title="Download 80mm Thermal Receipt PDF">
+                    PDF
                   </Button>
                 </div>
 
@@ -3613,6 +3616,9 @@ export function ReportsPage() {
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="outline" onClick={() => printInvoice(order)} leftIcon={<Printer size={14} />}>
                   Invoice
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => downloadThermalReceiptPdf(order)} leftIcon={<FileDown size={14} />} title="Download 80mm Thermal Receipt PDF">
+                  PDF
                 </Button>
                 {canEditOrder && (
                   <Button
