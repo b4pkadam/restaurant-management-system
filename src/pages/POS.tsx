@@ -1241,7 +1241,8 @@ export const POSPage: React.FC = () => {
                           })),
                         ];
                         const newSubtotal = appendedItems.reduce((sum, it) => sum + it.totalPrice, 0);
-                        const newTax = Math.round(newSubtotal * 0.10);
+                        const taxRate = (settings.taxPercentage || 0) / 100;
+                        const newTax = Math.round(newSubtotal * taxRate);
                         const newTotal = newSubtotal + newTax - (activeOrd.discount || 0);
                         orderDB.update(activeOrd.id, {
                           items: appendedItems,

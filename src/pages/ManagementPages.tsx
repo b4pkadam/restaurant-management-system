@@ -37,12 +37,7 @@ import {
   VolumeX,
   Cloud,
   Database,
-  Check,
-  Sun,
-  Moon,
   Settings,
-  Copy,
-  ExternalLink,
 } from 'lucide-react';
 import {
   getStoredFirebaseConfig,
@@ -3148,7 +3143,7 @@ export function SuppliersPage() {
             render: (supplier) => (
               <div>
                 <p className="font-medium">{supplier.name}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">GST: {supplier.gstNumber || '—'}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Tax ID: {supplier.gstNumber || '—'}</p>
               </div>
             ),
           },
@@ -3189,7 +3184,7 @@ export function SuppliersPage() {
             <Input label="Phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
           </div>
           <Textarea label="Address" value={form.address} onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))} rows={3} />
-          <Input label="GST Number" value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
+          <Input label="Tax ID / Registration No." placeholder="e.g. GSTIN, Tax ID, or VAT number" value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
           <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
             <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
             <span className="text-sm text-gray-700 dark:text-gray-300">Supplier is active</span>
@@ -3679,6 +3674,41 @@ export function SettingsPage() {
   const [form, setForm] = useState<AppSettings>(() => settingsDB.get());
   const [isImporting, setIsImporting] = useState(false);
 
+  // Dynamic regional Tax and Rate labels based on currency setting
+  const taxLabel = useMemo(() => {
+    switch (form.currency) {
+      case 'INR':
+        return 'GST / Tax ID Number';
+      case 'USD':
+        return 'Tax ID / EIN Number';
+      case 'EUR':
+      case 'GBP':
+        return 'VAT Registration Number';
+      case 'JPY':
+        return 'Invoice Reg. No. (適格請求書登録番号)';
+      case 'NPR':
+        return 'PAN / VAT Number';
+      default:
+        return 'Tax ID / Business Registration No.';
+    }
+  }, [form.currency]);
+
+  const taxPercentageLabel = useMemo(() => {
+    switch (form.currency) {
+      case 'INR':
+        return 'GST Rate (%)';
+      case 'USD':
+        return 'Sales Tax (%)';
+      case 'EUR':
+      case 'GBP':
+        return 'VAT Rate (%)';
+      case 'JPY':
+        return 'Consumption Tax (%)';
+      default:
+        return 'Tax Percentage (%)';
+    }
+  }, [form.currency]);
+
   // Sync form when database updates externally (e.g. from Cloud sync or other tabs)
   useEffect(() => {
     const latest = settingsDB.get();
@@ -4028,8 +4058,18 @@ export function SettingsPage() {
           <div className="md:col-span-2">
             <Textarea label={t('address', 'Address')} value={form.restaurantAddress} onChange={(e) => setForm((prev) => ({ ...prev, restaurantAddress: e.target.value }))} rows={2} />
           </div>
-          <Input label={t('gstNumber', 'GST Number')} value={form.gstNumber} onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))} />
-          <Input label={t('taxPercentage', 'Tax Percentage (%)')} type="number" value={String(form.taxPercentage)} onChange={(e) => setForm((prev) => ({ ...prev, taxPercentage: Number(e.target.value) }))} />
+          <Input
+            label={taxLabel}
+            placeholder={form.currency === 'INR' ? 'GSTIN (e.g. 22AAAAA0000A1Z5)' : 'Tax ID / Registration Number'}
+            value={form.gstNumber}
+            onChange={(e) => setForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
+          />
+          <Input
+            label={taxPercentageLabel}
+            type="number"
+            value={String(form.taxPercentage)}
+            onChange={(e) => setForm((prev) => ({ ...prev, taxPercentage: Number(e.target.value) }))}
+          />
           <Select
             label={t('currency', 'Region & Currency')}
             value={form.currency}
@@ -4059,174 +4099,34 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      {/* Customer Ordering Portal URL Card */}
-      <Card className="space-y-4 border border-blue-200/80 dark:border-blue-900/40 bg-gradient-to-br from-blue-50/40 to-indigo-50/20 dark:from-blue-950/20 dark:to-indigo-950/10">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <QrCode size={20} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                Customer Ordering Portal URL
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Live customer menu link used by QR codes and online ordering
-              </p>
-            </div>
-          </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-2.5 py-0.5 text-xs font-bold w-fit">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Live & Active
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="flex-1 min-w-0 flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto shadow-2xs">
-              <ExternalLink size={14} className="shrink-0 text-blue-600 dark:text-blue-400" />
-              <span className="select-all truncate">
-                {`${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}?table=1`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const url = `${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}?table=1`;
-                  navigator.clipboard.writeText(url);
-                  success('Customer ordering URL copied to clipboard!');
-                }}
-                leftIcon={<Copy size={14} />}
-                className="text-xs font-semibold"
-              >
-                Copy Link
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  const url = `${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}?table=1`;
-                  window.open(url, '_blank');
-                }}
-                leftIcon={<ExternalLink size={14} />}
-                className="text-xs font-semibold"
-              >
-                Open Live Menu
-              </Button>
-            </div>
-          </div>
-
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Dine-in guests scan individual table QR codes to access this menu and send orders directly to the kitchen display. You can view, preview, and print customized table QR cards from the Table Management floor plan.
-          </p>
-        </div>
-      </Card>
-
-      {/* Handheld Devices & Staff Mobile Terminal */}
-      <Card className="space-y-3">
-        <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-            <Smartphone size={18} />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-gray-900 dark:text-white">
-              Handheld Devices & Staff Mobile App
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Optional Android APK download link for waitstaff handheld order terminals
-            </p>
-          </div>
-        </div>
-        <div className="max-w-2xl">
-          <Input
-            label="Staff Mobile Lite APK Download URL"
-            placeholder="./restaurant-lite.apk or https://..."
-            value={form.waiterApkUrl || ''}
-            onChange={(e) => setForm((prev) => ({ ...prev, waiterApkUrl: e.target.value }))}
-          />
-        </div>
-      </Card>
-
-      {/* Appearance & Language Card */}
+      {/* Language & System Settings Card */}
       <Card className="space-y-4">
         <h3 className="text-base font-bold text-gray-900 dark:text-white">
-          {t('appearance', 'Appearance & Language')}
+          {t('languageSettings', 'Language & System Settings')}
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Theme Switcher */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-              {t('theme', 'Theme')}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setForm((prev) => ({ ...prev, theme: 'light' }));
-                  setTheme('light');
-                }}
-                className={cn(
-                  "flex items-center justify-center gap-2 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
-                  theme === 'light'
-                    ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
-                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                )}
-              >
-                <Sun size={16} /> {t('light', 'Light')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setForm((prev) => ({ ...prev, theme: 'dark' }));
-                  setTheme('dark');
-                }}
-                className={cn(
-                  "flex items-center justify-center gap-2 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
-                  theme === 'dark'
-                    ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
-                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                )}
-              >
-                <Moon size={16} /> {t('dark', 'Dark')}
-              </button>
-            </div>
-          </div>
-
-          {/* Language Switcher */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-              {t('language', 'Language')}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {SUPPORTED_LANGUAGES.map((l) => {
-                const isSelected = language === l.code;
-                return (
-                  <button
-                    key={l.code}
-                    type="button"
-                    onClick={() => {
-                      setForm((prev) => ({ ...prev, language: l.code }));
-                      setLanguage(l.code);
-                    }}
-                    className={cn(
-                      "flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-semibold text-xs transition-all cursor-pointer",
-                      isSelected
-                        ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 ring-1 ring-blue-500 shadow-xs"
-                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                    )}
-                  >
-                    <span>{l.flag}</span>
-                    <span>{l.nativeName}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <Select
+            label={t('language', 'Application Language')}
+            value={language}
+            onChange={(e) => {
+              const code = e.target.value;
+              setForm((prev) => ({ ...prev, language: code }));
+              setLanguage(code);
+            }}
+            options={SUPPORTED_LANGUAGES.map((l) => ({
+              value: l.code,
+              label: `${l.flag} ${l.nativeName} (${l.name})`,
+            }))}
+          />
+          <Input
+            label={t('backupInterval', 'Auto-Backup Interval (hrs)')}
+            type="number"
+            value={String(form.backupInterval)}
+            onChange={(e) => setForm((prev) => ({ ...prev, backupInterval: Number(e.target.value) }))}
+          />
         </div>
 
-        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -4235,17 +4135,9 @@ export function SettingsPage() {
               className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
             />
             <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-              {t('autoBackup', 'Enable Automatic Backups')}
+              {t('autoBackup', 'Enable Automatic Background Backups')}
             </span>
           </label>
-          <div className="w-44">
-            <Input
-              label={t('backupInterval', 'Interval (hrs)')}
-              type="number"
-              value={String(form.backupInterval)}
-              onChange={(e) => setForm((prev) => ({ ...prev, backupInterval: Number(e.target.value) }))}
-            />
-          </div>
         </div>
       </Card>
 
@@ -4265,50 +4157,39 @@ export function SettingsPage() {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Sound Selection Dropdown + Preview */}
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1">
+            <Select
+              label={t('callingAlertSound', 'Alert Ringtone')}
+              value={form.waiterCallSound || 'chime'}
+              onChange={(e) => {
+                const snd = e.target.value as any;
+                setForm((prev) => ({ ...prev, waiterCallSound: snd }));
+                settingsDB.update({ waiterCallSound: snd });
+                soundService.testSound(snd);
+              }}
+              options={[
+                { value: 'chime', label: '🔔 Chime (Melodic 3-Tone)' },
+                { value: 'bell', label: '🛎️ Service Bell (Ding-Dong)' },
+                { value: 'urgent', label: '🚨 Urgent (High Chimes)' },
+                { value: 'gentle', label: '🎶 Marimba (Warm Triad)' },
+                { value: 'pager', label: '📟 Pager (Triple Beep)' },
+              ]}
+            />
+          </div>
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="md"
             onClick={() => soundService.testSound(form.waiterCallSound || 'chime')}
-            className="text-xs font-semibold"
-            leftIcon={<Volume2 size={14} />}
+            className="text-xs font-semibold shrink-0"
+            leftIcon={<Volume2 size={16} />}
           >
             {t('preview', 'Preview Alert')}
           </Button>
-        </div>
-
-        {/* Sound Selection Chips */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
-          {[
-            { id: 'chime' as const, label: 'Chime', icon: '🔔', sub: 'Melodic 3-Tone' },
-            { id: 'bell' as const, label: 'Service Bell', icon: '🛎️', sub: 'Ding-Dong' },
-            { id: 'urgent' as const, label: 'Urgent', icon: '🚨', sub: 'High Chimes' },
-            { id: 'gentle' as const, label: 'Marimba', icon: '🎶', sub: 'Warm Triad' },
-            { id: 'pager' as const, label: 'Pager', icon: '📟', sub: 'Triple Beep' },
-          ].map((snd) => {
-            const isSelected = (form.waiterCallSound || 'chime') === snd.id;
-            return (
-              <button
-                key={snd.id}
-                type="button"
-                onClick={() => {
-                  setForm((prev) => ({ ...prev, waiterCallSound: snd.id }));
-                  settingsDB.update({ waiterCallSound: snd.id });
-                  soundService.testSound(snd.id);
-                }}
-                className={cn(
-                  "flex flex-col items-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
-                  isSelected
-                    ? "border-amber-500 bg-amber-100/70 text-amber-950 font-bold dark:border-amber-500 dark:bg-amber-950/60 dark:text-amber-200 shadow-xs ring-1 ring-amber-400/50"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-amber-300 dark:border-gray-800 dark:bg-gray-800/80 dark:text-gray-300"
-                )}
-              >
-                <span className="text-xl mb-1">{snd.icon}</span>
-                <span className="text-xs font-semibold leading-tight">{snd.label}</span>
-                <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{snd.sub}</span>
-              </button>
-            );
-          })}
         </div>
 
         {/* Vibration Toggle */}

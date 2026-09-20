@@ -45,6 +45,30 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
     })
     .join('');
 
+  const taxIdLabel =
+    settings.currency === 'INR'
+      ? 'GST'
+      : settings.currency === 'USD'
+      ? 'Tax ID'
+      : settings.currency === 'EUR' || settings.currency === 'GBP'
+      ? 'VAT'
+      : settings.currency === 'JPY'
+      ? 'Invoice Reg. No.'
+      : settings.currency === 'NPR'
+      ? 'PAN'
+      : 'Tax ID';
+
+  const taxRateLabel =
+    settings.currency === 'INR'
+      ? 'GST'
+      : settings.currency === 'USD'
+      ? 'Sales Tax'
+      : settings.currency === 'EUR' || settings.currency === 'GBP'
+      ? 'VAT'
+      : settings.currency === 'JPY'
+      ? 'Consumption Tax'
+      : 'Tax';
+
   invoiceWindow.document.write(`
     <!DOCTYPE html>
     <html>
@@ -79,7 +103,7 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
               <div>
                 <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">${escapeHtml(settings.restaurantName)}</h1>
                 <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${escapeHtml(settings.restaurantAddress || '')}</p>
-                <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${escapeHtml(settings.restaurantPhone || 'N/A')}${settings.gstNumber ? ` | GST: ${escapeHtml(settings.gstNumber)}` : ''}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Phone: ${escapeHtml(settings.restaurantPhone || 'N/A')}${settings.gstNumber ? ` | ${taxIdLabel}: ${escapeHtml(settings.gstNumber)}` : ''}</p>
               </div>
             </div>
             <div style="text-align:right;">
@@ -134,7 +158,7 @@ export function printInvoice(order: Order, explicitPayment?: Payment | null) {
               </div>
             ` : ''}
             <div class="tot-row">
-              <span>Tax (${settings.taxPercentage}%):</span>
+              <span>${taxRateLabel} (${settings.taxPercentage}%):</span>
               <span>${formatCurrency(order.tax)}</span>
             </div>
             <div class="tot-final">

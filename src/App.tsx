@@ -42,12 +42,10 @@ import {
   LogOut,
   Sun,
   Moon,
-  Smartphone,
 } from 'lucide-react';
 import { useDbUpdate } from './hooks/useDbUpdate';
 import { canViewPage, getDefaultPageForRole, PAGE_ACCESS, type AppPage } from './utils/access';
 import { VersionBadge } from './components/VersionBadge';
-import { WaiterApkInstallModal } from './components/waiter/WaiterApkInstallModal';
 import { cn } from './utils/cn';
 
 type Page = AppPage;
@@ -98,8 +96,6 @@ function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
-  const [showApkInstallModal, setShowApkInstallModal] = useState(false);
-  const [hasCheckedApkPrompt, setHasCheckedApkPrompt] = useState(false);
 
   // Synchronously ensure browser storage contains no restaurant data for multi-user safety
   useEffect(() => {
@@ -177,48 +173,6 @@ function AppShell() {
       setCurrentPage(getDefaultPageForRole(user.role));
     }
   }, [user, currentPage]);
-
-  // Auto-prompt waiter to install Lite APK when opened for the first time in browser
-  useEffect(() => {
-    if (!bootstrapped || !isAuthenticated || !user || user.role !== 'waiter' || hasCheckedApkPrompt) {
-      return;
-    }
-
-    setHasCheckedApkPrompt(true);
-
-    // If app is already installed and running in standalone / PWA mode, do not prompt
-    const isStandalone =
-      typeof window !== 'undefined' &&
-      (window.matchMedia('(display-mode: standalone)').matches ||
-        (window.navigator as any).standalone === true);
-
-    if (isStandalone) return;
-
-    // Check if dismissed in this browser session
-    try {
-      if (sessionStorage.getItem('rms_waiter_apk_prompt_dismissed')) {
-        return;
-      }
-    } catch {
-      // ignore
-    }
-
-    // Delay prompt slightly for a smooth load transition
-    const timer = window.setTimeout(() => {
-      setShowApkInstallModal(true);
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, [bootstrapped, isAuthenticated, user, hasCheckedApkPrompt]);
-
-  const handleCloseApkModal = () => {
-    setShowApkInstallModal(false);
-    try {
-      sessionStorage.setItem('rms_waiter_apk_prompt_dismissed', 'true');
-    } catch {
-      // ignore
-    }
-  };
 
   const pageTitle = useMemo(() => {
     const titles: Record<Page, string> = {
@@ -481,22 +435,6 @@ function AppShell() {
               </div>
             </div>
 
-            {/* Install Lite APK / App Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setShowProfilePopup(false);
-                setShowApkInstallModal(true);
-              }}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100/70 dark:hover:bg-blue-900/50 text-xs font-bold text-blue-700 dark:text-blue-300 cursor-pointer transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Smartphone size={16} className="text-blue-600 dark:text-blue-400" />
-                <span>Install Restaurant Lite APK</span>
-              </div>
-              <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">Get APK</span>
-            </button>
-
             {/* Theme Toggle Button */}
             <button
               type="button"
@@ -525,12 +463,6 @@ function AppShell() {
           </div>
         </div>
       )}
-
-      {/* Waiter Mobile APK Install Modal */}
-      <WaiterApkInstallModal
-        isOpen={showApkInstallModal}
-        onClose={handleCloseApkModal}
-      />
 
       <VersionBadge />
     </div>
