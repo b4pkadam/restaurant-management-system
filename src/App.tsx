@@ -93,7 +93,26 @@ function AppShell() {
   const { isAuthenticated, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [currentPage, setCurrentPage] = useState<Page>(() => {
+    try {
+      const saved = sessionStorage.getItem('rms_current_page') as Page;
+      if (saved) return saved;
+    } catch {
+      // ignore
+    }
+    return 'dashboard';
+  });
+
+  // Keep active page synced to tab session so refresh stays on the current page
+  useEffect(() => {
+    try {
+      if (currentPage) {
+        sessionStorage.setItem('rms_current_page', currentPage);
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentPage]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -173,7 +192,13 @@ function AppShell() {
   useEffect(() => {
     if (!user) return;
     if (!canViewPage(user.role, currentPage)) {
-      setCurrentPage(getDefaultPageForRole(user.role));
+      const defaultPg = getDefaultPageForRole(user.role);
+      setCurrentPage(defaultPg);
+      try {
+        sessionStorage.setItem('rms_current_page', defaultPg);
+      } catch {
+        // ignore
+      }
     }
   }, [user, currentPage]);
 

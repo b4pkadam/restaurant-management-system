@@ -958,7 +958,6 @@ export function clearBrowserDataStorage(): void {
           k.startsWith('restaurant_cart_') ||
           k.startsWith('restaurant_auto_backup') ||
           k === 'restaurant_last_backup' ||
-          k === 'current_user' ||
           k === 'customer_name' ||
           k === 'customer_phone')
       ) {

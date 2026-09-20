@@ -17,17 +17,54 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+const AUTH_SESSION_KEY = 'rms_auth_session';
 
+function getInitialSession(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    // 1. Check tab-scoped sessionStorage first to preserve multi-user tab isolation
+    const sessionRaw = sessionStorage.getItem(AUTH_SESSION_KEY);
+    if (sessionRaw) {
+      const parsed = JSON.parse(sessionRaw);
+      if (parsed && parsed.id && parsed.username && parsed.role) {
+        return parsed;
+      }
+    }
+
+    // 2. Check localStorage fallback (for PWA / mobile browser re-opening)
+    const localRaw = localStorage.getItem(AUTH_SESSION_KEY);
+    if (localRaw) {
+      const parsed = JSON.parse(localRaw);
+      if (parsed && parsed.id && parsed.username && parsed.role) {
+        try {
+          sessionStorage.setItem(AUTH_SESSION_KEY, localRaw);
+        } catch {
+          // ignore
+        }
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(getInitialSession);
+
+  // Validate active session against database (e.g. if an employee was deactivated)
   useEffect(() => {
-    // Purge any legacy browser storage session to guarantee multi-user isolation
+    if (!user) return;
     try {
-      localStorage.removeItem('current_user');
+      const dbUser = userDB.getById(user.id);
+      if (dbUser && dbUser.isActive === false) {
+        logout();
+      }
     } catch {
       // ignore
     }
-  }, []);
+  }, [user]);
 
   const login = (username: string, password: string): LoginResult => {
     const auth = userDB.authenticate(username, password);
@@ -39,10 +76,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isActive: auth.user.isActive,
         lastLogin: auth.user.lastLogin,
         createdAt: auth.user.createdAt,
-        password: '',
+        password: '', // never store password in browser session
       };
-      // Session kept in memory only for the active multi-user session
+
       setUser(sessionUser);
+
+      try {
+        const payload = JSON.stringify(sessionUser);
+        sessionStorage.setItem(AUTH_SESSION_KEY, payload);
+        localStorage.setItem(AUTH_SESSION_KEY, payload);
+      } catch {
+        // ignore
+      }
+
       return { success: true };
     }
     return { success: false, error: auth.error || 'Invalid username or password' };
@@ -50,6 +96,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     setUser(null);
+    try {
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      sessionStorage.removeItem('rms_current_page');
+    } catch {
+      // ignore
+    }
   };
 
   const hasPermission = (roles: UserRole[]): boolean => {
