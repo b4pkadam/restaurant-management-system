@@ -1,0 +1,25 @@
+{
+  "name": "Restaurant Management System — Mobile Lite",
+  "short_name": "RMS Mobile",
+  "description": "Fast mobile ordering, table service, and POS billing for restaurant staff.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./apple-touch-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
