@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   FileDown,
+  Layers,
   Lock,
   PackagePlus,
   Plus,
@@ -114,6 +115,7 @@ import type {
   Employee,
   InventoryItem,
   MenuItem,
+  MenuItemIngredient,
   Order,
   OrderItem,
   PurchaseEntry,
@@ -260,7 +262,22 @@ export function MenuManagementPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [itemForm, setItemForm] = useState({
+  const [itemForm, setItemForm] = useState<{
+    name: string;
+    description: string;
+    categoryId: string;
+    price: string;
+    cost: string;
+    imageUrl: string;
+    barcode: string;
+    isAvailable: boolean;
+    isVeg: boolean;
+    allowsSpiceLevel: boolean;
+    includesDrink: boolean;
+    preparationTime: string;
+    ingredients: string;
+    recipe: MenuItemIngredient[];
+  }>({
     name: '',
     description: '',
     categoryId: '',
@@ -274,7 +291,10 @@ export function MenuManagementPage() {
     includesDrink: false,
     preparationTime: '10',
     ingredients: '',
+    recipe: [],
   });
+  const [selectedInvId, setSelectedInvId] = useState('');
+  const [recipeQty, setRecipeQty] = useState('');
   const [categoryForm, setCategoryForm] = useState({
     name: '',
     description: '',
@@ -284,6 +304,41 @@ export function MenuManagementPage() {
   });
 
   const tick = useDbUpdate();
+  const inventoryItems = useMemo(() => inventoryDB.getAll().filter((i) => i.isActive !== false), [tick]);
+  const selectedInvItem = useMemo(() => inventoryItems.find((i) => i.id === selectedInvId), [inventoryItems, selectedInvId]);
+
+  const handleAddRecipeItem = () => {
+    if (!selectedInvId || !recipeQty || Number(recipeQty) <= 0) return;
+    const inv = inventoryItems.find((i) => i.id === selectedInvId);
+    if (!inv) return;
+    const qty = Number(recipeQty);
+    const existingIdx = itemForm.recipe.findIndex((r) => r.inventoryItemId === selectedInvId);
+    if (existingIdx !== -1) {
+      const updated = [...itemForm.recipe];
+      updated[existingIdx] = {
+        ...updated[existingIdx],
+        quantity: Math.round((updated[existingIdx].quantity + qty) * 1000) / 1000,
+      };
+      setItemForm((prev) => ({ ...prev, recipe: updated }));
+    } else {
+      const newEntry: MenuItemIngredient = {
+        inventoryItemId: inv.id,
+        inventoryItemName: inv.name,
+        quantity: qty,
+        unit: inv.unit || 'unit',
+      };
+      setItemForm((prev) => ({ ...prev, recipe: [...prev.recipe, newEntry] }));
+    }
+    setSelectedInvId('');
+    setRecipeQty('');
+  };
+
+  const handleRemoveRecipeItem = (invId: string) => {
+    setItemForm((prev) => ({
+      ...prev,
+      recipe: prev.recipe.filter((r) => r.inventoryItemId !== invId),
+    }));
+  };
 
   const loadData = () => {
     const allCategories = categoryDB.getAll().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -338,7 +393,10 @@ export function MenuManagementPage() {
       includesDrink: false,
       preparationTime: '10',
       ingredients: '',
+      recipe: [],
     });
+    setSelectedInvId('');
+    setRecipeQty('');
   };
 
   const resetCategoryForm = () => {
@@ -368,7 +426,10 @@ export function MenuManagementPage() {
       includesDrink: item.includesDrink ?? false,
       preparationTime: String(item.preparationTime),
       ingredients: item.ingredients ? item.ingredients.join(', ') : '',
+      recipe: Array.isArray(item.recipe) ? [...item.recipe] : [],
     });
+    setSelectedInvId('');
+    setRecipeQty('');
     setShowItemModal(true);
   };
 
@@ -407,6 +468,7 @@ export function MenuManagementPage() {
         .split(',')
         .map((ingredient) => ingredient.trim())
         .filter(Boolean),
+      recipe: itemForm.recipe.length > 0 ? itemForm.recipe : undefined,
     };
 
     if (editingItem) {
@@ -528,6 +590,14 @@ export function MenuManagementPage() {
                         <div>
                           <p className="font-medium">{item.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">{item.description || 'No description'}</p>
+                          {item.recipe && item.recipe.length > 0 && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 px-1.5 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                                <Layers size={11} />
+                                {item.recipe.length} recipe ingredient{item.recipe.length > 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       ),
                     },
@@ -643,7 +713,115 @@ export function MenuManagementPage() {
           </div>
           <Input label="Image URL" value={itemForm.imageUrl} onChange={(e) => setItemForm((prev) => ({ ...prev, imageUrl: e.target.value }))} />
           <Textarea label="Description" value={itemForm.description} onChange={(e) => setItemForm((prev) => ({ ...prev, description: e.target.value }))} rows={3} />
-          <Textarea label="Ingredients (comma separated)" value={itemForm.ingredients} onChange={(e) => setItemForm((prev) => ({ ...prev, ingredients: e.target.value }))} rows={3} />
+          <Textarea label="Ingredients (comma separated)" value={itemForm.ingredients} onChange={(e) => setItemForm((prev) => ({ ...prev, ingredients: e.target.value }))} rows={2} />
+
+          {/* Linked Recipe & Raw Inventory Stock Deduction */}
+          <div className="rounded-xl border border-gray-200 p-3.5 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                  <Layers size={15} className="text-blue-600 dark:text-blue-400" />
+                  <span>Recipe & Inventory Stock Link</span>
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Link raw ingredients and portion amounts to automatically deduct stock from inventory when this dish is ordered.
+                </p>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 shrink-0">
+                {itemForm.recipe.length} item{itemForm.recipe.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {/* List of currently linked recipe ingredients */}
+            {itemForm.recipe.length > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {itemForm.recipe.map((ing) => {
+                  const inv = inventoryItems.find((i) => i.id === ing.inventoryItemId);
+                  return (
+                    <div
+                      key={ing.inventoryItemId}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-gray-900 dark:text-white truncate">
+                          {ing.inventoryItemName}
+                        </span>
+                        {inv && (
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                            (Current Stock: {inv.quantity} {inv.unit})
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                          {ing.quantity} {ing.unit}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRecipeItem(ing.inventoryItemId)}
+                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-md transition-colors cursor-pointer"
+                          title="Remove ingredient"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                No raw inventory items linked yet. Add ingredients below to enable automated stock tracking.
+              </p>
+            )}
+
+            {/* Selector to add an ingredient */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2 pt-1 border-t border-gray-200 dark:border-gray-700/60">
+              <div className="flex-1">
+                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  Select Raw Stock Item
+                </label>
+                <select
+                  value={selectedInvId}
+                  onChange={(e) => setSelectedInvId(e.target.value)}
+                  className="w-full text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">-- Choose Stock Item --</option>
+                  {inventoryItems.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.name} ({inv.quantity} {inv.unit} in stock)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-full sm:w-32">
+                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  Portion ({selectedInvItem?.unit || 'unit'})
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.001"
+                  placeholder="e.g. 0.25"
+                  value={recipeQty}
+                  onChange={(e) => setRecipeQty(e.target.value)}
+                  className="w-full text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!selectedInvId || !recipeQty || Number(recipeQty) <= 0}
+                onClick={handleAddRecipeItem}
+                leftIcon={<Plus size={13} />}
+                className="shrink-0 text-xs self-end"
+              >
+                Add Link
+              </Button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex items-center gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
               <input type="checkbox" checked={itemForm.isVeg} onChange={(e) => setItemForm((prev) => ({ ...prev, isVeg: e.target.checked }))} />
@@ -3485,7 +3663,7 @@ export function SettingsPage() {
     const latest = settingsDB.get();
     setForm((prev) => ({
       ...latest,
-      restaurantLogo: prev.restaurantLogo !== undefined ? prev.restaurantLogo : latest.restaurantLogo,
+      restaurantLogo: latest.restaurantLogo || '',
     }));
   }, [tick]);
 
@@ -3711,9 +3889,9 @@ export function SettingsPage() {
   };
 
   const handleRemoveLogo = () => {
-    setForm((prev) => ({ ...prev, restaurantLogo: undefined }));
-    settingsDB.update({ restaurantLogo: undefined });
-    info('Logo removed.');
+    setForm((prev) => ({ ...prev, restaurantLogo: '' }));
+    settingsDB.update({ restaurantLogo: '' });
+    info('Logo removed successfully.');
   };
 
   const importBackup = async (file: File | null) => {

@@ -343,8 +343,8 @@ export function mergeEntities(
     }
   }
 
-  if (isOutgoingWrite && incoming.restaurantLogo === undefined && 'restaurantLogo' in incoming) {
-    delete merged.restaurantLogo;
+  if (isOutgoingWrite && (!incoming.restaurantLogo || incoming.restaurantLogo === '') && 'restaurantLogo' in incoming) {
+    merged.restaurantLogo = undefined;
   }
 
   merged._rev = Math.max(baseRev, incRev);
@@ -356,9 +356,9 @@ export function mergeEntities(
 }
 
 /**
- * Recursively prepares an object for Firestore writes.
- * Replaces explicit undefined values with deleteField() so that
- * fields like waiterCall and currentOrderId are actually deleted in the cloud document
+ * Prepares an object for Cloud Firestore serialization.
+ * Replaces explicit undefined values (and cleared fields like restaurantLogo) with deleteField() so that
+ * fields like waiterCall, currentOrderId, and restaurantLogo are actually deleted in the cloud document
  * when cleared instead of being silently skipped by { merge: true }.
  */
 export function prepareForFirestore(data: any): any {
@@ -368,7 +368,7 @@ export function prepareForFirestore(data: any): any {
 
   const payload: any = {};
   for (const [k, v] of Object.entries(data)) {
-    if (v === undefined) {
+    if (v === undefined || (k === 'restaurantLogo' && (!v || v === ''))) {
       payload[k] = deleteField();
     } else if (v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
       payload[k] = prepareForFirestore(v);

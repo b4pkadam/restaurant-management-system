@@ -221,6 +221,16 @@ export function validateBackupPayload(
           isVeg: Boolean(m.isVeg),
           preparationTime: Math.max(1, Number(m.preparationTime) || 15),
           ingredients: Array.isArray(m.ingredients) ? m.ingredients.map(sanitizeString) : [],
+          recipe: Array.isArray(m.recipe)
+            ? m.recipe
+                .filter((r: any) => r && r.inventoryItemId && Number(r.quantity) > 0)
+                .map((r: any) => ({
+                  inventoryItemId: String(r.inventoryItemId),
+                  inventoryItemName: sanitizeString(r.inventoryItemName || ''),
+                  quantity: Math.max(0.001, Number(r.quantity) || 1),
+                  unit: sanitizeString(r.unit || 'unit'),
+                }))
+            : undefined,
           allowsSpiceLevel: Boolean(m.allowsSpiceLevel),
           includesDrink: Boolean(m.includesDrink),
           createdAt: m.createdAt || new Date().toISOString(),
@@ -243,10 +253,9 @@ export function validateBackupPayload(
             capacity: Math.max(1, Number(t.capacity) || 4),
             status,
             floor: t.floor !== undefined ? Number(t.floor) : undefined,
-            qrCode: t.qrCode ? sanitizeString(t.qrCode) : `?table=${num}`,
+            qrCode: t.qrCode ? sanitizeString(t.qrCode) : undefined,
             currentOrderId: t.currentOrderId ? String(t.currentOrderId) : undefined,
-            updatedAt: t.updatedAt || new Date().toISOString(),
-            _rev: Number(t._rev) || 1,
+            waiterCall: t.waiterCall ? Boolean(t.waiterCall) : undefined,
           };
         });
     }
@@ -272,6 +281,7 @@ export function validateBackupPayload(
                 spiceLevel: it.spiceLevel || undefined,
                 selectedDrink: it.selectedDrink || undefined,
                 status: it.status || 'pending',
+                inventoryDeducted: Boolean(it.inventoryDeducted),
               }))
             : [];
 

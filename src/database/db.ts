@@ -1894,6 +1894,13 @@ export const orderDB = {
     };
     orders.push(newOrder);
     setCollection('orders', orders);
+
+    // Automatically deduct linked recipe ingredients from inventory
+    try {
+      inventoryDB.deductForOrder(newOrder.id);
+    } catch {
+      // ignore
+    }
     
     // Update table status if dine-in
     if (targetTableId) {
@@ -1968,6 +1975,41 @@ export const orderDB = {
       updatedAt: new Date().toISOString(),
     };
     setCollection('orders', orders);
+
+    // Restore ingredients for any item specifically marked as cancelled
+    if (updates.items && existing.items) {
+      const existingMap = new Map(existing.items.map((i) => [i.id, i]));
+      for (const updatedItem of updates.items) {
+        const oldItem = existingMap.get(updatedItem.id);
+        if (oldItem && oldItem.inventoryDeducted && updatedItem.status === 'cancelled') {
+          const menuItem = menuItemDB.getById(updatedItem.menuItemId);
+          if (menuItem?.recipe && Array.isArray(menuItem.recipe)) {
+            for (const ing of menuItem.recipe) {
+              if (ing.inventoryItemId && ing.quantity > 0) {
+                const totalRequired = Number(oldItem.quantity || 1) * Number(ing.quantity);
+                inventoryDB.addStock(ing.inventoryItemId, totalRequired);
+              }
+            }
+          }
+          updatedItem.inventoryDeducted = false;
+        }
+      }
+    }
+
+    // If cancelled, restore any deducted inventory stock; if active/preparing/ready, deduct stock
+    if (orders[index].status === 'cancelled') {
+      try {
+        inventoryDB.restoreForOrder(id);
+      } catch {
+        // ignore
+      }
+    } else if (['active', 'preparing', 'ready', 'served'].includes(orders[index].status)) {
+      try {
+        inventoryDB.deductForOrder(id);
+      } catch {
+        // ignore
+      }
+    }
 
     // Free up table automatically if order is completed or cancelled
     if (['completed', 'cancelled'].includes(orders[index].status)) {
@@ -2163,7 +2205,16 @@ export const supplierDB = {
 
 // Inventory Management
 export const inventoryDB = {
-  getAll: (): InventoryItem[] => getCollection<InventoryItem>('inventory'),
+  getAll: (): InventoryItem[] => {
+    const raw = getCollection<InventoryItem>('inventory');
+    return raw.map((item: any) => ({
+      ...item,
+      quantity: typeof item.quantity === 'number' ? item.quantity : Number(item.quantity) || 0,
+      minQuantity: typeof item.minQuantity === 'number' ? item.minQuantity : (typeof item.minStock === 'number' ? item.minStock : 0),
+      costPerUnit: typeof item.costPerUnit === 'number' ? item.costPerUnit : Number(item.costPerUnit) || 0,
+      isActive: item.isActive !== false,
+    }));
+  },
   
   getById: (id: string): InventoryItem | undefined => {
     return inventoryDB.getAll().find(i => i.id === id);
@@ -2199,9 +2250,107 @@ export const inventoryDB = {
     if (!item) return null;
     
     return inventoryDB.update(id, { 
-      quantity: item.quantity + quantity,
+      quantity: Math.round((item.quantity + quantity) * 1000) / 1000,
       lastRestocked: new Date().toISOString()
     });
+  },
+
+  deductStock: (id: string, quantity: number): InventoryItem | null => {
+    const item = inventoryDB.getById(id);
+    if (!item) return null;
+    const newQuantity = Math.max(0, Math.round((item.quantity - quantity) * 1000) / 1000);
+    const updated = inventoryDB.update(id, { quantity: newQuantity });
+    if (updated && updated.quantity <= updated.minQuantity && updated.isActive) {
+      notificationDB.create({
+        type: 'inventory',
+        title: `⚠️ Low Stock: ${updated.name}`,
+        message: `Stock has fallen to ${updated.quantity} ${updated.unit} (Min: ${updated.minQuantity} ${updated.unit}). Please reorder soon.`
+      });
+    }
+    return updated;
+  },
+
+  deductForOrder: (orderId: string): { success: boolean; deductedCount: number } => {
+    const order = orderDB.getById(orderId);
+    if (!order || !order.items || order.items.length === 0) return { success: false, deductedCount: 0 };
+    if (order.status === 'cancelled') return { success: false, deductedCount: 0 };
+
+    let count = 0;
+    let modified = false;
+    const menuItems = menuItemDB.getAll();
+    const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+
+    const updatedItems = order.items.map((orderItem) => {
+      if (orderItem.inventoryDeducted || orderItem.status === 'cancelled') {
+        return orderItem;
+      }
+
+      const menuItem = menuMap.get(orderItem.menuItemId);
+      if (menuItem?.recipe && Array.isArray(menuItem.recipe) && menuItem.recipe.length > 0) {
+        for (const ing of menuItem.recipe) {
+          if (ing.inventoryItemId && ing.quantity > 0) {
+            const totalRequired = Number(orderItem.quantity || 1) * Number(ing.quantity);
+            inventoryDB.deductStock(ing.inventoryItemId, totalRequired);
+            count++;
+          }
+        }
+      }
+
+      modified = true;
+      return { ...orderItem, inventoryDeducted: true };
+    });
+
+    if (modified) {
+      const allOrders = orderDB.getAll();
+      const idx = allOrders.findIndex((o) => o.id === orderId);
+      if (idx !== -1) {
+        allOrders[idx] = { ...allOrders[idx], items: updatedItems, updatedAt: new Date().toISOString() };
+        setCollection('orders', allOrders);
+      }
+    }
+
+    return { success: true, deductedCount: count };
+  },
+
+  restoreForOrder: (orderId: string): { success: boolean; restoredCount: number } => {
+    const order = orderDB.getById(orderId);
+    if (!order || !order.items || order.items.length === 0) return { success: false, restoredCount: 0 };
+
+    let count = 0;
+    let modified = false;
+    const menuItems = menuItemDB.getAll();
+    const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+
+    const updatedItems = order.items.map((orderItem) => {
+      if (!orderItem.inventoryDeducted) {
+        return orderItem;
+      }
+
+      const menuItem = menuMap.get(orderItem.menuItemId);
+      if (menuItem?.recipe && Array.isArray(menuItem.recipe) && menuItem.recipe.length > 0) {
+        for (const ing of menuItem.recipe) {
+          if (ing.inventoryItemId && ing.quantity > 0) {
+            const totalRequired = Number(orderItem.quantity || 1) * Number(ing.quantity);
+            inventoryDB.addStock(ing.inventoryItemId, totalRequired);
+            count++;
+          }
+        }
+      }
+
+      modified = true;
+      return { ...orderItem, inventoryDeducted: false };
+    });
+
+    if (modified) {
+      const allOrders = orderDB.getAll();
+      const idx = allOrders.findIndex((o) => o.id === orderId);
+      if (idx !== -1) {
+        allOrders[idx] = { ...allOrders[idx], items: updatedItems, updatedAt: new Date().toISOString() };
+        setCollection('orders', allOrders);
+      }
+    }
+
+    return { success: true, restoredCount: count };
   },
   
   delete: (id: string): boolean => {
@@ -2353,8 +2502,10 @@ export const settingsDB = {
         ? defaultSettings.waiterApkUrl
         : stored.waiterApkUrl,
     };
-    if (stored.restaurantLogo) {
+    if (stored.restaurantLogo && typeof stored.restaurantLogo === 'string' && stored.restaurantLogo.trim() !== '') {
       res.restaurantLogo = stored.restaurantLogo;
+    } else {
+      delete res.restaurantLogo;
     }
     return res;
   },
@@ -2367,7 +2518,7 @@ export const settingsDB = {
       _rev: (typeof (current as any)._rev === 'number' ? (current as any)._rev : 0) + 1,
       updatedAt: new Date().toISOString(),
     };
-    if (updates.restaurantLogo === undefined && 'restaurantLogo' in updates) {
+    if (!updates.restaurantLogo && 'restaurantLogo' in updates) {
       delete updated.restaurantLogo;
     }
     setItem('settings', updated);

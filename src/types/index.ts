@@ -36,6 +36,13 @@ export interface Category {
   isActive: boolean;
 }
 
+export interface MenuItemIngredient {
+  inventoryItemId: string;
+  inventoryItemName: string;
+  quantity: number; // weight or amount required per dish
+  unit: string; // unit of measure e.g. kg, g, l, ml, pcs
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -49,6 +56,7 @@ export interface MenuItem {
   isVeg: boolean;
   preparationTime: number; // in minutes
   ingredients: string[];
+  recipe?: MenuItemIngredient[];
   allowsSpiceLevel?: boolean;
   includesDrink?: boolean;
   createdAt: string;
@@ -90,6 +98,7 @@ export interface OrderItem {
   spiceLevel?: '1 - Mild (甘口)' | '2 - Medium (中辛)' | '3 - Spicy (辛口)' | '4 - Very Spicy (激辛)' | '5 - Crazy Hot (超激辛)';
   selectedDrink?: string;
   status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled';
+  inventoryDeducted?: boolean;
 }
 
 export interface Order {

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   DollarSign, ShoppingBag, Users, TrendingUp,
-  Clock, Printer
+  Clock, Printer, AlertTriangle
 } from 'lucide-react';
 import { Card, StatCard } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -10,7 +10,7 @@ import {
   PieChart, Pie, Cell
 } from 'recharts';
 import { format } from 'date-fns';
-import { orderDB, tableDB, analyticsDB, settingsDB, paymentDB } from '../database/db';
+import { orderDB, tableDB, analyticsDB, settingsDB, paymentDB, inventoryDB } from '../database/db';
 import { cn } from '../utils/cn';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency } from '../utils/formatCurrency';
@@ -26,6 +26,7 @@ export const Dashboard: React.FC = () => {
   const bestSelling = useMemo(() => analyticsDB.getBestSellingItems(5), [tick]);
   const activeOrders = useMemo(() => orderDB.getActive(), [tick]);
   const tables = useMemo(() => tableDB.getAll(), [tick]);
+  const lowStockItems = useMemo(() => inventoryDB.getLowStock(), [tick]);
   
   const occupiedTables = tables.filter(t => t.status === 'occupied').length;
   const availableTables = tables.filter(t => t.status === 'available').length;
@@ -74,6 +75,60 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Low Stock Warning Banner */}
+      {lowStockItems.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/20 p-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-amber-200 dark:border-amber-900/40">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs shrink-0">
+                <AlertTriangle size={18} />
+              </span>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-amber-900 dark:text-amber-200">
+                  Low Inventory Stock Alert ({lowStockItems.length} item{lowStockItems.length > 1 ? 's' : ''})
+                </h3>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Stock levels for these ingredients have dropped to or below the minimum reorder threshold.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 self-start sm:self-auto shrink-0">
+              Needs Reorder
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3">
+            {lowStockItems.map((item) => {
+              const pct = item.minQuantity > 0 ? Math.min(100, Math.round((item.quantity / item.minQuantity) * 100)) : 0;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-amber-200/80 dark:border-amber-900/30 bg-white dark:bg-gray-800 p-3 shadow-2xs space-y-1.5"
+                >
+                  <div className="flex items-start justify-between gap-1.5">
+                    <span className="font-semibold text-xs text-gray-900 dark:text-white truncate" title={item.name}>
+                      {item.name}
+                    </span>
+                    <span className="text-[11px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded shrink-0">
+                      {item.quantity} {item.unit}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                    <span>Min: {item.minQuantity} {item.unit}</span>
+                    <span className="font-medium text-amber-600 dark:text-amber-400">{pct}% of min</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-amber-500 h-full rounded-full transition-all"
+                      style={{ width: `${Math.min(100, Math.max(5, pct))}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
