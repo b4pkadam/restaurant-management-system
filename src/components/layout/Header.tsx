@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { Bell, BellRing } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useNotifications } from '../../context/NotificationContext';
