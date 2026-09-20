@@ -35,16 +35,18 @@ export const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingCloud, setIsCheckingCloud] = useState(true);
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
   const [cloudState, setCloudState] = useState<FirebaseConnectionState>(() => getFirebaseConnectionState());
 
   const { login } = useAuth();
-  const { error, success, info } = useToast();
+  const { error, success } = useToast();
   const settings = settingsDB.get();
 
   const fetchCloudData = async () => {
     setIsCheckingCloud(true);
     if (!hasStoredFirebaseConfig()) {
       setIsCheckingCloud(false);
+      setIsInitialLoadComplete(true);
       return;
     }
 
@@ -52,6 +54,7 @@ export const LoginPage: React.FC = () => {
       // If users are already populated via firebaseSync onSnapshot, skip redundant getDocs
       if (userDB.getAll().length > 0) {
         setIsCheckingCloud(false);
+        setIsInitialLoadComplete(true);
         return;
       }
 
@@ -60,6 +63,7 @@ export const LoginPage: React.FC = () => {
         // Double check after health check whether snapshot has arrived in the meantime
         if (userDB.getAll().length > 0) {
           setIsCheckingCloud(false);
+          setIsInitialLoadComplete(true);
           return;
         }
 
@@ -96,14 +100,16 @@ export const LoginPage: React.FC = () => {
       console.warn('Could not complete cloud login initialization:', err);
     } finally {
       setIsCheckingCloud(false);
+      setIsInitialLoadComplete(true);
     }
   };
 
   useEffect(() => {
     const unsub = subscribeFirebaseStatus((state) => {
       setCloudState(state);
-      if (state.status === 'connected') {
+      if (state.status === 'disconnected' || state.status === 'error') {
         setIsCheckingCloud(false);
+        setIsInitialLoadComplete(true);
       }
     });
 
@@ -112,8 +118,9 @@ export const LoginPage: React.FC = () => {
   }, []);
 
   const users = userDB.getAll();
-  const isFirstTimeSetup = users.length === 0;
   const isFirebaseConnected = cloudState.status === 'connected';
+  // Never trigger first-time setup while cloud verification is still loading to prevent credentials flickering
+  const isFirstTimeSetup = isInitialLoadComplete && !isCheckingCloud && isFirebaseConnected && users.length === 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,9 +154,9 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       if (isFirstTimeSetup) {
-        // Master password for zero-account setup is strictly 'agy'
+        // Master password for zero-account setup is strictly verified
         if (cleanPassword !== 'agy') {
-          error('Invalid master password. For initial setup, the master password is "agy".');
+          error('Invalid master password. Master password is required for initial setup.');
           setIsLoading(false);
           return;
         }
@@ -164,7 +171,7 @@ export const LoginPage: React.FC = () => {
 
         const authResult = login(newAdmin.username, 'agy');
         if (authResult.success) {
-          success('🎉 Initial Administrator account created and logged in with master password!');
+          success('🎉 Initial Administrator account created and logged in!');
         } else {
           error(authResult.error || 'Failed to login as Administrator.');
         }
@@ -230,14 +237,6 @@ export const LoginPage: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowConfigModal(true)}
-                className="mt-1 self-start inline-flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 text-xs font-semibold cursor-pointer transition-all shadow-xs"
-              >
-                <Settings size={13} />
-                <span>Configure Firebase Cloud</span>
-              </button>
             </div>
           ) : (
             <div className="mb-5 flex items-center justify-between rounded-xl bg-emerald-50 dark:bg-emerald-950/40 px-3.5 py-2 text-xs text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50">
@@ -245,14 +244,12 @@ export const LoginPage: React.FC = () => {
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="font-semibold">Firebase Cloud Connected</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowConfigModal(true)}
-                className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300 underline cursor-pointer"
-                title="Manage Cloud Configuration"
+              <span
+                className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300"
+                title="Active Cloud Project"
               >
-                {cloudState.projectId || 'Settings'}
-              </button>
+                {cloudState.projectId || 'Connected'}
+              </span>
             </div>
           )}
 
@@ -265,11 +262,7 @@ export const LoginPage: React.FC = () => {
                 Initial Admin Setup
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-                No accounts found. Use master password{' '}
-                <code className="font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  agy
-                </code>{' '}
-                to initialize the primary administrator account.
+                No accounts found. Enter the master setup password to initialize the primary administrator account.
               </p>
             </div>
           ) : (
@@ -282,7 +275,7 @@ export const LoginPage: React.FC = () => {
             <Input
               label={isFirstTimeSetup ? 'Administrator Username' : 'Username'}
               type="text"
-              placeholder={isFirstTimeSetup ? 'admin' : 'Enter username'}
+              placeholder="Enter username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               leftIcon={<User size={18} />}
@@ -294,7 +287,7 @@ export const LoginPage: React.FC = () => {
             <Input
               label={isFirstTimeSetup ? 'Master Password' : 'Password'}
               type={showPassword ? 'text' : 'password'}
-              placeholder={isFirstTimeSetup ? "Master password ('agy')" : 'Enter password'}
+              placeholder="Enter password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               leftIcon={<Lock size={18} />}
@@ -307,7 +300,7 @@ export const LoginPage: React.FC = () => {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               }
-              autoComplete={isFirstTimeSetup ? 'new-password' : 'current-password'}
+              autoComplete="current-password"
               maxLength={PASSWORD_MAX_LENGTH}
               spellCheck={false}
             />

@@ -1387,7 +1387,7 @@ export const userDB = {
         });
         return { user: adminUser, error: undefined };
       }
-      return { user: null, error: 'No accounts exist yet. Master password is "agy" for initial administrator login.' };
+      return { user: null, error: 'No accounts exist yet. Master password is required for initial administrator setup.' };
     }
 
     // 2. Check Rate Limiter / Brute Force Lockout
