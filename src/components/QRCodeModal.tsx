@@ -1,9 +1,11 @@
-import { Download, Printer } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Printer, Copy, Check, ExternalLink } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { settingsDB } from '../database/db';
 import { escapeHtml, sanitizeUrl } from '../utils/security';
+import { cn } from '../utils/cn';
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -163,42 +165,74 @@ export function QRCodeModal({ isOpen, onClose, tableNumber }: QRCodeModalProps) 
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(orderUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+      const textArea = document.createElement('textarea');
+      textArea.value = orderUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`QR Code — Table ${tableNumber}`} size="md">
-      <div className="space-y-6 text-center">
+      <div className="space-y-4 text-center">
         {/* QR Code */}
-        <div className="mx-auto inline-flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 p-8 dark:border-gray-700 dark:bg-gray-800/50">
+        <div className="mx-auto inline-flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 p-6 dark:border-gray-700 dark:bg-gray-800/50">
           <QRCodeSVG
             id="qr-code-svg"
             value={orderUrl}
-            size={200}
+            size={180}
             bgColor="#ffffff"
             fgColor="#111827"
             level="H"
             includeMargin
           />
           <div>
-            <p className="text-2xl font-black text-gray-900 dark:text-white">Table {tableNumber}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{settings.restaurantName}</p>
+            <p className="text-xl font-black text-gray-900 dark:text-white">Table {tableNumber}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{settings.restaurantName}</p>
           </div>
         </div>
 
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Customers scan this QR code to open the digital menu and place orders directly from their phone.
-        </p>
-
-        {/* URL preview */}
-        <div className="rounded-xl bg-blue-50 p-3 dark:bg-blue-900/20">
-          <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Order URL</p>
-          <p className="mt-1 break-all text-xs text-blue-600 dark:text-blue-400">{orderUrl}</p>
+        {/* URL Preview with 1-Click Copy */}
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 p-2.5 border border-blue-200 dark:border-blue-900/60 text-left">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-blue-800 dark:text-blue-300">Live Customer Order URL</p>
+            <p className="truncate text-xs font-mono text-blue-600 dark:text-blue-400">{orderUrl}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyUrl}
+            className={cn(
+              "flex items-center gap-1 shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold transition-all shadow-2xs cursor-pointer",
+              copied
+                ? "bg-emerald-600 text-white"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            )}
+            title="Copy URL"
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={printQR} leftIcon={<Printer size={16} />}>
+        <div className="grid grid-cols-2 gap-2.5 pt-1">
+          <Button variant="outline" size="sm" onClick={printQR} leftIcon={<Printer size={15} />}>
             Print QR Card
           </Button>
-          <Button className="flex-1" onClick={downloadQR} leftIcon={<Download size={16} />}>
+          <Button variant="primary" size="sm" onClick={downloadQR} leftIcon={<Download size={15} />}>
             Download PNG
           </Button>
         </div>

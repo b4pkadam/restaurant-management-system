@@ -37,24 +37,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { unreadCount } = useNotifications();
   const settings = React.useMemo(() => settingsDB.get(), [tick]);
 
-  const menuItems: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[] = [
-    { id: 'dashboard', label: t('dashboard', 'Dashboard'), icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'cashier'] },
-    { id: 'pos', label: t('pos', 'POS / Billing'), icon: <CreditCard size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
-    { id: 'orders', label: t('orders', 'Orders'), icon: <ShoppingCart size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter', 'chef'] },
-    { id: 'kitchen', label: t('kitchen', 'Kitchen Display'), icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'chef'] },
-    { id: 'tables', label: t('tables', 'Tables'), icon: <Table2 size={20} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
-    { id: 'menu', label: t('menu', 'Menu'), icon: <UtensilsCrossed size={20} />, roles: ['admin', 'manager'] },
-    { id: 'inventory', label: t('inventory', 'Inventory'), icon: <Package size={20} />, roles: ['admin', 'manager'] },
-    { id: 'suppliers', label: t('suppliers', 'Suppliers'), icon: <Truck size={20} />, roles: ['admin', 'manager'] },
-    { id: 'employees', label: t('employees', 'Employees'), icon: <Users size={20} />, roles: ['admin', 'manager'] },
-    { id: 'reports', label: t('reports', 'Reports'), icon: <BarChart3 size={20} />, roles: ['admin', 'manager'] },
-    { id: 'users', label: t('users', 'Users'), icon: <Users size={20} />, roles: ['admin'] },
-    { id: 'settings', label: t('settings', 'Settings'), icon: <Settings size={20} />, roles: ['admin'] }
-  ];
+  interface NavGroup {
+    title?: string;
+    items: { id: Page; label: string; icon: React.ReactNode; roles: UserRole[] }[];
+  }
 
-  const filteredMenuItems = menuItems.filter((item) =>
-    canViewPage(user?.role, item.id)
-  );
+  const navGroups: NavGroup[] = [
+    {
+      items: [
+        { id: 'dashboard', label: t('dashboard', 'Dashboard'), icon: <LayoutDashboard size={18} />, roles: ['admin', 'manager', 'cashier'] },
+      ],
+    },
+    {
+      title: 'Operations',
+      items: [
+        { id: 'pos', label: t('pos', 'POS Billing'), icon: <CreditCard size={18} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
+        { id: 'orders', label: t('orders', 'Live Orders'), icon: <ShoppingCart size={18} />, roles: ['admin', 'manager', 'cashier', 'waiter', 'chef'] },
+        { id: 'kitchen', label: t('kitchen', 'Kitchen Display'), icon: <ChefHat size={18} />, roles: ['admin', 'manager', 'chef'] },
+      ],
+    },
+    {
+      title: 'Restaurant',
+      items: [
+        { id: 'tables', label: t('tables', 'Tables & QR'), icon: <Table2 size={18} />, roles: ['admin', 'manager', 'cashier', 'waiter'] },
+        { id: 'menu', label: t('menu', 'Menu & Dishes'), icon: <UtensilsCrossed size={18} />, roles: ['admin', 'manager'] },
+      ],
+    },
+    {
+      title: 'Inventory',
+      items: [
+        { id: 'inventory', label: t('inventory', 'Stock Inventory'), icon: <Package size={18} />, roles: ['admin', 'manager'] },
+        { id: 'suppliers', label: t('suppliers', 'Suppliers'), icon: <Truck size={18} />, roles: ['admin', 'manager'] },
+      ],
+    },
+    {
+      title: 'Management',
+      items: [
+        { id: 'employees', label: t('employees', 'Staff & Shifts'), icon: <Users size={18} />, roles: ['admin', 'manager'] },
+        { id: 'reports', label: t('reports', 'Reports & Sales'), icon: <BarChart3 size={18} />, roles: ['admin', 'manager'] },
+        { id: 'users', label: t('users', 'User Accounts'), icon: <Users size={18} />, roles: ['admin'] },
+        { id: 'settings', label: t('settings', 'Settings'), icon: <Settings size={18} />, roles: ['admin'] },
+      ],
+    },
+  ];
 
   return (
     <aside className={cn(
@@ -62,63 +87,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
       'flex flex-col transition-all duration-300 z-40',
       isCollapsed ? 'w-16' : 'w-64'
     )}>
-      {/* Header */}
+      {/* Header aligned with h-14 top appbar */}
       <div className={cn(
-        'flex items-center h-16 px-4 border-b border-gray-200 dark:border-gray-800',
+        'flex items-center h-14 px-3.5 border-b border-gray-200 dark:border-gray-800',
         isCollapsed ? 'justify-center' : 'justify-between'
       )}>
         {!isCollapsed ? (
-          <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
             {settings.restaurantLogo ? (
-              <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-gray-200 dark:border-gray-700 shadow-xs" />
+              <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-gray-200 dark:border-gray-700 shadow-2xs" />
             ) : (
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
-                <UtensilsCrossed className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 shadow-2xs">
+                <UtensilsCrossed className="w-4 h-4 text-white" />
               </div>
             )}
-            <span className="font-bold text-gray-900 dark:text-white truncate block min-w-0" title={settings.restaurantName}>
+            <span className="font-bold text-sm text-gray-900 dark:text-white truncate block min-w-0 tracking-tight" title={settings.restaurantName}>
               {settings.restaurantName}
             </span>
           </div>
         ) : (
           settings.restaurantLogo ? (
-            <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shadow-xs" />
+            <img src={settings.restaurantLogo} alt="Logo" className="w-8 h-8 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shadow-2xs" />
           ) : (
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-xs">
-              <UtensilsCrossed className="w-5 h-5 text-white" />
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-2xs">
+              <UtensilsCrossed className="w-4 h-4 text-white" />
             </div>
           )
         )}
         <button
           onClick={onToggleCollapse}
-          className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
-          <svg className={cn('w-5 h-5 transition-transform', isCollapsed && 'rotate-180')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className={cn('w-4 h-4 transition-transform', isCollapsed && 'rotate-180')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
           </svg>
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2">
-        {filteredMenuItems.map(item => (
-          <button
-            key={item.id}
-            onClick={() => onPageChange(item.id)}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-colors',
-              'text-sm font-medium',
-              currentPage === item.id
-                ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
-              isCollapsed && 'justify-center'
-            )}
-            title={isCollapsed ? item.label : undefined}
-          >
-            {item.icon}
-            {!isCollapsed && <span>{item.label}</span>}
-          </button>
-        ))}
+      {/* Grouped Navigation */}
+      <nav className="flex-1 overflow-y-auto py-2.5 px-2 space-y-3">
+        {navGroups.map((group, gIdx) => {
+          const visibleItems = group.items.filter((item) => canViewPage(user?.role, item.id));
+          if (visibleItems.length === 0) return null;
+
+          return (
+            <div key={gIdx} className="space-y-0.5">
+              {!isCollapsed && group.title && (
+                <p className="px-2.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 select-none">
+                  {group.title}
+                </p>
+              )}
+              {isCollapsed && group.title && gIdx > 0 && (
+                <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+              )}
+              {visibleItems.map((item) => {
+                const isActive = currentPage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onPageChange(item.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-semibold cursor-pointer',
+                      isActive
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/70 dark:text-blue-400 shadow-2xs ring-1 ring-blue-500/20'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-gray-200',
+                      isCollapsed && 'justify-center py-2'
+                    )}
+                    title={isCollapsed ? item.label : undefined}
+                  >
+                    <span className={cn('shrink-0', isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500')}>
+                      {item.icon}
+                    </span>
+                    {!isCollapsed && <span className="truncate">{item.label}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Footer Actions */}

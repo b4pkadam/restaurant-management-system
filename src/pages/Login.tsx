@@ -257,23 +257,23 @@ export const LoginPage: React.FC = () => {
           )}
 
           {isFirstTimeSetup ? (
-            <div className="mb-6 text-center space-y-1">
-              <div className="mx-auto inline-flex p-2.5 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 mb-2">
-                <ShieldCheck size={28} />
+            <div className="mb-5 text-center space-y-1">
+              <div className="mx-auto inline-flex p-2 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 mb-1">
+                <ShieldCheck size={24} />
               </div>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Administrator Initial Login
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Initial Admin Setup
               </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                No accounts found on Firebase. Use master password{' '}
-                <code className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
+                No accounts found. Use master password{' '}
+                <code className="font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
                   agy
                 </code>{' '}
-                to initialize and sign in as Administrator.
+                to initialize the primary administrator account.
               </p>
             </div>
           ) : (
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6 text-center">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-5 text-center">
               Sign in to your account
             </h2>
           )}
@@ -282,7 +282,7 @@ export const LoginPage: React.FC = () => {
             <Input
               label={isFirstTimeSetup ? 'Administrator Username' : 'Username'}
               type="text"
-              placeholder={isFirstTimeSetup ? 'admin' : 'Enter your username'}
+              placeholder={isFirstTimeSetup ? 'admin' : 'Enter username'}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               leftIcon={<User size={18} />}
@@ -294,7 +294,7 @@ export const LoginPage: React.FC = () => {
             <Input
               label={isFirstTimeSetup ? 'Master Password' : 'Password'}
               type={showPassword ? 'text' : 'password'}
-              placeholder={isFirstTimeSetup ? "Enter master password ('agy')" : 'Enter your password'}
+              placeholder={isFirstTimeSetup ? "Master password ('agy')" : 'Enter password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               leftIcon={<Lock size={18} />}
@@ -315,16 +315,16 @@ export const LoginPage: React.FC = () => {
             <Button
               type="submit"
               className="w-full mt-2 bg-blue-600 hover:bg-blue-700 font-bold"
-              size="lg"
+              size="md"
               isLoading={isLoading}
               disabled={isCheckingCloud}
             >
-              {isFirstTimeSetup ? 'Sign In as Admin (Master Password: agy)' : 'Sign In'}
+              {isFirstTimeSetup ? 'Initialize Administrator' : 'Sign In'}
             </Button>
 
-            <div className="pt-1 flex items-center justify-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 text-center">
-              <ShieldCheck size={13} className="text-emerald-500 shrink-0" />
-              <span>Hardened Login: 3-30 chars, max 72 password chars & rate-limit protection</span>
+            <div className="pt-1 flex items-center justify-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+              <ShieldCheck size={12} className="text-emerald-500 shrink-0" />
+              <span>Secure Cloud Authentication</span>
             </div>
           </form>
         </div>

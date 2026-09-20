@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Bell, BellRing, Search } from 'lucide-react';
+import { Bell, BellRing } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useNotifications } from '../../context/NotificationContext';
 import { acknowledgeWaiterCall } from '../../database/db';
@@ -59,30 +58,30 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
         </div>
       )}
 
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 transition-colors">
+        <div className="flex items-center justify-between h-14 px-4 lg:px-6">
           {/* Left section */}
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">
               {title}
             </h1>
           </div>
 
           {/* Right section */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             {/* Waiter Calls Quick Badges */}
             {unreadWaiterCalls.length > 0 && (
               <div className="hidden sm:flex items-center gap-2">
                 {unreadWaiterCalls.slice(0, 2).map((call) => (
                   <div
                     key={call.id}
-                    className="flex items-center gap-1.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 text-xs font-bold shadow-md shadow-amber-500/30 border border-amber-300 animate-pulse transition-all"
+                    className="flex items-center gap-1.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-0.5 text-xs font-semibold shadow-xs border border-amber-300/40 transition-all"
                   >
-                    <BellRing size={13} className="animate-bounce shrink-0" />
-                    <span className="truncate max-w-[130px]">{call.title}</span>
+                    <BellRing size={12} className="animate-bounce shrink-0" />
+                    <span className="truncate max-w-[120px]">{call.title}</span>
                     <button
                       onClick={() => handleAcknowledgeCall(call)}
-                      className="ml-0.5 rounded-full bg-white/25 hover:bg-white/40 px-1 py-0.2 text-[10px] cursor-pointer"
+                      className="ml-0.5 rounded-full bg-white/20 hover:bg-white/35 px-1 py-0.2 text-[10px] cursor-pointer"
                       title="Dismiss Call"
                     >
                       ✓
@@ -91,16 +90,6 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick }) => {
                 ))}
               </div>
             )}
-
-            {/* Search */}
-            <div className="hidden md:flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2">
-              <Search size={18} className="text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="bg-transparent border-none outline-none ml-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 w-48"
-              />
-            </div>
 
             {/* Notifications */}
             <div className="relative">
