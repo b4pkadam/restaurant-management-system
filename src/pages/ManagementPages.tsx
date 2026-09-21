@@ -207,21 +207,23 @@ function SectionHeader({
 
   if (!title && !description) {
     return (
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
-        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
-          {stats}
-        </div>
-        {action && (
-          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-auto">
-            {action}
+      <div className="sticky top-14 z-20 -mt-3 sm:-mt-4 md:-mt-6 -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6 py-2.5 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-md border-b border-gray-200/80 dark:border-gray-800/80 shadow-xs transition-all">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+            {stats}
           </div>
-        )}
+          {action && (
+            <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-auto">
+              {action}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="sticky top-14 z-20 -mt-3 sm:-mt-4 md:-mt-6 -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6 py-2.5 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-md border-b border-gray-200/80 dark:border-gray-800/80 shadow-xs transition-all flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         {title && <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h2>}
         {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>}
