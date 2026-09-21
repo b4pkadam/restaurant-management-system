@@ -53,6 +53,7 @@ export interface CloudUpdateHandler {
   getItem: (collName: string) => any;
   updateDoc?: (collName: string, docId: string, data: any) => void;
   removeDoc?: (collName: string, docId: string) => void;
+  onCollectionGenuinelyEmpty?: (collName: string) => void;
 }
 
 let cloudUpdateHandler: CloudUpdateHandler | null = null;
@@ -64,6 +65,10 @@ export function registerCloudUpdateHandler(handler: CloudUpdateHandler): void {
 let activeUnsubscribers: Unsubscribe[] = [];
 let isSyncingFromCloud = false;
 const initializedCollections = new Set<string>();
+
+export function isCollectionHydrated(collName: string): boolean {
+  return initializedCollections.has(collName);
+}
 
 interface PendingWrite {
   collName: string;
@@ -436,7 +441,19 @@ export const firebaseSync = {
               return;
             }
 
-            if (snapshot.empty) return;
+            if (snapshot.empty) {
+              if (!initializedCollections.has(collName)) {
+                initializedCollections.add(collName);
+                if (cloudUpdateHandler?.onCollectionGenuinelyEmpty) {
+                  try {
+                    cloudUpdateHandler.onCollectionGenuinelyEmpty(collName);
+                  } catch (e) {
+                    console.warn(`[Cloud Sync] Error handling empty collection ${collName}:`, e);
+                  }
+                }
+              }
+              return;
+            }
 
             isSyncingFromCloud = true;
             try {
@@ -585,6 +602,13 @@ export const firebaseSync = {
     });
     activeUnsubscribers = [];
     initializedCollections.clear();
+  },
+
+  /**
+   * Check whether a specific collection has completed initial hydration from Cloud Firestore
+   */
+  isCollectionHydrated: (collName: string): boolean => {
+    return initializedCollections.has(collName);
   },
 
   /**

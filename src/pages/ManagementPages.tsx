@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDbUpdate } from '../hooks/useDbUpdate';
 import { formatCurrency, SUPPORTED_CURRENCIES } from '../utils/formatCurrency';
 import {
@@ -2757,6 +2757,7 @@ export function TableManagementPage() {
 }
 
 export function InventoryManagementPage() {
+  const tick = useDbUpdate();
   const { success, error, warning } = useToast();
   const { addNotification } = useNotifications();
   const { user } = useAuth();
@@ -2769,6 +2770,7 @@ export function InventoryManagementPage() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', costPerUnit: '0', supplierId: '', isActive: true });
   const [purchaseForm, setPurchaseForm] = useState({ inventoryItemId: '', quantity: '1', unitCost: '0', supplierId: '', invoiceNumber: '', purchaseDate: new Date().toISOString().split('T')[0], notes: '' });
+  const hasWarnedLowStock = useRef(false);
 
   const loadData = () => {
     const inventory = inventoryDB.getAll();
@@ -2777,14 +2779,15 @@ export function InventoryManagementPage() {
     setPurchases(purchaseDB.getAll().sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime()));
 
     const lowStock = inventory.filter((item) => item.isActive && item.quantity <= item.minQuantity);
-    if (lowStock.length > 0) {
+    if (!hasWarnedLowStock.current && lowStock.length > 0) {
       warning(`${lowStock.length} inventory item(s) are low in stock.`);
+      hasWarnedLowStock.current = true;
     }
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [tick]);
 
   const lowStockItems = items.filter((item) => item.isActive && item.quantity <= item.minQuantity);
   const filteredItems = items.filter((item) => `${item.name} ${item.unit}`.toLowerCase().includes(search.toLowerCase()));
@@ -3065,7 +3068,7 @@ export function InventoryManagementPage() {
 }
 
 export function SuppliersPage() {
-  useDbUpdate();
+  const tick = useDbUpdate();
   const { success, error } = useToast();
   const { user } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -3077,7 +3080,7 @@ export function SuppliersPage() {
 
   useEffect(() => {
     loadSuppliers();
-  }, []);
+  }, [tick]);
 
   const canManageSupplierRecords = canManageSuppliers(user?.role);
   const canDeleteSupplierRecords = canDeleteSupplier(user?.role);
@@ -3203,6 +3206,7 @@ export function SuppliersPage() {
 }
 
 export function EmployeeManagementPage() {
+  const tick = useDbUpdate();
   const { success, error } = useToast();
   const { user } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -3214,7 +3218,7 @@ export function EmployeeManagementPage() {
 
   useEffect(() => {
     loadEmployees();
-  }, []);
+  }, [tick]);
 
   const canManageEmployeeModule = canManageEmployees(user?.role);
   const assignableRoleOptions = roleOptions.filter((option) => canAssignEmployeeRole(user?.role, option.value));
@@ -3399,6 +3403,7 @@ export function EmployeeManagementPage() {
 }
 
 export function ReportsPage() {
+  const tick = useDbUpdate();
   const { success } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -3415,14 +3420,14 @@ export function ReportsPage() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const orders = useMemo(() => orderDB.getByDateRange(startDate, endDate), [startDate, endDate, refreshKey]);
+  const orders = useMemo(() => orderDB.getByDateRange(startDate, endDate), [startDate, endDate, refreshKey, tick]);
   const payments = useMemo(() => paymentDB.getAll().filter((payment) => {
     const day = payment.createdAt.split('T')[0];
     return day >= startDate && day <= endDate;
-  }), [startDate, endDate, refreshKey]);
-  const weeklySales = useMemo(() => analyticsDB.getWeeklySales(), [refreshKey]);
-  const monthlySales = useMemo(() => analyticsDB.getMonthlySales(), [refreshKey]);
-  const bestSelling = useMemo(() => analyticsDB.getBestSellingItems(6), [refreshKey]);
+  }), [startDate, endDate, refreshKey, tick]);
+  const weeklySales = useMemo(() => analyticsDB.getWeeklySales(), [refreshKey, tick]);
+  const monthlySales = useMemo(() => analyticsDB.getMonthlySales(), [refreshKey, tick]);
+  const bestSelling = useMemo(() => analyticsDB.getBestSellingItems(6), [refreshKey, tick]);
 
   const completedOrders = orders.filter((order) => order.status === 'completed');
   const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0);

@@ -252,6 +252,12 @@ export function sanitizeAndRepairTables(tables: Table[], orders: Order[]): { tab
   let changed = false;
   if (!Array.isArray(tables)) return { tables: [], changed: false };
 
+  // Guard: if cloud sync is active and orders have not hydrated from Firestore yet,
+  // do not run table occupancy reset logic to avoid clearing active orders!
+  if (isFirebaseActive() && !firebaseSync.isCollectionHydrated('orders')) {
+    return { tables, changed: false };
+  }
+
   const safeOrders = Array.isArray(orders) ? orders : [];
   const activeOrders = safeOrders.filter((o) => !['completed', 'cancelled'].includes(o.status));
   const activeOrderIdSet = new Set(activeOrders.map((o) => o.id));
@@ -383,17 +389,21 @@ export function sanitizeAndDeduplicateCategories(
 
     changed = true;
     // We have duplicates! Score each category to find the best canonical one:
-    // 1. ID matches initialDbData
-    // 2. ID referenced by existing menu items
+    // 1. Referenced by existing menu items
+    // 2. Monotonically higher _rev and newer updatedAt (latest user edits take precedence)
     // 3. Lowest positive sortOrder
     const sortedGroup = [...group].sort((a, b) => {
-      const aInInitial = initialCatIds.has(a.id) ? 1 : 0;
-      const bInInitial = initialCatIds.has(b.id) ? 1 : 0;
-      if (aInInitial !== bInInitial) return bInInitial - aInInitial;
-
       const aInMenu = menuItemCategoryIds.has(a.id) ? 1 : 0;
       const bInMenu = menuItemCategoryIds.has(b.id) ? 1 : 0;
       if (aInMenu !== bInMenu) return bInMenu - aInMenu;
+
+      const aRev = typeof (a as any)._rev === 'number' ? (a as any)._rev : 0;
+      const bRev = typeof (b as any)._rev === 'number' ? (b as any)._rev : 0;
+      if (aRev !== bRev) return bRev - aRev;
+
+      const aTime = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
+      const bTime = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
+      if (aTime !== bTime) return bTime - aTime;
 
       const aOrder = a.sortOrder && a.sortOrder > 0 ? a.sortOrder : 999;
       const bOrder = b.sortOrder && b.sortOrder > 0 ? b.sortOrder : 999;
@@ -544,21 +554,25 @@ export function sanitizeAndDeduplicateMenuItems(
 
     changed = true;
     // Duplicates found! Score each item to find the best canonical one:
-    // 1. Matches initialDbData ID (e.g. item-1, item-2)
-    // 2. Referenced by orders
-    // 3. Has image or description
+    // 1. Referenced by active orders
+    // 2. Monotonically higher _rev and newer updatedAt (latest user edits take precedence)
+    // 3. Completeness of metadata (image, description, recipe)
     const sortedGroup = [...group].sort((a, b) => {
-      const aInInitial = initialItemIds.has(a.id) ? 1 : 0;
-      const bInInitial = initialItemIds.has(b.id) ? 1 : 0;
-      if (aInInitial !== bInInitial) return bInInitial - aInInitial;
-
       const aInOrder = orderedMenuItemIds.has(a.id) ? 1 : 0;
       const bInOrder = orderedMenuItemIds.has(b.id) ? 1 : 0;
       if (aInOrder !== bInOrder) return bInOrder - aInOrder;
 
-      const aHasImg = a.imageUrl ? 1 : 0;
-      const bHasImg = b.imageUrl ? 1 : 0;
-      if (aHasImg !== bHasImg) return bHasImg - aHasImg;
+      const aRev = typeof a._rev === 'number' ? a._rev : 0;
+      const bRev = typeof b._rev === 'number' ? b._rev : 0;
+      if (aRev !== bRev) return bRev - aRev;
+
+      const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      if (aTime !== bTime) return bTime - aTime;
+
+      const aScore = (a.imageUrl ? 1 : 0) + (a.description ? 1 : 0) + (a.recipe?.length ? 1 : 0);
+      const bScore = (b.imageUrl ? 1 : 0) + (b.description ? 1 : 0) + (b.recipe?.length ? 1 : 0);
+      if (aScore !== bScore) return bScore - aScore;
 
       return 0;
     });
@@ -694,6 +708,28 @@ export function setCollection<T>(key: string, data: T[]): void {
         firebaseSync.pushDoc(key, docId, item).catch(() => {});
       }
     });
+
+    // Automatically detect and delete documents removed from collection in memory
+    if (previousList.length > 0 && ['employees', 'inventory', 'suppliers', 'categories', 'menuItems', 'tables', 'orders', 'payments', 'notifications'].includes(key)) {
+      const nextDocIds = new Set(
+        finalData.map((it: any) =>
+          key === 'tables' && it.number
+            ? `table_${it.number}`
+            : it.id || (it.number !== undefined ? String(it.number) : undefined)
+        ).filter(Boolean)
+      );
+      previousList.forEach((prevItem: any) => {
+        const prevId =
+          key === 'tables' && prevItem.number
+            ? `table_${prevItem.number}`
+            : prevItem.id || (prevItem.number !== undefined ? String(prevItem.number) : undefined);
+        if (prevId && !nextDocIds.has(prevId)) {
+          firebaseSync.deleteDoc(key, prevId).catch((err) => {
+            console.error(`[Cloud Sync] Error deleting ${key}/${prevId}:`, err);
+          });
+        }
+      });
+    }
   }
 }
 
@@ -940,6 +976,20 @@ registerCloudUpdateHandler({
   },
   getItem: (collName) => {
     return memoryStore.get(collName) ?? null;
+  },
+  onCollectionGenuinelyEmpty: (collName: string) => {
+    // Only if remote Firestore collection is confirmed genuinely empty on initial snapshot,
+    // and in-memory store has nothing, do we seed initial sample data.
+    const current = memoryStore.get(collName);
+    if (!Array.isArray(current) || current.length === 0) {
+      if (initialDbData && (initialDbData as any)[collName]) {
+        const seedItems = (initialDbData as any)[collName];
+        if (Array.isArray(seedItems) && seedItems.length > 0) {
+          console.log(`[Cloud Sync] Remote collection ${collName} is confirmed empty. Initializing baseline seed.`);
+          setCollection(collName, seedItems);
+        }
+      }
+    }
   },
 });
 
@@ -1483,6 +1533,11 @@ export const employeeDB = {
     const filtered = employees.filter(e => e.id !== id);
     if (filtered.length === employees.length) return false;
     setCollection('employees', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('employees', id).catch((err) => {
+        console.error('[Cloud Sync] Failed to delete employee from Firestore:', err);
+      });
+    }
     return true;
   }
 };
@@ -1682,11 +1737,14 @@ export const tableDB = {
   getAll: (): Table[] => {
     const raw = getCollection<Table>('tables');
     const orders = getCollection<Order>('orders');
-    const { tables, changed } = sanitizeAndRepairTables(raw, orders);
-    if (changed) {
-      memoryStore.set('tables', tables);
-      notifyDbListeners();
+    if (!isFirebaseActive() || firebaseSync.isCollectionHydrated('orders')) {
+      const { tables, changed } = sanitizeAndRepairTables(raw, orders);
+      if (changed) {
+        memoryStore.set('tables', tables);
+        notifyDbListeners();
+      }
     }
+    const tables = (memoryStore.get('tables') as Table[]) || raw;
     const uniqueMap = new Map<number, Table>();
     tables.forEach((t) => {
       if (!t.number) return;
@@ -2197,6 +2255,11 @@ export const supplierDB = {
     const filtered = suppliers.filter(s => s.id !== id);
     if (filtered.length === suppliers.length) return false;
     setCollection('suppliers', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('suppliers', id).catch((err) => {
+        console.error('[Cloud Sync] Failed to delete supplier from Firestore:', err);
+      });
+    }
     return true;
   }
 };
@@ -2356,6 +2419,11 @@ export const inventoryDB = {
     const filtered = items.filter(i => i.id !== id);
     if (filtered.length === items.length) return false;
     setCollection('inventory', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('inventory', id).catch((err) => {
+        console.error('[Cloud Sync] Failed to delete inventory item from Firestore:', err);
+      });
+    }
     return true;
   }
 };
@@ -2443,10 +2511,36 @@ export const notificationDB = {
   markAllAsRead: (): void => {
     const notifications = notificationDB.getAll().map(n => ({ ...n, isRead: true }));
     setCollection('notifications', notifications);
+    if (isFirebaseActive()) {
+      notifications.forEach((n) => {
+        if (n.id) firebaseSync.pushDoc('notifications', n.id, n).catch(() => {});
+      });
+    }
+  },
+
+  delete: (id: string): boolean => {
+    const notifications = notificationDB.getAll();
+    const filtered = notifications.filter(n => n.id !== id);
+    if (filtered.length === notifications.length) return false;
+    setCollection('notifications', filtered);
+    if (isFirebaseActive()) {
+      firebaseSync.deleteDoc('notifications', id).catch((err) => {
+        console.error('[Cloud Sync] Failed to delete notification from Firestore:', err);
+      });
+    }
+    return true;
   },
   
   clear: (): void => {
+    const current = notificationDB.getAll();
     setCollection('notifications', []);
+    if (isFirebaseActive()) {
+      current.forEach((n) => {
+        if (n.id) {
+          firebaseSync.deleteDoc('notifications', n.id).catch(() => {});
+        }
+      });
+    }
   }
 };
 
@@ -2669,6 +2763,14 @@ export const backupDB = {
 
 // Initialize with sample data
 export const initializeSampleData = (): void => {
+  // If Firebase cloud sync is active, Firestore is the authoritative source of truth.
+  // An empty in-memory store on startup MUST NOT be interpreted as an empty Firestore collection.
+  // Data will hydrate asynchronously from Cloud Firestore listeners.
+  if (isFirebaseActive()) {
+    console.log('[DB] Cloud sync is active. Preserving Firestore as source of truth; skipping startup sample data seeding.');
+    return;
+  }
+
   const users = userDB.getAll();
   const hasAdmin = users.some(u => (u.username || '').toLowerCase() === 'admin');
 
@@ -2838,7 +2940,9 @@ export function purgeSampleData(): { ordersRemoved: number; paymentsRemoved: num
       tableDB.delete(tbl.id);
       tablesRemoved++;
     } else if (tbl.currentOrderId && !validOrderIds.has(tbl.currentOrderId)) {
-      tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+      if (!isFirebaseActive() || firebaseSync.isCollectionHydrated('orders')) {
+        tableDB.update(tbl.id, { status: 'available', currentOrderId: undefined, reservationInfo: undefined });
+      }
     }
   });
 
